@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Plus, Trash2, Pencil, FileText, Download } f
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, EmptyState } from '../components/ui';
 import { createManualReport, updateReport, deleteReport } from '../lib/actions';
-import { currentMonth, shiftMonth, monthLabel, monthRange, todayStr, formatDate } from '../lib/utils';
+import { currentMonth, shiftMonth, monthLabel, monthRange, todayStr, formatDate, isProjectFinished } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import type { Report } from '../types';
 import type { User } from '../lib/firebase';
@@ -281,9 +281,9 @@ function ReportFormModal({
           <Field label="Project">
             <Select value={form.projectId || ''} onChange={(e) => set('projectId', e.target.value)}>
               <option value="">— Chọn project —</option>
-              {projects.filter((p) => p.status !== 'done').map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+              {projects.filter((p) => !isProjectFinished(p.status)).map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
               <optgroup label="Đã hoàn thành">
-                {projects.filter((p) => p.status === 'done').map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+                {projects.filter((p) => isProjectFinished(p.status)).map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
               </optgroup>
             </Select>
           </Field>

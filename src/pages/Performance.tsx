@@ -90,7 +90,7 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
             data={trend}
             series={[
               { key: 'photo', label: 'Project ảnh', color: '#818cf8' },
-              { key: 'video', label: 'Video', color: '#a78bfa' },
+              { key: 'video', label: 'Video', color: '#fb923c' },
             ]}
           />
         </Card>

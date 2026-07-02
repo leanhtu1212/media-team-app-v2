@@ -15,7 +15,7 @@ SPA quản lý team media (2–5 người, tiếng Việt) được **build lạ
 - Team path: `teams/MEDIA_TEAM_01`. Subcollections: `members`, `projects`, `projects/{id}/tasks`, `reports`, `productTypes`, `dailyContent`.
 - Auth: email/password; username tự thêm `@production.team`. Admin cứng: `leanhtu1212@gmail.com`, `admin@production.team`. Role lấy từ members doc (`admin|editor|viewer`).
 - Firestore rules đã deploy sẵn (file `firestore.rules` bên app cũ) — app v2 phải hoạt động dưới rules đó.
-- **Tương thích dữ liệu cũ bắt buộc**: giữ nguyên tên field/enum (projects.status `plan|pre-production|post-production|done`, tasks.category `photo|video|pre-production`, tasks.dntt, reports.reportType `manual|auto`, dailyContent.status `planned|in-progress|done|published`...). projectType cũ có thể là `photo`/`video` → mọi thứ không phải `outsource` coi là inhouse.
+- **Tương thích dữ liệu cũ bắt buộc**: giữ nguyên tên field/enum (projects.status `plan|pre-production|post-production|done|payment` — `payment` là trạng thái mới thêm ở v2, đứng sau `done`, để theo dõi bước thanh toán cho đối tác/chi phí sau khi dự án đã hoàn thành sản xuất; tasks.category `photo|video|pre-production`, tasks.dntt, reports.reportType `manual|auto`, dailyContent.status `planned|in-progress|done|published`...). projectType cũ có thể là `photo`/`video` → mọi thứ không phải `outsource` coi là inhouse. `done` và `payment` đều được coi là "đã hoàn thành sản xuất" cho các tính toán overdue/active/KPI — dùng helper `isProjectFinished()` trong `src/lib/utils.ts` thay vì so sánh trực tiếp `status === 'done'`.
 
 ## Cấu trúc
 ```

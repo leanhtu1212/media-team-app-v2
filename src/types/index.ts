@@ -17,7 +17,7 @@ export interface Member {
   joinedAt?: unknown;
 }
 
-export type ProjectStatus = 'plan' | 'pre-production' | 'post-production' | 'done';
+export type ProjectStatus = 'plan' | 'pre-production' | 'post-production' | 'done' | 'payment';
 export type ProjectType = 'inhouse' | 'outsource';
 
 export interface Project {

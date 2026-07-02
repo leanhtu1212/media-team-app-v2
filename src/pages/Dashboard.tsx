@@ -3,7 +3,7 @@ import { Camera, Video, Wallet, Trophy, ArrowRight, Crown, FolderKanban, CheckCi
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Avatar, Input } from '../components/ui';
 import { calculateTeamKpi } from '../lib/kpi';
-import { currentMonth, monthRange, formatVND, formatDate, todayStr } from '../lib/utils';
+import { currentMonth, monthRange, formatVND, formatDate, todayStr, isProjectFinished } from '../lib/utils';
 import type { Project } from '../types';
 
 const PLATFORM_COLOR: Record<string, string> = {
@@ -42,14 +42,16 @@ export function DashboardPage({ onOpenProject }: { onOpenProject: (id: string) =
   const monthProjects = useMemo(() => projects.filter((p) => projectMonth(p) === month), [projects, month]);
 
   // Project stats
-  const activeCount = projects.filter((p) => p.status !== 'done').length;
-  const doneCount = projects.filter((p) => p.status === 'done').length;
-  const overdueProjects = projects.filter((p) => p.status !== 'done' && p.deadline && p.deadline < today);
+  const activeCount = projects.filter((p) => !isProjectFinished(p.status)).length;
+  const doneCount = projects.filter((p) => isProjectFinished(p.status)).length;
+  const overdueProjects = projects.filter((p) => !isProjectFinished(p.status) && p.deadline && p.deadline < today);
+  const ALL_STATUSES = ['plan', 'pre-production', 'post-production', 'done', 'payment'];
   const statusCounts = {
-    plan: monthProjects.filter((p) => p.status === 'plan' || !['plan', 'pre-production', 'post-production', 'done'].includes(p.status)).length,
+    plan: monthProjects.filter((p) => p.status === 'plan' || !ALL_STATUSES.includes(p.status)).length,
     'pre-production': monthProjects.filter((p) => p.status === 'pre-production').length,
     'post-production': monthProjects.filter((p) => p.status === 'post-production').length,
     done: monthProjects.filter((p) => p.status === 'done').length,
+    payment: monthProjects.filter((p) => p.status === 'payment').length,
   };
 
   const monthReports = reports.filter((r) => inMonth(r.reportDate));
@@ -57,7 +59,7 @@ export function DashboardPage({ onOpenProject }: { onOpenProject: (id: string) =
 
   // Deadline watchlist: active projects with a deadline, soonest first
   const watchlist = projects
-    .filter((p) => p.status !== 'done' && p.deadline)
+    .filter((p) => !isProjectFinished(p.status) && p.deadline)
     .sort((a, b) => (a.deadline || '').localeCompare(b.deadline || ''))
     .slice(0, 6);
 
@@ -111,15 +113,15 @@ export function DashboardPage({ onOpenProject }: { onOpenProject: (id: string) =
           <span className="text-xs text-muted">{monthProjects.length} dự án trong tháng</span>
         </div>
         <div className="flex h-2.5 rounded-full overflow-hidden bg-line mb-3">
-          {(['plan', 'pre-production', 'post-production', 'done'] as const).map((s) => {
+          {(['plan', 'pre-production', 'post-production', 'done', 'payment'] as const).map((s) => {
             const count = statusCounts[s];
             const pct = monthProjects.length > 0 ? (count / monthProjects.length) * 100 : 0;
-            const bar: Record<string, string> = { plan: 'bg-slate-400', 'pre-production': 'bg-amber-400', 'post-production': 'bg-indigo-400', done: 'bg-emerald-400' };
+            const bar: Record<string, string> = { plan: 'bg-slate-400', 'pre-production': 'bg-amber-400', 'post-production': 'bg-indigo-400', done: 'bg-emerald-400', payment: 'bg-cyan-400' };
             return pct > 0 ? <div key={s} className={bar[s]} style={{ width: `${pct}%` }} title={`${STATUS_LABEL[s]}: ${count}`} /> : null;
           })}
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {(['plan', 'pre-production', 'post-production', 'done'] as const).map((s) => (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          {(['plan', 'pre-production', 'post-production', 'done', 'payment'] as const).map((s) => (
             <div key={s} className="flex items-center gap-2">
               <Badge color={STATUS_BADGE[s]}>{STATUS_LABEL[s]}</Badge>
               <span className="text-sm font-bold tabular-nums">{statusCounts[s]}</span>

@@ -4,11 +4,11 @@ import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, EmptyState, Modal, Input, Select, Textarea, Field } from '../components/ui';
 import { createProject, updateProject } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
-import { formatDate, todayStr, normalize, itemStatusFromProjectStatus } from '../lib/utils';
+import { formatDate, todayStr, normalize, itemStatusFromProjectStatus, isProjectFinished } from '../lib/utils';
 import type { Project, ProjectStatus } from '../types';
 import type { User } from '../lib/firebase';
 
-const COLUMNS: ProjectStatus[] = ['plan', 'pre-production', 'post-production', 'done'];
+const COLUMNS: ProjectStatus[] = ['plan', 'pre-production', 'post-production', 'done', 'payment'];
 
 export function ProjectsPage({
   user, onOpenProject, typeFilter, onTypeFilterChange,
@@ -101,14 +101,15 @@ export function ProjectsPage({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
         {COLUMNS.map((status) => {
           // Unknown/legacy status values fall into the "plan" column so nothing is hidden
-          let colProjects = filtered.filter((p) =>
+          const allColProjects = filtered.filter((p) =>
             status === 'plan' ? p.status === 'plan' || !COLUMNS.includes(p.status) : p.status === status,
           );
-          const doneHidden = status === 'done' && !showAllDone && colProjects.length > 5;
-          if (doneHidden) colProjects = colProjects.slice(0, 5);
+          // Done/Payment tích luỹ nhiều theo thời gian → thu gọn, chỉ hiện 5 đầu
+          const doneHidden = isProjectFinished(status) && !showAllDone && allColProjects.length > 5;
+          const colProjects = doneHidden ? allColProjects.slice(0, 5) : allColProjects;
           return (
             <div
               key={status}
@@ -124,9 +125,7 @@ export function ProjectsPage({
             >
               <div className="flex items-center justify-between px-1">
                 <Badge color={STATUS_BADGE[status]}>{STATUS_LABEL[status]}</Badge>
-                <span className="text-xs font-bold text-dim">{filtered.filter((p) =>
-                  status === 'plan' ? p.status === 'plan' || !COLUMNS.includes(p.status) : p.status === status,
-                ).length}</span>
+                <span className="text-xs font-bold text-dim">{allColProjects.length}</span>
               </div>
               <div className="space-y-3">
                 {colProjects.map((p) => {
@@ -145,7 +144,7 @@ export function ProjectsPage({
                           <span className="flex items-center gap-1"><Camera size={11} /> {prog.photoDone}/{p.photoTarget || 0}</span>
                           <span className="flex items-center gap-1"><Video size={11} /> {prog.videoDone}/{p.videoTarget || 0}</span>
                           {p.deadline && (
-                            <span className={`flex items-center gap-1 ml-auto ${p.status !== 'done' && p.deadline < todayStr() ? 'text-red-400 font-bold' : ''}`}>
+                            <span className={`flex items-center gap-1 ml-auto ${!isProjectFinished(p.status) && p.deadline < todayStr() ? 'text-red-400 font-bold' : ''}`}>
                               <Calendar size={11} /> {formatDate(p.deadline)}
                             </span>
                           )}
@@ -157,7 +156,7 @@ export function ProjectsPage({
                 })}
                 {doneHidden && (
                   <button onClick={() => setShowAllDone(true)} className="w-full text-xs text-muted hover:text-ink py-2 cursor-pointer">
-                    Xem tất cả ({filtered.filter((p) => p.status === 'done').length})
+                    Xem tất cả ({allColProjects.length})
                   </button>
                 )}
                 {colProjects.length === 0 && (
@@ -234,6 +233,7 @@ export function ProjectFormModal({
               <option value="pre-production">Tiền kỳ</option>
               <option value="post-production">Hậu kỳ</option>
               <option value="done">Hoàn thành</option>
+              <option value="payment">Thanh toán</option>
             </Select>
           </Field>
           <Field label="Loại dự án">
@@ -262,7 +262,7 @@ export function ProjectFormModal({
             <Input type="number" min={0} value={form.videoTarget ?? 0} onChange={(e) => set('videoTarget', Number(e.target.value))} />
           </Field>
         </div>
-        {form.status === 'done' && (
+        {isProjectFinished(form.status || 'plan') && (
           <Field label="Điểm chất lượng (0–10)">
             <Input type="number" min={0} max={10} step={0.5} value={form.qualityScore ?? ''} onChange={(e) => set('qualityScore', e.target.value === '' ? undefined : Number(e.target.value))} />
           </Field>

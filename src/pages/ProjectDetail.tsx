@@ -3,7 +3,7 @@ import { ArrowLeft, Plus, Trash2, Pencil, Camera, Video, Wallet, Star, CheckCirc
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar } from '../components/ui';
 import { updateProject, deleteProject, createTask, updateTask, deleteTask, toggleDntt } from '../lib/actions';
-import { formatVND, formatDate, todayStr, itemStatusFromProjectStatus } from '../lib/utils';
+import { formatVND, formatDate, todayStr, itemStatusFromProjectStatus, isProjectFinished } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { ProjectFormModal } from './Projects';
 import type { Task, TaskCategory, Project } from '../types';
@@ -150,7 +150,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
               <Badge color={STATUS_BADGE[project.status]}>{STATUS_LABEL[project.status]}</Badge>
             </div>
             {project.deadline && (() => {
-              const overdue = project.status !== 'done' && project.deadline! < todayStr();
+              const overdue = !isProjectFinished(project.status) && project.deadline! < todayStr();
               return <p className={`text-xs mt-1 ${overdue ? 'text-red-400 font-bold' : 'text-muted'}`}><Calendar size={11} className="inline mr-1" />Deadline: {formatDate(project.deadline)}{overdue && ' — QUÁ HẠN'}</p>;
             })()}
           </div>
@@ -407,6 +407,7 @@ function InfoPanel({ project, isEditor, toast }: { project: Project; isEditor: b
           <option value="pre-production">Tiền kỳ</option>
           <option value="post-production">Hậu kỳ</option>
           <option value="done">Hoàn thành</option>
+          <option value="payment">Thanh toán</option>
         </Select>
       </div>
     </Card>

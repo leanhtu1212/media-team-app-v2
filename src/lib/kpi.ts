@@ -1,4 +1,5 @@
 import type { Member, Project, Task, Report } from '../types';
+import { isProjectFinished } from './utils';
 
 export interface MemberKpi {
   uid: string;
@@ -88,7 +89,7 @@ export function calculateMemberKpi(
       .filter((t) => t.projectId === pid && (t.category === 'photo' || t.category === 'video') && (t.status === 'completed' || t.dntt))
       .reduce((s, t) => s + (Number(t.quantity) || 1), 0);
     const target = (proj.photoTarget || 0) + (proj.videoTarget || 0);
-    const reached = proj.status === 'done' || (target > 0 ? done >= target : done > 0);
+    const reached = isProjectFinished(proj.status) || (target > 0 ? done >= target : done > 0);
     return reached ? count + 1 : count;
   }, 0);
 
