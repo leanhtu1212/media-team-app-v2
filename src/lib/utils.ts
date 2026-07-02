@@ -1,0 +1,60 @@
+export const MAIN_TEAM_ID = 'MEDIA_TEAM_01';
+
+export const ADMIN_EMAILS = ['leanhtu1212@gmail.com', 'admin@production.team'];
+
+export function genId(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  return Array.from({ length: 7 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
+
+export function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function currentMonth(): string {
+  return todayStr().slice(0, 7);
+}
+
+export function monthRange(month: string): [string, string] {
+  const [y, m] = month.split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return [`${month}-01`, `${month}-${String(last).padStart(2, '0')}`];
+}
+
+export function formatVND(n: number): string {
+  return new Intl.NumberFormat('vi-VN').format(n) + 'đ';
+}
+
+export function formatDate(d?: string): string {
+  if (!d) return '—';
+  const [y, m, day] = d.split('-');
+  return `${day}/${m}/${y}`;
+}
+
+/** Trạng thái hàng gợi ý theo trạng thái dự án (khớp logic bản cũ). */
+export function itemStatusFromProjectStatus(status: string): string {
+  switch (status) {
+    case 'plan': return 'chưa nhận';
+    case 'pre-production': return 'đang triển khai';
+    case 'post-production': return 'đang sản xuất';
+    case 'done': return 'đã hoàn thành';
+    default: return 'chưa nhận';
+  }
+}
+
+export function normalize(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+/** Vietnamese month label, e.g. "Tháng 7, 2026" */
+export function monthLabel(month: string): string {
+  const [y, m] = month.split('-');
+  return `Tháng ${Number(m)}, ${y}`;
+}
+
+export function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}

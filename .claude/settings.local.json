@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(pkill -f \"vite --port 5199\")",
+      "Bash(gh auth *)",
+      "Bash(git config *)",
+      "Read(//Users/tule/**)"
+    ]
+  }
+}

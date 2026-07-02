@@ -1,0 +1,236 @@
+import {
+  addDoc, collection, deleteDoc, doc, serverTimestamp, setDoc, updateDoc,
+} from 'firebase/firestore';
+import { db, type User } from './firebase';
+import { MAIN_TEAM_ID, genId, todayStr } from './utils';
+import type { Project, Task, Report, DailyContent, TaskCategory } from '../types';
+
+const teamPath = ['teams', MAIN_TEAM_ID] as const;
+
+export const col = {
+  members: () => collection(db, ...teamPath, 'members'),
+  projects: () => collection(db, ...teamPath, 'projects'),
+  tasks: (projectId: string) => collection(db, ...teamPath, 'projects', projectId, 'tasks'),
+  reports: () => collection(db, ...teamPath, 'reports'),
+  productTypes: () => collection(db, ...teamPath, 'productTypes'),
+  dailyContent: () => collection(db, ...teamPath, 'dailyContent'),
+};
+
+export const ref = {
+  team: () => doc(db, ...teamPath),
+  member: (uid: string) => doc(db, ...teamPath, 'members', uid),
+  project: (id: string) => doc(db, ...teamPath, 'projects', id),
+  task: (projectId: string, taskId: string) => doc(db, ...teamPath, 'projects', projectId, 'tasks', taskId),
+  report: (id: string) => doc(db, ...teamPath, 'reports', id),
+  productType: (id: string) => doc(db, ...teamPath, 'productTypes', id),
+  daily: (id: string) => doc(db, ...teamPath, 'dailyContent', id),
+};
+
+/* ---------- Projects ---------- */
+
+export async function createProject(data: Partial<Project>, user: User): Promise<string> {
+  const id = genId();
+  await setDoc(ref.project(id), {
+    ...data,
+    id,
+    status: data.status || 'plan',
+    projectType: data.projectType || 'inhouse',
+    photoTarget: Number(data.photoTarget) || 0,
+    videoTarget: Number(data.videoTarget) || 0,
+    photoPoint: Number(data.photoPoint) || 1,
+    videoPoint: Number(data.videoPoint) || 3,
+    createdAt: serverTimestamp(),
+    createdBy: user.uid,
+  });
+  return id;
+}
+
+export async function updateProject(id: string, data: Partial<Project>): Promise<void> {
+  await updateDoc(ref.project(id), { ...data, updatedAt: serverTimestamp() });
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await deleteDoc(ref.project(id));
+}
+
+/* ---------- Tasks (+ auto-report pipeline) ---------- */
+
+interface NewTaskInput {
+  projectId: string;
+  title: string;
+  category: TaskCategory;
+  quantity?: number;
+  amount?: number;
+  difficulty?: number;
+  deadline?: string;
+  hasKB?: boolean;
+  images?: string[];
+  reportDate?: string;
+  status?: Task['status'];
+  dntt?: boolean;
+}
+
+/** Create task; if created as completed → also create the linked auto-report. */
+export async function createTask(input: NewTaskInput, user: User, projectTitle: string): Promise<string> {
+  const id = genId();
+  const isCompleted = input.status === 'completed' || !!input.dntt;
+  const reportDate = input.reportDate || todayStr();
+
+  let sourceReportId: string | undefined;
+  if (isCompleted) {
+    sourceReportId = await createAutoReport(
+      { taskId: id, projectId: input.projectId, projectTitle, title: input.title, category: input.category, quantity: input.quantity || 1, hasKB: !!input.hasKB, reportDate },
+      user,
+    );
+  }
+
+  await setDoc(ref.task(input.projectId, id), {
+    id,
+    projectId: input.projectId,
+    teamId: MAIN_TEAM_ID,
+    title: input.title,
+    category: input.category,
+    status: input.status || 'pending',
+    quantity: Number(input.quantity) || 1,
+    amount: Number(input.amount) || 0,
+    difficulty: Number(input.difficulty) || 1,
+    dntt: !!input.dntt,
+    deadline: input.deadline || '',
+    hasKB: !!input.hasKB,
+    images: input.images || [],
+    reportDate,
+    createdAt: serverTimestamp(),
+    createdBy: user.uid,
+    ...(isCompleted ? { completedAt: serverTimestamp() } : {}),
+    ...(sourceReportId ? { sourceReportId } : {}),
+  });
+  return id;
+}
+
+export async function updateTask(projectId: string, taskId: string, data: Partial<Task>): Promise<void> {
+  await updateDoc(ref.task(projectId, taskId), { ...data, updatedAt: serverTimestamp() });
+}
+
+export async function deleteTask(projectId: string, taskId: string): Promise<void> {
+  await deleteDoc(ref.task(projectId, taskId));
+}
+
+/** Mark task completed and create linked auto-report (order: report first, then task). */
+export async function completeTask(task: Task, user: User, projectTitle: string): Promise<void> {
+  const reportId = await createAutoReport(
+    {
+      taskId: task.id, projectId: task.projectId, projectTitle,
+      title: task.title, category: task.category,
+      quantity: task.quantity || 1, hasKB: !!task.hasKB,
+      reportDate: task.reportDate || todayStr(),
+    },
+    user,
+  );
+  await updateDoc(ref.task(task.projectId, task.id), {
+    status: 'completed',
+    completedAt: serverTimestamp(),
+    sourceReportId: reportId,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** DNTT toggle on a pre-production task. ON: complete + auto-report. OFF: revert. */
+export async function toggleDntt(task: Task, user: User, projectTitle: string): Promise<void> {
+  if (!task.dntt) {
+    const reportId = await createAutoReport(
+      {
+        taskId: task.id, projectId: task.projectId, projectTitle,
+        title: task.title, category: 'pre-production',
+        quantity: 1, hasKB: false, reportDate: todayStr(),
+      },
+      user,
+    );
+    await updateDoc(ref.task(task.projectId, task.id), {
+      dntt: true, status: 'completed', completedAt: serverTimestamp(),
+      sourceReportId: reportId, updatedAt: serverTimestamp(),
+    });
+  } else {
+    if (task.sourceReportId) {
+      try { await deleteDoc(ref.report(task.sourceReportId)); } catch { /* already gone */ }
+    }
+    await updateDoc(ref.task(task.projectId, task.id), {
+      dntt: false, status: 'pending', sourceReportId: '', updatedAt: serverTimestamp(),
+    });
+  }
+}
+
+/* ---------- Reports ---------- */
+
+async function createAutoReport(
+  info: { taskId: string; projectId: string; projectTitle: string; title: string; category: string; quantity: number; hasKB: boolean; reportDate: string },
+  user: User,
+): Promise<string> {
+  const id = genId();
+  await setDoc(ref.report(id), {
+    id,
+    content: `Báo cáo tự động: ${info.title} — ${info.projectTitle}`,
+    reportDate: info.reportDate,
+    projectId: info.projectId,
+    quantity: info.quantity,
+    outputType: info.category,
+    hasKB: info.hasKB,
+    reportType: 'auto',
+    relatedTaskId: info.taskId,
+    createdAt: serverTimestamp(),
+    createdBy: user.uid,
+    userEmail: user.email || '',
+  });
+  return id;
+}
+
+export async function createManualReport(data: Partial<Report>, user: User): Promise<string> {
+  const id = genId();
+  await setDoc(ref.report(id), {
+    id,
+    content: data.content || '',
+    reportDate: data.reportDate || todayStr(),
+    projectId: data.projectId || '',
+    quantity: Number(data.quantity) || 1,
+    outputType: data.outputType || 'none',
+    hasKB: !!data.hasKB,
+    reportType: 'manual',
+    createdAt: serverTimestamp(),
+    createdBy: user.uid,
+    userEmail: user.email || '',
+  });
+  return id;
+}
+
+export async function updateReport(id: string, data: Partial<Report>): Promise<void> {
+  await updateDoc(ref.report(id), { ...data, updatedAt: serverTimestamp() });
+}
+
+export async function deleteReport(id: string): Promise<void> {
+  await deleteDoc(ref.report(id));
+}
+
+/* ---------- Daily Content ---------- */
+
+export async function createDailyContent(data: Partial<DailyContent>, user: User): Promise<void> {
+  await addDoc(col.dailyContent(), {
+    title: data.title || '',
+    type: data.type || 'Reels',
+    platform: data.platform || 'Đa kênh',
+    assigneeId: data.assigneeId || '',
+    dueDate: data.dueDate || todayStr(),
+    notes: data.notes || '',
+    points: Number(data.points) || 3,
+    status: data.status || 'planned',
+    projectId: data.projectId || '',
+    createdAt: serverTimestamp(),
+    createdBy: user.uid,
+  });
+}
+
+export async function updateDailyContent(id: string, data: Partial<DailyContent>): Promise<void> {
+  await updateDoc(ref.daily(id), { ...data, updatedAt: serverTimestamp() });
+}
+
+export async function deleteDailyContent(id: string): Promise<void> {
+  await deleteDoc(ref.daily(id));
+}
