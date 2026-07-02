@@ -64,7 +64,8 @@ export function calculateMemberKpi(
   // ── Ảnh: số project INHOUSE đạt đủ target ảnh ──
   const photoProjectIds = Array.from(new Set(inhousePhotoTasks.map((t) => t.projectId).filter(Boolean))) as string[];
   const photoProjectCount = photoProjectIds.reduce((count, pid) => {
-    const proj = projOf(pid)!;
+    const proj = projOf(pid);
+    if (!proj) return count;
     const photoDone = allTasks
       .filter((t) => t.projectId === pid && t.category === 'photo' && (t.status === 'completed' || t.dntt))
       .reduce((s, t) => s + (Number(t.quantity) || 1), 0);
@@ -81,7 +82,8 @@ export function calculateMemberKpi(
     userTasks.filter((t) => (t.category === 'photo' || t.category === 'video') && isOutsource(projOf(t.projectId))).map((t) => t.projectId).filter(Boolean),
   )) as string[];
   const outsourceProjectCount = outsourceProjectIds.reduce((count, pid) => {
-    const proj = projOf(pid)!;
+    const proj = projOf(pid);
+    if (!proj) return count;
     const done = allTasks
       .filter((t) => t.projectId === pid && (t.category === 'photo' || t.category === 'video') && (t.status === 'completed' || t.dntt))
       .reduce((s, t) => s + (Number(t.quantity) || 1), 0);
