@@ -6,7 +6,7 @@ SPA quản lý team media (2–5 người, tiếng Việt) được **build lạ
 ## Stack & chạy dev
 - Vite + React 19 + TypeScript + Tailwind v4 (`@theme` tokens trong `src/index.css`), lucide-react, date-fns. Không UI lib nặng, không router (chuyển view bằng state trong `App.tsx`).
 - Dev: `npx vite --port 5199` (preview panel của Claude bị macOS chặn quyền Downloads — chạy qua Bash). Build: `npm run build`. Type-check: `npx tsc --noEmit`.
-- Deploy 2 cách: (a) **tĩnh** — upload nội dung `dist/` lên httpdocs Plesk; (b) **container/Node app** (Mắt Bão App Platform, domain tinhgon.xyz) — có `server.mjs` (static server zero-dependency, SPA fallback, đọc `PORT` env) + `npm start` + `Dockerfile`. Deploy container phải build trước rồi start. Domain mới phải thêm vào Firebase Auth → Authorized domains, không thì login lỗi `auth/unauthorized-domain`.
+- Deploy: repo GitHub public `leanhtu1212/media-team-app-v2`. Cách chính — **Mắt Bão/Plesk pull repo về + build tĩnh**: Plesk Git trỏ vào repo (nhánh `main`), deployment action `npm ci && npm run build`, Document Root → thư mục `dist`. Cách phụ — upload thủ công nội dung `dist/` lên httpdocs. Dự phòng Node/Passenger: Application Startup File = `server.mjs` (static server zero-dependency, SPA fallback, đọc `PORT` env; kèm `Dockerfile`). `vite.config.ts` đặt `base: './'` (relative) để chạy được cả root lẫn subfolder. Domain thật serve app PHẢI thêm vào Firebase Auth → Authorized domains, không thì login lỗi `auth/unauthorized-domain`.
 - Font Be Vietnam Pro, dark theme kiểu Linear (bg `#0a0a0b`, surface `#131316`, accent indigo `#6366f1`).
 
 ## Firebase (QUAN TRỌNG)
