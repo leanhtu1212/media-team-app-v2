@@ -117,11 +117,11 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
           </thead>
           <tbody className="divide-y divide-line">
             {kpi.map((m, i) => {
-              const prevKpi = calculateMemberKpi(
-                members.find((mm) => (mm.uid || mm.id) === m.uid)!,
-                shiftMonth(month, -1), allTasks, projects, reports,
-              );
-              const delta = Math.round((m.finalKPI - prevKpi.finalKPI) * 10) / 10;
+              const prevMember = members.find((mm) => (mm.uid || mm.id) === m.uid);
+              const prevKpi = prevMember
+                ? calculateMemberKpi(prevMember, shiftMonth(month, -1), allTasks, projects, reports)
+                : null;
+              const delta = prevKpi ? Math.round((m.finalKPI - prevKpi.finalKPI) * 10) / 10 : 0;
               return (
               <tr key={m.uid} onClick={() => setSelected(m)} className="hover:bg-surface-2 cursor-pointer transition-colors">
                 <td className="px-4 py-3">

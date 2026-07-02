@@ -4,6 +4,7 @@ import { auth, onAuthStateChanged, type User } from './lib/firebase';
 import { AppDataProvider, useAppData } from './store/AppDataContext';
 import { ToastProvider } from './hooks/useToast';
 import { Sidebar, type View } from './components/layout/Sidebar';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoginPage } from './pages/Login';
 import { DashboardPage } from './pages/Dashboard';
 import { ProjectsPage } from './pages/Projects';
@@ -37,18 +38,21 @@ function Shell({ user }: { user: User }) {
     <div className="flex min-h-screen">
       <Sidebar view={view} onNavigate={navigate} />
       <main className="flex-1 min-w-0 p-4 lg:p-8">
-        {selectedProjectId ? (
-          <ProjectDetailPage projectId={selectedProjectId} user={user} onBack={closeProject} />
-        ) : (
-          <>
-            {view === 'dashboard' && <DashboardPage onOpenProject={openProject} />}
-            {view === 'projects' && <ProjectsPage user={user} onOpenProject={openProject} typeFilter={projectsTypeFilter} onTypeFilterChange={setProjectsTypeFilter} />}
-            {view === 'daily' && <DailyContentPage user={user} />}
-            {view === 'reports' && <ReportsPage user={user} />}
-            {view === 'performance' && <PerformancePage onOpenProject={openProject} />}
-            {view === 'settings' && <SettingsPage user={user} />}
-          </>
-        )}
+        {/* key = remount boundary khi đổi trang, để một crash không kẹt cứng cả app */}
+        <ErrorBoundary key={selectedProjectId || view}>
+          {selectedProjectId ? (
+            <ProjectDetailPage projectId={selectedProjectId} user={user} onBack={closeProject} />
+          ) : (
+            <>
+              {view === 'dashboard' && <DashboardPage onOpenProject={openProject} />}
+              {view === 'projects' && <ProjectsPage user={user} onOpenProject={openProject} typeFilter={projectsTypeFilter} onTypeFilterChange={setProjectsTypeFilter} />}
+              {view === 'daily' && <DailyContentPage user={user} />}
+              {view === 'reports' && <ReportsPage user={user} />}
+              {view === 'performance' && <PerformancePage onOpenProject={openProject} />}
+              {view === 'settings' && <SettingsPage user={user} />}
+            </>
+          )}
+        </ErrorBoundary>
       </main>
     </div>
   );
