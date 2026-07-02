@@ -25,7 +25,7 @@ const PLATFORM_COLOR: Record<string, string> = {
 };
 
 export function DailyContentPage({ user }: { user: User }) {
-  const { dailyContent, members, isEditor } = useAppData();
+  const { dailyContent, members, canEditDaily } = useAppData();
   const toast = useToast();
   const [viewMode, setViewMode] = useState<'kanban' | 'month'>('month');
   const [month, setMonth] = useState(currentMonth());
@@ -64,13 +64,13 @@ export function DailyContentPage({ user }: { user: User }) {
     const next = NEXT_STATUS[item.status];
     return (
       <Card
-        draggable={isEditor}
+        draggable={canEditDaily}
         onDragStart={(e: React.DragEvent) => e.dataTransfer.setData('text/plain', item.id)}
         className="p-3 group hover:border-line-2 transition-all"
       >
         <div className="flex items-start justify-between gap-2 mb-1.5">
           <Badge color={PLATFORM_COLOR[item.platform] || PLATFORM_COLOR['Đa kênh']}>{item.platform}</Badge>
-          {isEditor && (
+          {canEditDaily && (
             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button onClick={() => { setEditing(item); setModalOpen(true); }} className="text-muted hover:text-ink cursor-pointer"><Pencil size={12} /></button>
               <button onClick={() => setConfirmDel(item)} className="text-muted hover:text-red-400 cursor-pointer"><Trash2 size={12} /></button>
@@ -85,7 +85,7 @@ export function DailyContentPage({ user }: { user: User }) {
             {assignee && <Avatar name={assignee.username} url={assignee.avatarUrl} size={20} />}
             <span className={`text-[11px] ${overdue ? 'text-red-400 font-bold' : 'text-dim'}`}>{formatDate(item.dueDate)}</span>
           </div>
-          {isEditor && next && (
+          {canEditDaily && next && (
             <button
               onClick={() => updateDailyContent(item.id, { status: next }).then(() => toast(`→ ${STATUS_LABEL[next]}`)).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
               className="flex items-center gap-0.5 text-[11px] font-bold text-indigo-300 hover:text-indigo-200 cursor-pointer"
@@ -135,7 +135,7 @@ export function DailyContentPage({ user }: { user: User }) {
               <LayoutGrid size={13} /> Kanban
             </button>
           </div>
-          {isEditor && <Button onClick={() => openNew()}><Plus size={15} /> Nội dung</Button>}
+          {canEditDaily && <Button onClick={() => openNew()}><Plus size={15} /> Nội dung</Button>}
         </div>
       </div>
 
@@ -156,7 +156,7 @@ export function DailyContentPage({ user }: { user: User }) {
               <div
                 key={status}
                 className={`space-y-3 rounded-xl transition-colors ${dragOverCol === status ? 'bg-accent/5 outline-2 outline-dashed outline-accent/40' : ''}`}
-                onDragOver={(e) => { if (isEditor) { e.preventDefault(); setDragOverCol(status); } }}
+                onDragOver={(e) => { if (canEditDaily) { e.preventDefault(); setDragOverCol(status); } }}
                 onDragLeave={(e) => { if (e.currentTarget === e.target || !e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCol(null); }}
                 onDrop={(e) => {
                   e.preventDefault();
@@ -191,8 +191,8 @@ export function DailyContentPage({ user }: { user: User }) {
                   <button
                     key={date}
                     onClick={() => setSelectedDay(isSelected ? null : date)}
-                    onDoubleClick={() => isEditor && openNew(date)}
-                    title={isEditor ? 'Nhấn đúp để tạo nội dung' : undefined}
+                    onDoubleClick={() => canEditDaily && openNew(date)}
+                    title={canEditDaily ? 'Nhấn đúp để tạo nội dung' : undefined}
                     className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col ${
                       isSelected ? 'border-accent bg-accent/10' : isToday ? 'border-indigo-500/40 bg-surface-2' : 'border-line hover:border-line-2'
                     }`}
@@ -236,7 +236,7 @@ export function DailyContentPage({ user }: { user: User }) {
             <Card className="fade-up">
               <div className="px-4 py-3 border-b border-line flex items-center justify-between">
                 <h3 className="font-bold text-sm">Nội dung ngày {formatDate(selectedDay)}</h3>
-                {isEditor && (
+                {canEditDaily && (
                   <Button variant="outline" onClick={() => openNew(selectedDay)} className="!py-1 !px-2.5 !text-xs"><Plus size={13} /> Thêm</Button>
                 )}
               </div>

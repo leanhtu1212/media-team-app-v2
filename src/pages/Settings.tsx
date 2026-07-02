@@ -232,6 +232,7 @@ function MembersTab({ user }: { user: User }) {
               <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
                 <option value="editor">Editor</option>
                 <option value="admin">Admin</option>
+                <option value="content">Content</option>
                 <option value="viewer">Viewer</option>
               </Select>
             </Field>
@@ -278,6 +279,7 @@ function EditMemberForm({ member, onDone }: { member: Member; onDone: () => void
           <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
             <option value="editor">Editor</option>
             <option value="admin">Admin</option>
+            <option value="content">Content</option>
             <option value="viewer">Viewer</option>
           </Select>
         </Field>
@@ -325,7 +327,7 @@ function KpiTab() {
         <p className="text-xs text-muted mt-0.5">Số sản phẩm cần đạt mỗi tháng (project ảnh + video + DNTT). KPI = sản lượng thực / chỉ tiêu.</p>
       </div>
       <div className="divide-y divide-line">
-        {members.filter((m) => m.role !== 'viewer').map((m) => {
+        {members.filter((m) => m.role === 'admin' || m.role === 'editor').map((m) => {
           const output = outputOf(m);
           return (
             <div key={m.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">

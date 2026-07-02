@@ -1,6 +1,6 @@
 // Firestore data model — field names & enums MUST match legacy app exactly.
 
-export type Role = 'admin' | 'editor' | 'viewer';
+export type Role = 'admin' | 'editor' | 'viewer' | 'content';
 
 export interface Member {
   id: string; // doc id = uid

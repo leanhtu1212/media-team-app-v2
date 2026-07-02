@@ -17,6 +17,8 @@ interface AppData {
   loading: boolean;
   isAdmin: boolean;
   isEditor: boolean;
+  /** Role "content": chỉ được sửa Daily Content, mọi nơi khác chỉ xem. */
+  canEditDaily: boolean;
   currentMember: Member | null;
 }
 
@@ -82,11 +84,12 @@ export function AppDataProvider({ user, children }: { user: User; children: Reac
   const role = currentMember?.role || 'viewer';
   const isAdmin = role === 'admin' || ADMIN_EMAILS.includes(user.email || '');
   const isEditor = role === 'editor' || isAdmin;
+  const canEditDaily = isEditor || role === 'content';
   const loading = !loaded.members || !loaded.projects || !loaded.tasks;
 
   return (
     <AppDataContext.Provider
-      value={{ team, members, projects, allTasks, reports, productTypes, dailyContent, loading, isAdmin, isEditor, currentMember }}
+      value={{ team, members, projects, allTasks, reports, productTypes, dailyContent, loading, isAdmin, isEditor, canEditDaily, currentMember }}
     >
       {children}
     </AppDataContext.Provider>
