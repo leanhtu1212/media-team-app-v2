@@ -14,7 +14,9 @@ export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);
 
-/** Create a Firebase Auth user via a secondary app so the admin stays logged in. */
+/** Create a Firebase Auth user via a secondary app so the admin stays logged in.
+ *  If the email already exists (orphan from a previous attempt where the member
+ *  doc write failed), try signing in with the given password to recover the uid. */
 export async function createNewUser(email: string, pass: string): Promise<User> {
   const secondaryApp = initializeApp(firebaseConfig, `Secondary_${Date.now()}`);
   const secondaryAuth = getAuth(secondaryApp);
@@ -24,6 +26,15 @@ export async function createNewUser(email: string, pass: string): Promise<User> 
     await deleteApp(secondaryApp);
     return cred.user;
   } catch (err) {
+    const code = (err as { code?: string }).code || '';
+    if (code.includes('email-already-in-use')) {
+      try {
+        const cred = await signInWithEmailAndPassword(secondaryAuth, email, pass);
+        await signOut(secondaryAuth);
+        await deleteApp(secondaryApp);
+        return cred.user;
+      } catch { /* wrong password → fall through to original error */ }
+    }
     try { await deleteApp(secondaryApp); } catch { /* ignore */ }
     throw err;
   }

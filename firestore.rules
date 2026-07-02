@@ -1,0 +1,114 @@
+// Firestore rules cho Media Team (app v2 + app cũ dùng chung).
+// Khác bản cũ (media-team-manager (3)/firestore.rules):
+//   1. members create: admin được tạo member doc cho người khác — app v2 là SPA
+//      thuần không có Admin SDK server-side như app cũ, nên admin phải ghi trực
+//      tiếp từ client. Bản cũ bắt request.auth.uid == userId nên admin bị chặn.
+//   2. Thêm role 'content': chỉ được ghi dailyContent, không ghi projects/tasks.
+// Deploy: Firebase Console → Firestore → chọn database
+// ai-studio-9933e878-0247-44cf-b7f0-e77cd2ac2eac → tab Rules → dán → Publish.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isTeamMember(teamId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid));
+    }
+
+    function getMemberRole(teamId) {
+      return get(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin(teamId) {
+      return isAuthenticated() && (
+        request.auth.token.email == "leanhtu1212@gmail.com" ||
+        request.auth.token.email == "admin@production.team" ||
+        get(/databases/$(database)/documents/teams/$(teamId)).data.createdBy == request.auth.uid ||
+        (exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isEditor(teamId) {
+      return isTeamMember(teamId) && (getMemberRole(teamId) == 'editor' || getMemberRole(teamId) == 'admin');
+    }
+
+    // Role 'content' chỉ có quyền này (+ đọc như member thường)
+    function canEditDaily(teamId) {
+      return isTeamMember(teamId) && (
+        getMemberRole(teamId) == 'editor' ||
+        getMemberRole(teamId) == 'admin' ||
+        getMemberRole(teamId) == 'content'
+      );
+    }
+
+    // Collection Group for Tasks
+    match /{path=**}/tasks/{taskId} {
+      allow read: if isAuthenticated();
+    }
+
+    // Teams Collection
+    match /teams/{teamId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isTeamMember(teamId);
+
+      // Members Subcollection
+      match /members/{userId} {
+        allow read: if isAuthenticated();
+        // Admin tạo member doc cho user mới (flow "Thêm thành viên" của SPA),
+        // hoặc user tự tạo doc của mình với role thường (flow tự đăng ký cũ).
+        allow create: if isAdmin(teamId) || (
+          isAuthenticated() && request.auth.uid == userId && (
+            request.resource.data.role == 'viewer' ||
+            request.resource.data.role == 'editor' ||
+            request.resource.data.role == 'content'
+          )
+        );
+        allow update: if isAdmin(teamId) || (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'uid', 'email', 'joinedAt']));
+        allow delete: if isAdmin(teamId) && userId != request.auth.uid;
+      }
+
+      // Projects Subcollection
+      match /projects/{projectId} {
+        allow read: if isTeamMember(teamId);
+        allow create: if isEditor(teamId);
+        allow update: if isEditor(teamId);
+        allow delete: if isAdmin(teamId);
+
+        // Tasks Subcollection
+        match /tasks/{taskId} {
+          allow read: if isTeamMember(teamId);
+          allow create, update: if isEditor(teamId);
+          allow delete: if isEditor(teamId);
+        }
+      }
+
+      // Reports Subcollection
+      match /reports/{reportId} {
+        allow read: if isTeamMember(teamId);
+        allow create, update: if isTeamMember(teamId);
+        allow delete: if isAdmin(teamId);
+      }
+
+      // ProductTypes Subcollection
+      match /productTypes/{typeId} {
+        allow read: if isAuthenticated();
+        allow create, update, delete: if isAdmin(teamId);
+      }
+
+      // Daily Content Subcollection — role 'content' được ghi ở đây
+      match /dailyContent/{contentId} {
+        allow read: if isTeamMember(teamId);
+        allow create, update: if canEditDaily(teamId);
+        allow delete: if canEditDaily(teamId);
+      }
+    }
+  }
+}
