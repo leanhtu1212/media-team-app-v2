@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, Plus, Trash2, Pencil, Camera, Video, Wallet, Star, CheckCircle2, Circle, Calendar, AlertTriangle, Package, FileText, Check } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Pencil, Camera, Video, Wallet, Star, CheckCircle2, Circle, Calendar, AlertTriangle, Package, FileText, Check, TrendingUp } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar } from '../components/ui';
 import { updateProject, deleteProject, createTask, updateTask, deleteTask, toggleDntt } from '../lib/actions';
@@ -109,6 +109,36 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
     </div>
   );
 
+  /** Full-width section: header + count badge + progress bar + task list (khớp layout bản cũ). */
+  const TaskSection = ({ icon, title, category, done, target, list }: { icon: React.ReactNode; title: string; category: TaskCategory; done: number; target: number; list: Task[] }) => {
+    const pct = target > 0 ? (done / target) * 100 : 0;
+    return (
+      <Card>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-line">
+          <div className="flex items-center gap-2 font-bold text-sm">
+            {icon}{title}
+            <span className="text-[11px] font-bold text-dim bg-bg border border-line rounded px-1.5 py-0.5 tabular-nums">{done}/{target || '—'}</span>
+          </div>
+          {isEditor && (
+            <button onClick={() => setTaskModal({ open: true, category, editing: null })} className="text-muted hover:text-ink cursor-pointer">
+              <Plus size={16} />
+            </button>
+          )}
+        </div>
+        {target > 0 && (
+          <div className="px-4 pt-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-black uppercase tracking-widest text-muted">Tiến độ</span>
+              <span className="text-xs font-bold tabular-nums">{Math.round(pct)}%</span>
+            </div>
+            <ProgressBar value={pct} />
+          </div>
+        )}
+        <div className="px-4 py-2">{<TaskTable list={list} category={category} />}</div>
+      </Card>
+    );
+  };
+
   return (
     <div className="fade-up space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -133,59 +163,71 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
         )}
       </div>
 
-      <InfoPanel project={project} isEditor={isEditor} toast={toast} />
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Card className="p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-muted uppercase">Ảnh</span>
-            <Camera size={15} className="text-indigo-300" />
-          </div>
-          <p className="text-2xl font-extrabold tabular-nums">{photoDone}<span className="text-sm text-dim font-bold"> / {project.photoTarget || 0}</span></p>
-          <ProgressBar value={(project.photoTarget || 0) > 0 ? (photoDone / (project.photoTarget || 1)) * 100 : 0} className="mt-2" />
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-muted uppercase">Video</span>
-            <Video size={15} className="text-violet-300" />
-          </div>
-          <p className="text-2xl font-extrabold tabular-nums">{videoDone}<span className="text-sm text-dim font-bold"> / {project.videoTarget || 0}</span></p>
-          <ProgressBar value={(project.videoTarget || 0) > 0 ? (videoDone / (project.videoTarget || 1)) * 100 : 0} className="mt-2" />
-        </Card>
-        {isAdmin && (
-          <Card className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-muted uppercase">Tổng chi phí</span>
-              <Wallet size={15} className="text-amber-300" />
-            </div>
-            <p className="text-2xl font-extrabold tabular-nums text-amber-300">{formatVND(totalCost)}</p>
-            <p className="text-[11px] text-dim mt-2">{preTasks.filter((t) => t.dntt).length}/{preTasks.length} đã duyệt DNTT</p>
-          </Card>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <SectionHeader icon={<Camera size={15} className="text-indigo-300" />} title="Ảnh" category="photo" />
-          <div className="px-4 pb-2">{<TaskTable list={photoTasks} category="photo" />}</div>
-        </Card>
-        <Card>
-          <SectionHeader icon={<Video size={15} className="text-violet-300" />} title="Video" category="video" />
-          <div className="px-4 pb-2">{<TaskTable list={videoTasks} category="video" />}</div>
-        </Card>
-      </div>
-
-      {isAdmin && (
-        <Card>
-          <SectionHeader
-            icon={<Wallet size={15} className="text-amber-300" />}
-            title="Tiền kỳ & Chi phí"
-            category="pre-production"
-            extra={<span className="text-xs font-bold text-amber-300 tabular-nums">{formatVND(totalCost)}</span>}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 items-start">
+        {/* Main column — các danh sách task, full width như bản cũ */}
+        <div className="space-y-4 min-w-0">
+          <TaskSection
+            icon={<Camera size={15} className="text-indigo-300" />}
+            title="Ảnh"
+            category="photo"
+            done={photoDone}
+            target={project.photoTarget || 0}
+            list={photoTasks}
           />
-          <div className="px-4 pb-2">{<TaskTable list={preTasks} category="pre-production" />}</div>
-        </Card>
-      )}
+          <TaskSection
+            icon={<Video size={15} className="text-violet-300" />}
+            title="Video"
+            category="video"
+            done={videoDone}
+            target={project.videoTarget || 0}
+            list={videoTasks}
+          />
+          {isAdmin && (
+            <Card>
+              <SectionHeader
+                icon={<Wallet size={15} className="text-amber-300" />}
+                title="Tiền kỳ & Chi phí"
+                category="pre-production"
+                extra={<span className="text-xs font-bold text-amber-300 tabular-nums">{formatVND(totalCost)}</span>}
+              />
+              <div className="px-4 pb-2">{<TaskTable list={preTasks} category="pre-production" />}</div>
+            </Card>
+          )}
+        </div>
+
+        {/* Sidebar — thông tin dự án + tiến độ + chi phí */}
+        <div className="space-y-4">
+          <InfoPanel project={project} isEditor={isEditor} toast={toast} />
+
+          <Card className="p-4">
+            <h2 className="font-bold text-sm mb-3 flex items-center gap-2"><TrendingUp size={15} className="text-emerald-400" /> Tiến độ</h2>
+            <div className="space-y-3">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-muted flex items-center gap-1.5"><Camera size={12} /> Ảnh</span>
+                  <span className="text-xs font-bold tabular-nums">{photoDone}/{project.photoTarget || 0}</span>
+                </div>
+                <ProgressBar value={(project.photoTarget || 0) > 0 ? (photoDone / (project.photoTarget || 1)) * 100 : 0} />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-muted flex items-center gap-1.5"><Video size={12} /> Video</span>
+                  <span className="text-xs font-bold tabular-nums">{videoDone}/{project.videoTarget || 0}</span>
+                </div>
+                <ProgressBar value={(project.videoTarget || 0) > 0 ? (videoDone / (project.videoTarget || 1)) * 100 : 0} />
+              </div>
+            </div>
+          </Card>
+
+          {isAdmin && (
+            <Card className="p-4">
+              <span className="text-xs font-bold text-muted uppercase flex items-center gap-1.5"><Wallet size={13} className="text-amber-300" /> Tổng chi phí</span>
+              <p className="text-2xl font-extrabold tabular-nums text-amber-300 mt-1.5">{formatVND(totalCost)}</p>
+              <p className="text-[11px] text-dim mt-1.5">{preTasks.filter((t) => t.dntt).length}/{preTasks.length} đã duyệt DNTT</p>
+            </Card>
+          )}
+        </div>
+      </div>
 
       <TaskFormModal
         state={taskModal}
