@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet } from 'lucide-react';
+import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
-import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask } from '../lib/actions';
+import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject } from '../lib/actions';
+import { ProjectFormModal } from './Projects';
 import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import type { DailyContent, DailyStatus, Project, Task } from '../types';
@@ -351,11 +352,23 @@ function CalChip({
 }
 
 export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
-  const { dailyContent, projects, allTasks, isEditor } = useAppData();
+  const { dailyContent, projects, allTasks, productTypes, isEditor } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
   const [month, setMonth] = useState(currentMonth());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
+
+  // Chọn loại khi tạo mới từ lịch (inhouse / outsource / content).
+  // Vai trò content (canEditDaily nhưng không phải editor) → bỏ qua bước chọn, tạo thẳng content.
+  const [pickerDate, setPickerDate] = useState<string | null>(null);
+  const [projModal, setProjModal] = useState<{ projectType: 'inhouse' | 'outsource'; deadline: string } | null>(null);
+
+  // Điểm vào duy nhất khi tạo mới ở một ngày: editor → hiện bảng chọn; content → tạo content luôn
+  const startCreate = (date: string) => {
+    if (!canEditDaily) return;
+    if (isEditor) setPickerDate(date);
+    else openNew(date);
+  };
 
   const today = todayStr();
 
@@ -454,7 +467,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                 role="button"
                 tabIndex={0}
                 onClick={() => setSelectedDay(isSelected ? null : date)}
-                onDoubleClick={() => canEditDaily && openNew(date)}
+                onDoubleClick={() => startCreate(date)}
                 onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverDay !== date) setDragOverDay(date); }}
                 onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverDay((cur) => (cur === date ? null : cur)); }}
                 onDrop={(e) => {
@@ -463,7 +476,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                   const payload = e.dataTransfer.getData('text/plain');
                   if (payload) handleDropOnDay(date, payload);
                 }}
-                title={canEditDaily ? 'Nhấn đúp vào chỗ trống để tạo nội dung' : undefined}
+                title={canEditDaily ? (isEditor ? 'Nhấn đúp để tạo mới (dự án / nội dung)' : 'Nhấn đúp vào chỗ trống để tạo nội dung') : undefined}
                 className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col select-none ${
                   isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40' : isSelected ? 'border-accent bg-accent/10' : isToday ? 'border-indigo-500/40 bg-surface-2' : 'border-line hover:border-line-2'
                 }`}
@@ -583,6 +596,64 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
           </div>
         </Card>
       )}
+
+      {/* Bước chọn loại khi editor nhấn đúp vào lịch */}
+      <Modal open={!!pickerDate} onClose={() => setPickerDate(null)} title="Tạo mới">
+        <p className="text-sm text-muted mb-4">Bạn muốn tạo gì cho ngày {pickerDate && formatDate(pickerDate)}?</p>
+        <div className="grid grid-cols-1 gap-2.5">
+          <button
+            type="button"
+            onClick={() => { const d = pickerDate!; setPickerDate(null); setProjModal({ projectType: 'inhouse', deadline: d }); }}
+            className="flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-sky-500/50 transition-all text-left cursor-pointer"
+          >
+            <Camera size={18} className="text-sky-300 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold">Dự án Inhouse</p>
+              <p className="text-[11px] text-dim">Dự án chụp/quay đội tự làm</p>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => { const d = pickerDate!; setPickerDate(null); setProjModal({ projectType: 'outsource', deadline: d }); }}
+            className="flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-fuchsia-500/50 transition-all text-left cursor-pointer"
+          >
+            <Video size={18} className="text-fuchsia-300 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold">Dự án Outsource</p>
+              <p className="text-[11px] text-dim">Dự án thuê đối tác bên ngoài</p>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => { const d = pickerDate!; setPickerDate(null); openNew(d); }}
+            className="flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-violet-500/50 transition-all text-left cursor-pointer"
+          >
+            <Plus size={18} className="text-violet-300 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold">Nội dung</p>
+              <p className="text-[11px] text-dim">Nội dung hằng ngày (Reels, Short…)</p>
+            </div>
+          </button>
+        </div>
+      </Modal>
+
+      {/* Form tạo dự án mới với loại + deadline điền sẵn từ lịch */}
+      <ProjectFormModal
+        open={!!projModal}
+        onClose={() => setProjModal(null)}
+        editing={null}
+        productTypes={productTypes.map((t) => t.name)}
+        preset={projModal ? { projectType: projModal.projectType, deadline: projModal.deadline } : undefined}
+        onSave={async (data) => {
+          try {
+            await createProject(data, user);
+            toast('Đã tạo dự án mới');
+            setProjModal(null);
+          } catch (e: unknown) {
+            toast(`Lỗi: ${(e as Error).message}`, 'error');
+          }
+        }}
+      />
 
       {modals}
     </div>

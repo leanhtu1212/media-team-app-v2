@@ -44,11 +44,9 @@ export function Modal({
   if (!open) return null;
   // Khi có onSubmit: bọc nội dung trong <form> để Enter trong input tự submit.
   // Textarea không submit khi Enter (xuống dòng bình thường) — đúng ý.
-  const Body = onSubmit
-    ? (p: { children: ReactNode }) => (
-        <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="p-5 overflow-y-auto">{p.children}</form>
-      )
-    : (p: { children: ReactNode }) => <div className="p-5 overflow-y-auto">{p.children}</div>;
+  // LƯU Ý: KHÔNG định nghĩa component (vd `Body`) bên trong render — mỗi lần gõ
+  // phím parent re-render, reference component mới → React remount cả subtree →
+  // input mất focus sau 1 ký tự. Render thẳng <form>/<div> ngay tại chỗ.
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div
@@ -59,7 +57,11 @@ export function Modal({
           <h3 className="font-bold text-base">{title}</h3>
           <button type="button" onClick={onClose} className="text-muted hover:text-ink transition-colors cursor-pointer"><X size={18} /></button>
         </div>
-        <Body>{children}</Body>
+        {onSubmit ? (
+          <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="p-5 overflow-y-auto">{children}</form>
+        ) : (
+          <div className="p-5 overflow-y-auto">{children}</div>
+        )}
       </div>
     </div>
   );

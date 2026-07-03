@@ -277,13 +277,15 @@ export function ProjectsPage({
 }
 
 export function ProjectFormModal({
-  open, onClose, editing, productTypes, onSave,
+  open, onClose, editing, productTypes, onSave, preset,
 }: {
   open: boolean;
   onClose: () => void;
   editing: Project | null;
   productTypes: string[];
   onSave: (data: Partial<Project>) => Promise<void>;
+  // Giá trị điền sẵn khi tạo MỚI (vd từ lịch tháng: projectType + deadline)
+  preset?: Partial<Project>;
 }) {
   const [form, setForm] = useState<Partial<Project>>({});
   const [busy, setBusy] = useState(false);
@@ -291,7 +293,7 @@ export function ProjectFormModal({
   // Reset form when opening
   const [lastOpen, setLastOpen] = useState(false);
   if (open && !lastOpen) {
-    setForm(editing ? { ...editing } : { status: 'plan', projectType: 'inhouse', photoTarget: 0, videoTarget: 0 });
+    setForm(editing ? { ...editing } : { status: 'plan', projectType: 'inhouse', photoTarget: 0, videoTarget: 0, ...preset });
     setLastOpen(true);
   } else if (!open && lastOpen) {
     setLastOpen(false);
