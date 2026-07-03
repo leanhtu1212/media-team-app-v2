@@ -503,7 +503,7 @@ function InfoPanel({ project, isEditor, toast }: { project: Project; isEditor: b
 }
 
 /** Render text with URLs as clickable links (open in new tab). */
-function Linkify({ text }: { text: string }) {
+export function Linkify({ text }: { text: string }) {
   const parts = text.split(/(https?:\/\/[^\s]+)/g);
   return (
     <>

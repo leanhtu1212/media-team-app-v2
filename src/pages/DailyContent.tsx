@@ -4,6 +4,7 @@ import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
 import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject } from '../lib/actions';
 import { ProjectFormModal } from './Projects';
+import { Linkify } from './ProjectDetail';
 import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import type { DailyContent, DailyStatus, Project, Task } from '../types';
@@ -804,7 +805,7 @@ function ContentDetailDrawer({
       {item.notes && (
         <div className="mt-4">
           <p className="text-xs font-bold text-muted uppercase tracking-wide mb-1.5">Ghi chú</p>
-          <p className="text-sm text-muted whitespace-pre-wrap break-words">{item.notes}</p>
+          <p className="text-sm text-muted whitespace-pre-wrap break-words"><Linkify text={item.notes} /></p>
         </div>
       )}
     </Drawer>
