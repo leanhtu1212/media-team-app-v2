@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, CalendarDays, LayoutGrid, Calendar as CalIcon } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
-import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, EmptyState } from '../components/ui';
+import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, EmptyState, Drawer } from '../components/ui';
 import { createDailyContent, updateDailyContent, deleteDailyContent } from '../lib/actions';
 import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
@@ -34,6 +34,7 @@ export function DailyContentPage({ user }: { user: User }) {
   const [confirmDel, setConfirmDel] = useState<DailyContent | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<DailyStatus | null>(null);
+  const [detailItem, setDetailItem] = useState<DailyContent | null>(null);
 
   const handleDrop = async (id: string, status: DailyStatus) => {
     const item = dailyContent.find((d) => d.id === id);
@@ -66,7 +67,9 @@ export function DailyContentPage({ user }: { user: User }) {
       <Card
         draggable={canEditDaily}
         onDragStart={(e: React.DragEvent) => e.dataTransfer.setData('text/plain', item.id)}
-        className="p-3 group hover:border-line-2 transition-all"
+        onDoubleClick={() => setDetailItem(item)}
+        title="Nhấn đúp để xem chi tiết"
+        className="p-3 group hover:border-line-2 transition-all select-none"
       >
         <div className="flex items-start justify-between gap-2 mb-1.5">
           <Badge color={PLATFORM_COLOR[item.platform] || PLATFORM_COLOR['Đa kênh']}>{item.platform}</Badge>
@@ -208,6 +211,8 @@ export function DailyContentPage({ user }: { user: User }) {
                         return (
                           <div
                             key={d.id}
+                            onDoubleClick={(e) => { e.stopPropagation(); setDetailItem(d); }}
+                            title="Nhấn đúp để xem chi tiết"
                             className={`rounded-md px-1.5 py-1 border-l-2 ${STATUS_BADGE[d.status]} ${overdue ? 'border-red-500' : 'border-transparent'}`}
                           >
                             <p className="text-[11px] font-bold leading-tight line-clamp-2">{d.title}</p>
@@ -281,7 +286,66 @@ export function DailyContentPage({ user }: { user: User }) {
         message={`Xoá "${confirmDel?.title}"?`}
         onConfirm={() => confirmDel && deleteDailyContent(confirmDel.id).then(() => toast('Đã xoá')).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
       />
+
+      <ContentDetailDrawer
+        item={detailItem}
+        assignee={detailItem ? memberOf(detailItem.assigneeId) : undefined}
+        canEdit={canEditDaily}
+        onClose={() => setDetailItem(null)}
+        onEdit={(it) => { setDetailItem(null); setEditing(it); setModalOpen(true); }}
+      />
     </div>
+  );
+}
+
+/* ---------- Content detail drawer (trượt từ trái) ---------- */
+function ContentDetailDrawer({
+  item, assignee, canEdit, onClose, onEdit,
+}: {
+  item: DailyContent | null;
+  assignee?: { username?: string; avatarUrl?: string };
+  canEdit: boolean;
+  onClose: () => void;
+  onEdit: (it: DailyContent) => void;
+}) {
+  if (!item) return null;
+  const overdue = item.status !== 'published' && item.status !== 'done' && (item.dueDate || '') < todayStr();
+  const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div className="flex items-start justify-between gap-4 py-2.5 border-b border-line">
+      <span className="text-xs font-bold text-muted uppercase tracking-wide shrink-0">{label}</span>
+      <span className="text-sm text-ink text-right break-words min-w-0">{children}</span>
+    </div>
+  );
+  return (
+    <Drawer
+      open={!!item}
+      onClose={onClose}
+      side="left"
+      title={<div>
+        <p className="font-extrabold leading-snug break-words">{item.title}</p>
+        <p className="text-xs text-muted">{item.type}</p>
+      </div>}
+      headerExtra={canEdit ? (
+        <button type="button" onClick={() => onEdit(item)} title="Sửa" className="text-muted hover:text-ink cursor-pointer p-1 shrink-0"><Pencil size={16} /></button>
+      ) : undefined}
+    >
+      <div className="space-y-0.5">
+        <Row label="Nền tảng"><Badge color={PLATFORM_COLOR[item.platform] || PLATFORM_COLOR['Đa kênh']}>{item.platform}</Badge></Row>
+        <Row label="Trạng thái"><Badge color={STATUS_BADGE[item.status]}>{STATUS_LABEL[item.status]}</Badge></Row>
+        <Row label="Ngày đăng"><span className={overdue ? 'text-red-400 font-bold' : ''}>{formatDate(item.dueDate)}{overdue ? ' · quá hạn' : ''}</span></Row>
+        <Row label="Người phụ trách">
+          {assignee ? (
+            <span className="inline-flex items-center gap-1.5"><Avatar name={assignee.username} url={assignee.avatarUrl} size={20} />{assignee.username}</span>
+          ) : <span className="text-dim">Chưa gán</span>}
+        </Row>
+      </div>
+      {item.notes && (
+        <div className="mt-4">
+          <p className="text-xs font-bold text-muted uppercase tracking-wide mb-1.5">Ghi chú</p>
+          <p className="text-sm text-muted whitespace-pre-wrap break-words">{item.notes}</p>
+        </div>
+      )}
+    </Drawer>
   );
 }
 
@@ -306,9 +370,15 @@ function ContentFormModal({
   }
 
   const set = (k: keyof DailyContent, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
+  const submit = async () => {
+    if (busy || !form.title) return;
+    setBusy(true);
+    await onSave(form);
+    setBusy(false);
+  };
 
   return (
-    <Modal open={open} onClose={onClose} title={editing?.id ? 'Sửa nội dung' : 'Nội dung mới'}>
+    <Modal open={open} onClose={onClose} onSubmit={submit} title={editing?.id ? 'Sửa nội dung' : 'Nội dung mới'}>
       <div className="space-y-4">
         <Field label="Tiêu đề">
           <Input value={form.title || ''} onChange={(e) => set('title', e.target.value)} placeholder="VD: Reels trend tuần này" autoFocus />
@@ -346,7 +416,7 @@ function ContentFormModal({
         </Field>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Huỷ</Button>
-          <Button disabled={busy || !form.title} onClick={async () => { setBusy(true); await onSave(form); setBusy(false); }}>
+          <Button type="submit" disabled={busy || !form.title}>
             {editing?.id ? 'Lưu' : 'Thêm'}
           </Button>
         </div>

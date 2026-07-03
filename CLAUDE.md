@@ -46,6 +46,8 @@ src/
 10. **Google Sheets sync**: nút bấm thủ công ở Settings → Google Sheet. Client build payload (`src/lib/sheets.ts`) → POST text/plain tới Google Apps Script webhook (code mẫu + hướng dẫn: `apps-script/sync.gs`). URL lưu ở team doc field `sheetsWebhookUrl`. Không có server/cron.
 11. UI labels: "Inhouse" (không dùng "Nội bộ"). Tab Inhouse/Outsource ở Projects được lift state lên App.tsx để không reset khi mở project.
 12. **Kéo-thả kanban** (HTML5 DnD thuần, editor trở lên): kéo card dự án giữa các cột đổi status (itemStatus tự map qua `itemStatusFromProjectStatus` trong `src/lib/utils.ts` — dùng chung với ProjectDetail); kéo card Daily Content ở view kanban đổi status. Projects có ô tìm kiếm không dấu (normalize) theo tên/loại sản phẩm/mô tả.
+13. **Form UX**: `Modal` nhận prop `onSubmit` → bọc children trong `<form>`, Enter trong input tự submit (Textarea vẫn xuống dòng bình thường); nút chính đặt `type="submit"`, nút phụ để mặc định (Button mặc định `type="button"` để không vô tình submit). Áp dụng cho mọi form tạo/sửa (project, task, daily content, báo cáo, thành viên, đổi mật khẩu). Guard hợp lệ đặt trong hàm submit (không chỉ dựa disabled của nút).
+14. **Drawer chi tiết** (`Drawer` trong ui, prop `side='left'|'right'`, animation `slide-in-left/right` trong index.css): nhấn đúp (double-click) vào task ở ProjectDetail hoặc card/ô-lịch Daily Content → mở panel chi tiết trượt từ trái (read-only + nút Sửa nếu có quyền). MemberDetail ở Performance vẫn là drawer phải tự viết (chưa refactor sang `Drawer`).
 
 ## App cũ (tham khảo, không sửa)
 - Repo GitHub `leanhtu1212/media-anna-manage`, deploy Mắt Bão/Plesk qua Passenger, entry `dist/index.cjs`, build esbuild CJS. Domain: annatoiyeu.info.vn.

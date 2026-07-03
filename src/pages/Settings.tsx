@@ -129,17 +129,17 @@ function GeneralTab({ user }: { user: User }) {
 
       <Card className="p-6">
         <h2 className="font-bold mb-5">Đổi mật khẩu</h2>
-        <div className="space-y-3">
+        <form onSubmit={(e) => { e.preventDefault(); handleChangePassword(); }} className="space-y-3">
           <Field label="Mật khẩu mới">
             <Input type="password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
           </Field>
           <Field label="Xác nhận mật khẩu">
             <Input type="password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
           </Field>
-          <Button disabled={busy || !pw.next} onClick={handleChangePassword} className="w-full">
+          <Button type="submit" disabled={busy || !pw.next} className="w-full">
             {busy ? <Loader2 size={15} className="animate-spin" /> : 'Cập nhật mật khẩu'}
           </Button>
-        </div>
+        </form>
       </Card>
     </div>
   );
@@ -219,7 +219,7 @@ function MembersTab({ user }: { user: User }) {
         ))}
       </div>
 
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Thêm thành viên">
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} onSubmit={handleAdd} title="Thêm thành viên">
         <div className="space-y-4">
           <Field label="Tên đăng nhập">
             <Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder="VD: hieu" autoFocus />
@@ -242,7 +242,7 @@ function MembersTab({ user }: { user: User }) {
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setAddOpen(false)}>Huỷ</Button>
-            <Button disabled={busy} onClick={handleAdd}>{busy ? <Loader2 size={15} className="animate-spin" /> : 'Tạo tài khoản'}</Button>
+            <Button type="submit" disabled={busy}>{busy ? <Loader2 size={15} className="animate-spin" /> : 'Tạo tài khoản'}</Button>
           </div>
         </div>
       </Modal>
@@ -269,8 +269,22 @@ function EditMemberForm({ member, onDone }: { member: Member; onDone: () => void
   const [form, setForm] = useState({ username: member.username || '', role: member.role, title: member.title || '' });
   const [busy, setBusy] = useState(false);
 
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await updateDoc(dbRef.member(member.id), form);
+      toast('Đã cập nhật thành viên');
+      onDone();
+    } catch (e: unknown) {
+      toast(`Lỗi: ${(e as Error).message}`, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="space-y-4">
+    <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="space-y-4">
       <Field label="Tên hiển thị">
         <Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
       </Field>
@@ -289,25 +303,11 @@ function EditMemberForm({ member, onDone }: { member: Member; onDone: () => void
       </div>
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onDone}>Huỷ</Button>
-        <Button
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              await updateDoc(dbRef.member(member.id), form);
-              toast('Đã cập nhật thành viên');
-              onDone();
-            } catch (e: unknown) {
-              toast(`Lỗi: ${(e as Error).message}`, 'error');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
+        <Button type="submit" disabled={busy}>
           <Save size={14} /> Lưu
         </Button>
       </div>
-    </div>
+    </form>
   );
 }
 

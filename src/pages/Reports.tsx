@@ -267,9 +267,15 @@ function ReportFormModal({
   }
 
   const set = (k: keyof Report, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
+  const submit = async () => {
+    if (busy || !form.content || !form.projectId) return;
+    setBusy(true);
+    await onSave(form);
+    setBusy(false);
+  };
 
   return (
-    <Modal open={open} onClose={onClose} title={editing ? 'Sửa báo cáo' : 'Báo cáo mới'}>
+    <Modal open={open} onClose={onClose} onSubmit={submit} title={editing ? 'Sửa báo cáo' : 'Báo cáo mới'}>
       <div className="space-y-4">
         <Field label="Nội dung">
           <Textarea rows={3} value={form.content || ''} onChange={(e) => set('content', e.target.value)} placeholder="Hôm nay đã làm..." autoFocus />
@@ -303,10 +309,7 @@ function ReportFormModal({
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Huỷ</Button>
-          <Button
-            disabled={busy || !form.content || !form.projectId}
-            onClick={async () => { setBusy(true); await onSave(form); setBusy(false); }}
-          >
+          <Button type="submit" disabled={busy || !form.content || !form.projectId}>
             {editing ? 'Lưu' : 'Tạo báo cáo'}
           </Button>
         </div>

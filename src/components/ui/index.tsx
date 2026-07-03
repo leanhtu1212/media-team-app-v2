@@ -4,7 +4,7 @@ import { X, AlertTriangle } from 'lucide-react';
 /* ---------- Button ---------- */
 type BtnVariant = 'primary' | 'ghost' | 'danger' | 'outline';
 export function Button({
-  variant = 'primary', className = '', children, ...rest
+  variant = 'primary', className = '', children, type = 'button', ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: BtnVariant }) {
   const base = 'inline-flex items-center justify-center gap-2 rounded-lg text-sm font-semibold px-4 py-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer';
   const styles: Record<BtnVariant, string> = {
@@ -13,7 +13,7 @@ export function Button({
     danger: 'bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white',
     outline: 'border border-line-2 text-ink hover:bg-surface-2',
   };
-  return <button className={`${base} ${styles[variant]} ${className}`} {...rest}>{children}</button>;
+  return <button type={type} className={`${base} ${styles[variant]} ${className}`} {...rest}>{children}</button>;
 }
 
 /* ---------- Input / Select / Textarea ---------- */
@@ -39,9 +39,16 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 
 /* ---------- Modal ---------- */
 export function Modal({
-  open, onClose, title, children, wide = false,
-}: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
+  open, onClose, title, children, wide = false, onSubmit,
+}: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean; onSubmit?: () => void }) {
   if (!open) return null;
+  // Khi có onSubmit: bọc nội dung trong <form> để Enter trong input tự submit.
+  // Textarea không submit khi Enter (xuống dòng bình thường) — đúng ý.
+  const Body = onSubmit
+    ? (p: { children: ReactNode }) => (
+        <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="p-5 overflow-y-auto">{p.children}</form>
+      )
+    : (p: { children: ReactNode }) => <div className="p-5 overflow-y-auto">{p.children}</div>;
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div
@@ -50,9 +57,32 @@ export function Modal({
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <h3 className="font-bold text-base">{title}</h3>
-          <button onClick={onClose} className="text-muted hover:text-ink transition-colors cursor-pointer"><X size={18} /></button>
+          <button type="button" onClick={onClose} className="text-muted hover:text-ink transition-colors cursor-pointer"><X size={18} /></button>
         </div>
-        <div className="p-5 overflow-y-auto">{children}</div>
+        <Body>{children}</Body>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Drawer (panel trượt từ cạnh màn hình) ---------- */
+export function Drawer({
+  open, onClose, title, children, side = 'right', headerExtra,
+}: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; side?: 'left' | 'right'; headerExtra?: ReactNode }) {
+  if (!open) return null;
+  const isLeft = side === 'left';
+  return (
+    <div className={`fixed inset-0 z-[140] flex ${isLeft ? 'justify-start' : 'justify-end'} bg-black/60 backdrop-blur-sm`} onClick={onClose}>
+      <div
+        className={`${isLeft ? 'slide-in-left border-r' : 'slide-in-right border-l'} w-full max-w-md h-full bg-surface border-line overflow-y-auto`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-surface border-b border-line px-5 py-4 flex items-center gap-3 z-10">
+          <div className="flex-1 min-w-0">{title}</div>
+          {headerExtra}
+          <button type="button" onClick={onClose} className="text-muted hover:text-ink cursor-pointer p-1 shrink-0"><X size={18} /></button>
+        </div>
+        <div className="p-5">{children}</div>
       </div>
     </div>
   );

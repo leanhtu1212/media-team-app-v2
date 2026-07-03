@@ -216,9 +216,17 @@ export function ProjectFormModal({
   }
 
   const set = (k: keyof Project, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
+  const submit = async () => {
+    if (busy || !form.title) return;
+    setBusy(true);
+    const clean = { ...form };
+    if (clean.qualityScore === undefined) delete clean.qualityScore;
+    await onSave(clean);
+    setBusy(false);
+  };
 
   return (
-    <Modal open={open} onClose={onClose} title={editing ? 'Sửa dự án' : 'Dự án mới'}>
+    <Modal open={open} onClose={onClose} onSubmit={submit} title={editing ? 'Sửa dự án' : 'Dự án mới'}>
       <div className="space-y-4">
         <Field label="Tên dự án">
           <Input value={form.title || ''} onChange={(e) => set('title', e.target.value)} placeholder="VD: Chụp lookbook mùa hè" />
@@ -269,16 +277,7 @@ export function ProjectFormModal({
         )}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Huỷ</Button>
-          <Button
-            disabled={busy || !form.title}
-            onClick={async () => {
-              setBusy(true);
-              const clean = { ...form };
-              if (clean.qualityScore === undefined) delete clean.qualityScore;
-              await onSave(clean);
-              setBusy(false);
-            }}
-          >
+          <Button type="submit" disabled={busy || !form.title}>
             {editing ? 'Lưu' : 'Tạo dự án'}
           </Button>
         </div>

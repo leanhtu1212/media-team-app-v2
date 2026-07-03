@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, Pencil, Camera, Video, Wallet, Star, CheckCircle2, Circle, Calendar, AlertTriangle, Package, FileText, Check, TrendingUp } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
-import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar } from '../components/ui';
+import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
 import { updateProject, deleteProject, createTask, updateTask, deleteTask, toggleDntt } from '../lib/actions';
 import { formatVND, formatDate, todayStr, itemStatusFromProjectStatus, isProjectFinished } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
@@ -25,6 +25,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
   const [taskModal, setTaskModal] = useState<{ open: boolean; category: TaskCategory; editing: Task | null }>({ open: false, category: 'photo', editing: null });
   const [editProject, setEditProject] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'project' | 'task'; task?: Task } | null>(null);
+  const [detailTask, setDetailTask] = useState<Task | null>(null);
 
   const tasks = useMemo(() => allTasks.filter((t) => t.projectId === projectId), [allTasks, projectId]);
 
@@ -56,7 +57,12 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
       {list.map((t) => {
         const creator = memberOf(t.createdBy);
         return (
-          <div key={t.id} className="flex items-center gap-3 py-2.5 group">
+          <div
+            key={t.id}
+            onDoubleClick={() => setDetailTask(t)}
+            title="Nhấn đúp để xem chi tiết"
+            className="flex items-center gap-3 py-2.5 group cursor-default select-none"
+          >
             {category === 'pre-production' && (
               <button
                 onClick={() => isAdmin && toggleDntt(t, user, project.title).then(() => toast(t.dntt ? 'Đã bỏ DNTT' : 'Đã duyệt DNTT')).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
@@ -298,7 +304,84 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
           }
         }}
       />
+
+      <TaskDetailDrawer
+        task={detailTask}
+        creator={detailTask ? memberOf(detailTask.createdBy) : undefined}
+        projectTitle={project.title}
+        canEdit={isEditor}
+        onClose={() => setDetailTask(null)}
+        onEdit={(t) => { setDetailTask(null); setTaskModal({ open: true, category: t.category, editing: t }); }}
+      />
     </div>
+  );
+}
+
+/* ---------- Task detail drawer (trượt từ trái) ---------- */
+function TaskDetailDrawer({
+  task, creator, projectTitle, canEdit, onClose, onEdit,
+}: {
+  task: Task | null;
+  creator?: { username?: string; avatarUrl?: string };
+  projectTitle: string;
+  canEdit: boolean;
+  onClose: () => void;
+  onEdit: (t: Task) => void;
+}) {
+  if (!task) return null;
+  const isPre = task.category === 'pre-production';
+  const catLabel = isPre ? 'Tiền kỳ & Chi phí' : task.category === 'photo' ? 'Ảnh' : 'Video';
+  const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div className="flex items-start justify-between gap-4 py-2.5 border-b border-line">
+      <span className="text-xs font-bold text-muted uppercase tracking-wide shrink-0">{label}</span>
+      <span className="text-sm text-ink text-right break-words min-w-0">{children}</span>
+    </div>
+  );
+  return (
+    <Drawer
+      open={!!task}
+      onClose={onClose}
+      side="left"
+      title={<div>
+        <p className="font-extrabold truncate">{task.title || projectTitle}</p>
+        <p className="text-xs text-muted">{catLabel}</p>
+      </div>}
+      headerExtra={canEdit ? (
+        <button type="button" onClick={() => onEdit(task)} title="Sửa" className="text-muted hover:text-ink cursor-pointer p-1 shrink-0"><Pencil size={16} /></button>
+      ) : undefined}
+    >
+      <div className="space-y-0.5">
+        <Row label="Trạng thái"><Badge color={STATUS_BADGE[task.status] || STATUS_BADGE.pending}>{STATUS_LABEL[task.status] || task.status}</Badge></Row>
+        <Row label="Ngày báo cáo">{formatDate(task.reportDate)}</Row>
+        {isPre ? (
+          <>
+            <Row label="Chi phí"><span className="font-bold text-amber-300">{formatVND(Number(task.amount) || 0)}</span></Row>
+            {task.deadline && <Row label="Deadline">{formatDate(task.deadline)}</Row>}
+            <Row label="Độ khó">{task.difficulty || 1}/5</Row>
+            <Row label="Đã duyệt DNTT">{task.dntt ? <span className="text-emerald-400 font-bold">Có</span> : <span className="text-dim">Chưa</span>}</Row>
+          </>
+        ) : (
+          <Row label="Số lượng">×{task.quantity || 1}</Row>
+        )}
+        <Row label="Người tạo">
+          <span className="inline-flex items-center gap-1.5">
+            <Avatar name={creator?.username} url={creator?.avatarUrl} size={20} />
+            {creator?.username || '—'}
+          </span>
+        </Row>
+        {task.sourceReportId && <Row label="Báo cáo"><span className="text-indigo-300">Đã liên kết báo cáo tự động</span></Row>}
+      </div>
+      {Array.isArray(task.images) && task.images.length > 0 && (
+        <div className="mt-4">
+          <p className="text-xs font-bold text-muted uppercase tracking-wide mb-2">Ảnh ({task.images.length})</p>
+          <div className="grid grid-cols-3 gap-2">
+            {task.images.map((src, i) => (
+              <img key={i} src={src} alt="" className="w-full aspect-square object-cover rounded-lg border border-line" />
+            ))}
+          </div>
+        </div>
+      )}
+    </Drawer>
   );
 }
 
@@ -460,9 +543,15 @@ function TaskFormModal({
 
   const set = (k: keyof Task, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const isPre = state.category === 'pre-production';
+  const submit = async () => {
+    if (busy || (isPre && !form.title)) return;
+    setBusy(true);
+    await onSave(form);
+    setBusy(false);
+  };
 
   return (
-    <Modal open={state.open} onClose={onClose} title={state.editing ? 'Sửa task' : `Thêm ${isPre ? 'chi phí tiền kỳ' : state.category === 'photo' ? 'ảnh' : 'video'}`}>
+    <Modal open={state.open} onClose={onClose} onSubmit={submit} title={state.editing ? 'Sửa task' : `Thêm ${isPre ? 'chi phí tiền kỳ' : state.category === 'photo' ? 'ảnh' : 'video'}`}>
       <div className="space-y-4">
         {isPre ? (
           <Field label="Tên khoản chi">
@@ -501,10 +590,7 @@ function TaskFormModal({
         )}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Huỷ</Button>
-          <Button
-            disabled={busy || (isPre && !form.title)}
-            onClick={async () => { setBusy(true); await onSave(form); setBusy(false); }}
-          >
+          <Button type="submit" disabled={busy || (isPre && !form.title)}>
             {state.editing ? 'Lưu' : 'Thêm'}
           </Button>
         </div>
