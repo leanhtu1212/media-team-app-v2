@@ -312,6 +312,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
         canEdit={isEditor}
         onClose={() => setDetailTask(null)}
         onEdit={(t) => { setDetailTask(null); setTaskModal({ open: true, category: t.category, editing: t }); }}
+        onDelete={(t) => { setDetailTask(null); setConfirmDelete({ type: 'task', task: t }); }}
       />
     </div>
   );
@@ -319,7 +320,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
 
 /* ---------- Task detail drawer (trượt từ trái) ---------- */
 function TaskDetailDrawer({
-  task, creator, projectTitle, canEdit, onClose, onEdit,
+  task, creator, projectTitle, canEdit, onClose, onEdit, onDelete,
 }: {
   task: Task | null;
   creator?: { username?: string; avatarUrl?: string };
@@ -327,6 +328,7 @@ function TaskDetailDrawer({
   canEdit: boolean;
   onClose: () => void;
   onEdit: (t: Task) => void;
+  onDelete: (t: Task) => void;
 }) {
   if (!task) return null;
   const isPre = task.category === 'pre-production';
@@ -347,7 +349,10 @@ function TaskDetailDrawer({
         <p className="text-xs text-muted">{catLabel}</p>
       </div>}
       headerExtra={canEdit ? (
-        <button type="button" onClick={() => onEdit(task)} title="Sửa" className="text-muted hover:text-ink cursor-pointer p-1 shrink-0"><Pencil size={16} /></button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button type="button" onClick={() => onEdit(task)} title="Sửa" className="text-muted hover:text-ink cursor-pointer p-1"><Pencil size={16} /></button>
+          <button type="button" onClick={() => onDelete(task)} title="Xoá" className="text-muted hover:text-red-400 cursor-pointer p-1"><Trash2 size={16} /></button>
+        </div>
       ) : undefined}
     >
       <div className="space-y-0.5">

@@ -110,6 +110,7 @@ function useContentModals(user: User) {
         canEdit={canEditDaily}
         onClose={() => setDetailItem(null)}
         onEdit={(it) => { setDetailItem(null); openEdit(it); }}
+        onDelete={(it) => { setDetailItem(null); setConfirmDel(it); }}
       />
     </>
   );
@@ -590,13 +591,14 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
 
 /* ---------- Content detail drawer (trượt từ trái) ---------- */
 function ContentDetailDrawer({
-  item, assignee, canEdit, onClose, onEdit,
+  item, assignee, canEdit, onClose, onEdit, onDelete,
 }: {
   item: DailyContent | null;
   assignee?: { username?: string; avatarUrl?: string };
   canEdit: boolean;
   onClose: () => void;
   onEdit: (it: DailyContent) => void;
+  onDelete: (it: DailyContent) => void;
 }) {
   if (!item) return null;
   const overdue = isDailyOverdue(item);
@@ -616,7 +618,10 @@ function ContentDetailDrawer({
         <p className="text-xs text-muted">{item.type}</p>
       </div>}
       headerExtra={canEdit ? (
-        <button type="button" onClick={() => onEdit(item)} title="Sửa" className="text-muted hover:text-ink cursor-pointer p-1 shrink-0"><Pencil size={16} /></button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button type="button" onClick={() => onEdit(item)} title="Sửa" className="text-muted hover:text-ink cursor-pointer p-1"><Pencil size={16} /></button>
+          <button type="button" onClick={() => onDelete(item)} title="Xoá" className="text-muted hover:text-red-400 cursor-pointer p-1"><Trash2 size={16} /></button>
+        </div>
       ) : undefined}
     >
       <div className="space-y-0.5">
