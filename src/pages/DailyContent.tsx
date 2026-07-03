@@ -270,6 +270,66 @@ type CalEntry =
   | { kind: 'project'; project: Project }
   | { kind: 'task'; task: Task; project?: Project };
 
+/** Chip trong ô lịch. PHẢI là component cấp module (không định nghĩa inline trong
+ *  DailyContentPage) — nếu inline, mỗi lần re-render (vd click chọn ngày) React coi
+ *  là component mới → remount chip → cú double-click bị gián đoạn giữa 2 lần click. */
+function CalChip({
+  entry, today, assigneeName, onDetail, onOpenProject,
+}: {
+  entry: CalEntry;
+  today: string;
+  assigneeName: (id?: string) => string | undefined;
+  onDetail: (d: DailyContent) => void;
+  onOpenProject: (id: string) => void;
+}) {
+  const stripe = stripeFor(entry, today);
+  if (entry.kind === 'daily') {
+    const d = entry.daily;
+    const name = assigneeName(d.assigneeId);
+    return (
+      <div
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => { e.stopPropagation(); onDetail(d); }}
+        title="Nội dung — nhấn đúp để xem chi tiết"
+        className={`rounded-md px-1.5 py-1 border-l-2 cursor-pointer ${stripe} ${TYPE_TINT.content}`}
+      >
+        <p className="text-[11px] font-bold leading-tight line-clamp-2">{d.title}</p>
+        <div className="flex items-center gap-1 mt-0.5">
+          <span className={`text-[9px] px-1 rounded font-bold ${PLATFORM_COLOR[d.platform] || PLATFORM_COLOR['Đa kênh']}`}>{d.platform}</span>
+          {name && <span className="text-[9px] text-dim truncate">{name}</span>}
+        </div>
+      </div>
+    );
+  }
+  if (entry.kind === 'project') {
+    const p = entry.project;
+    const isOut = p.projectType === 'outsource';
+    return (
+      <div
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
+        title={`Dự án ${isOut ? 'outsource' : 'inhouse'} — nhấn đúp để mở`}
+        className={`rounded-md px-1.5 py-1 border-l-2 cursor-pointer ${stripe} ${isOut ? TYPE_TINT.outsource : TYPE_TINT.inhouse}`}
+      >
+        <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><FolderKanban size={10} className="mt-0.5 shrink-0" />{p.title}</p>
+        <span className="text-[9px] font-bold uppercase opacity-80">{isOut ? 'Outsource' : 'Inhouse'} · {STATUS_LABEL[p.status]}</span>
+      </div>
+    );
+  }
+  const { task, project } = entry;
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => { e.stopPropagation(); if (project) onOpenProject(project.id); }}
+      title="Task tiền kỳ — nhấn đúp để mở dự án"
+      className={`rounded-md px-1.5 py-1 border-l-2 cursor-pointer ${stripe} ${TYPE_TINT.task}`}
+    >
+      <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><Wallet size={10} className="mt-0.5 shrink-0" />{task.title}</p>
+      {project && <span className="text-[9px] text-dim truncate block">{project.title}</span>}
+    </div>
+  );
+}
+
 export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
   const { dailyContent, projects, allTasks } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
@@ -310,52 +370,6 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
     const d = i - startOffset + 1;
     return d >= 1 && d <= lastDate ? `${month}-${String(d).padStart(2, '0')}` : null;
   });
-
-  const Chip = ({ entry }: { entry: CalEntry }) => {
-    const stripe = stripeFor(entry, today);
-    if (entry.kind === 'daily') {
-      const d = entry.daily;
-      const assignee = memberOf(d.assigneeId);
-      return (
-        <div
-          onDoubleClick={(e) => { e.stopPropagation(); setDetailItem(d); }}
-          title="Nội dung — nhấn đúp để xem chi tiết"
-          className={`rounded-md px-1.5 py-1 border-l-2 ${stripe} ${TYPE_TINT.content}`}
-        >
-          <p className="text-[11px] font-bold leading-tight line-clamp-2">{d.title}</p>
-          <div className="flex items-center gap-1 mt-0.5">
-            <span className={`text-[9px] px-1 rounded font-bold ${PLATFORM_COLOR[d.platform] || PLATFORM_COLOR['Đa kênh']}`}>{d.platform}</span>
-            {assignee && <span className="text-[9px] text-dim truncate">{assignee.username}</span>}
-          </div>
-        </div>
-      );
-    }
-    if (entry.kind === 'project') {
-      const p = entry.project;
-      const isOut = p.projectType === 'outsource';
-      return (
-        <div
-          onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
-          title={`Dự án ${isOut ? 'outsource' : 'inhouse'} — nhấn đúp để mở`}
-          className={`rounded-md px-1.5 py-1 border-l-2 ${stripe} ${isOut ? TYPE_TINT.outsource : TYPE_TINT.inhouse}`}
-        >
-          <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><FolderKanban size={10} className="mt-0.5 shrink-0" />{p.title}</p>
-          <span className="text-[9px] font-bold uppercase opacity-80">{isOut ? 'Outsource' : 'Inhouse'} · {STATUS_LABEL[p.status]}</span>
-        </div>
-      );
-    }
-    const { task, project } = entry;
-    return (
-      <div
-        onDoubleClick={(e) => { e.stopPropagation(); if (project) onOpenProject(project.id); }}
-        title="Task tiền kỳ — nhấn đúp để mở dự án"
-        className={`rounded-md px-1.5 py-1 border-l-2 ${stripe} ${TYPE_TINT.task}`}
-      >
-        <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><Wallet size={10} className="mt-0.5 shrink-0" />{task.title}</p>
-        {project && <span className="text-[9px] text-dim truncate block">{project.title}</span>}
-      </div>
-    );
-  };
 
   const selectedEntries = selectedDay ? byDay[selectedDay] || [] : [];
   const selDailies = selectedEntries.filter((e): e is Extract<CalEntry, { kind: 'daily' }> => e.kind === 'daily');
@@ -401,7 +415,16 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                   {list.length > 0 && <span className="text-[10px] font-bold text-dim">{list.length}</span>}
                 </div>
                 <div className="space-y-1 flex-1">
-                  {list.slice(0, 4).map((entry, j) => <Chip key={j} entry={entry} />)}
+                  {list.slice(0, 4).map((entry, j) => (
+                    <CalChip
+                      key={j}
+                      entry={entry}
+                      today={today}
+                      assigneeName={(id) => memberOf(id)?.username}
+                      onDetail={setDetailItem}
+                      onOpenProject={onOpenProject}
+                    />
+                  ))}
                   {list.length > 4 && <span className="text-[10px] text-dim block pl-1">+{list.length - 4} mục khác</span>}
                 </div>
               </div>
