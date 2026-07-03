@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
-import { createDailyContent, updateDailyContent, deleteDailyContent } from '../lib/actions';
+import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask } from '../lib/actions';
 import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import type { DailyContent, DailyStatus, Project, Task } from '../types';
@@ -270,28 +270,45 @@ type CalEntry =
   | { kind: 'project'; project: Project }
   | { kind: 'task'; task: Task; project?: Project };
 
+/** Mã hoá payload kéo-thả cho từng loại chip → parse ở handler drop. */
+function dragPayload(entry: CalEntry): string {
+  if (entry.kind === 'daily') return `daily:${entry.daily.id}`;
+  if (entry.kind === 'project') return `project:${entry.project.id}`;
+  return `task:${entry.task.projectId}:${entry.task.id}`;
+}
+
 /** Chip trong ô lịch. PHẢI là component cấp module (không định nghĩa inline trong
  *  DailyContentPage) — nếu inline, mỗi lần re-render (vd click chọn ngày) React coi
  *  là component mới → remount chip → cú double-click bị gián đoạn giữa 2 lần click. */
 function CalChip({
-  entry, today, assigneeName, onDetail, onOpenProject,
+  entry, today, canEditDaily, isEditor, assigneeName, onDetail, onOpenProject,
 }: {
   entry: CalEntry;
   today: string;
+  canEditDaily: boolean;
+  isEditor: boolean;
   assigneeName: (id?: string) => string | undefined;
   onDetail: (d: DailyContent) => void;
   onOpenProject: (id: string) => void;
 }) {
   const stripe = stripeFor(entry, today);
+  const canDrag = entry.kind === 'daily' ? canEditDaily : isEditor;
+  const dragProps = canDrag ? {
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => { e.stopPropagation(); e.dataTransfer.setData('text/plain', dragPayload(entry)); e.dataTransfer.effectAllowed = 'move'; },
+  } : {};
+  const dragCls = canDrag ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer';
+
   if (entry.kind === 'daily') {
     const d = entry.daily;
     const name = assigneeName(d.assigneeId);
     return (
       <div
+        {...dragProps}
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => { e.stopPropagation(); onDetail(d); }}
-        title="Nội dung — nhấn đúp để xem chi tiết"
-        className={`rounded-md px-1.5 py-1 border-l-2 cursor-pointer ${stripe} ${TYPE_TINT.content}`}
+        title={`Nội dung — nhấn đúp để xem chi tiết${canDrag ? ', kéo để đổi ngày' : ''}`}
+        className={`rounded-md px-1.5 py-1 border-l-2 ${dragCls} ${stripe} ${TYPE_TINT.content}`}
       >
         <p className="text-[11px] font-bold leading-tight line-clamp-2">{d.title}</p>
         <div className="flex items-center gap-1 mt-0.5">
@@ -306,10 +323,11 @@ function CalChip({
     const isOut = p.projectType === 'outsource';
     return (
       <div
+        {...dragProps}
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
-        title={`Dự án ${isOut ? 'outsource' : 'inhouse'} — nhấn đúp để mở`}
-        className={`rounded-md px-1.5 py-1 border-l-2 cursor-pointer ${stripe} ${isOut ? TYPE_TINT.outsource : TYPE_TINT.inhouse}`}
+        title={`Dự án ${isOut ? 'outsource' : 'inhouse'} — nhấn đúp để mở${canDrag ? ', kéo để đổi deadline' : ''}`}
+        className={`rounded-md px-1.5 py-1 border-l-2 ${dragCls} ${stripe} ${isOut ? TYPE_TINT.outsource : TYPE_TINT.inhouse}`}
       >
         <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><FolderKanban size={10} className="mt-0.5 shrink-0" />{p.title}</p>
         <span className="text-[9px] font-bold uppercase opacity-80">{isOut ? 'Outsource' : 'Inhouse'} · {STATUS_LABEL[p.status]}</span>
@@ -319,10 +337,11 @@ function CalChip({
   const { task, project } = entry;
   return (
     <div
+      {...dragProps}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => { e.stopPropagation(); if (project) onOpenProject(project.id); }}
-      title="Task tiền kỳ — nhấn đúp để mở dự án"
-      className={`rounded-md px-1.5 py-1 border-l-2 cursor-pointer ${stripe} ${TYPE_TINT.task}`}
+      title={`Task tiền kỳ — nhấn đúp để mở dự án${canDrag ? ', kéo để đổi deadline' : ''}`}
+      className={`rounded-md px-1.5 py-1 border-l-2 ${dragCls} ${stripe} ${TYPE_TINT.task}`}
     >
       <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><Wallet size={10} className="mt-0.5 shrink-0" />{task.title}</p>
       {project && <span className="text-[9px] text-dim truncate block">{project.title}</span>}
@@ -331,12 +350,41 @@ function CalChip({
 }
 
 export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
-  const { dailyContent, projects, allTasks } = useAppData();
+  const { dailyContent, projects, allTasks, isEditor } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
   const [month, setMonth] = useState(currentMonth());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [dragOverDay, setDragOverDay] = useState<string | null>(null);
 
   const today = todayStr();
+
+  // Kéo chip sang ngày khác → cập nhật ngày (nội dung: dueDate; dự án/task: deadline)
+  const handleDropOnDay = async (date: string, payload: string) => {
+    const [kind, a, b] = payload.split(':');
+    try {
+      if (kind === 'daily') {
+        if (!canEditDaily) return;
+        const d = dailyContent.find((x) => x.id === a);
+        if (!d || d.dueDate === date) return;
+        await updateDailyContent(a, { dueDate: date });
+        toast(`"${d.title}" → ${formatDate(date)}`);
+      } else if (kind === 'project') {
+        if (!isEditor) return;
+        const p = projects.find((x) => x.id === a);
+        if (!p || p.deadline === date) return;
+        await updateProject(a, { deadline: date });
+        toast(`Deadline "${p.title}" → ${formatDate(date)}`);
+      } else if (kind === 'task') {
+        if (!isEditor) return;
+        const t = allTasks.find((x) => x.id === b && x.projectId === a);
+        if (!t || t.deadline === date) return;
+        await updateTask(a, b, { deadline: date });
+        toast(`Deadline task → ${formatDate(date)}`);
+      }
+    } catch (e: unknown) {
+      toast(`Lỗi: ${(e as Error).message}`, 'error');
+    }
+  };
 
   // Gom mọi entry của tháng theo ngày
   const byDay = useMemo(() => {
@@ -396,6 +444,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
             const list = byDay[date] || [];
             const isToday = date === today;
             const isSelected = date === selectedDay;
+            const isDragOver = date === dragOverDay;
             return (
               // Ô ngày là <div> (không phải <button>) để các chip lồng bên trong nhận
               // được sự kiện double-click riêng — button không giao event cho con.
@@ -405,9 +454,17 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                 tabIndex={0}
                 onClick={() => setSelectedDay(isSelected ? null : date)}
                 onDoubleClick={() => canEditDaily && openNew(date)}
+                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverDay !== date) setDragOverDay(date); }}
+                onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverDay((cur) => (cur === date ? null : cur)); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOverDay(null);
+                  const payload = e.dataTransfer.getData('text/plain');
+                  if (payload) handleDropOnDay(date, payload);
+                }}
                 title={canEditDaily ? 'Nhấn đúp vào chỗ trống để tạo nội dung' : undefined}
                 className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col select-none ${
-                  isSelected ? 'border-accent bg-accent/10' : isToday ? 'border-indigo-500/40 bg-surface-2' : 'border-line hover:border-line-2'
+                  isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40' : isSelected ? 'border-accent bg-accent/10' : isToday ? 'border-indigo-500/40 bg-surface-2' : 'border-line hover:border-line-2'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1.5">
@@ -420,6 +477,8 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                       key={j}
                       entry={entry}
                       today={today}
+                      canEditDaily={canEditDaily}
+                      isEditor={isEditor}
                       assigneeName={(id) => memberOf(id)?.username}
                       onDetail={setDetailItem}
                       onOpenProject={onOpenProject}
