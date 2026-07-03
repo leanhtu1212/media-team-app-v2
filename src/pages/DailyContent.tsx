@@ -4,7 +4,7 @@ import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
 import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject } from '../lib/actions';
 import { ProjectFormModal } from './Projects';
-import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished } from '../lib/utils';
+import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import type { DailyContent, DailyStatus, Project, Task } from '../types';
 import type { User } from '../lib/firebase';
@@ -55,6 +55,45 @@ function stripeFor(entry: CalEntry, today: string): string {
   const t = entry.task;
   if ((t.deadline || '') < today) return 'border-red-500';
   return 'border-amber-400';
+}
+
+/* ================================================================
+ * Thanh dự án nối liền (kiểu Google Calendar) — chỉ dự án INHOUSE
+ * có ngày tạo (createdAt) + deadline: vẽ liền mạch từ start → deadline.
+ * ================================================================ */
+type SpanProject = { project: Project; start: string; end: string };
+
+const BAR_UNIT = 24; // chiều cao mỗi lane thanh (px)
+const BAR_TOP = 26;  // chừa chỗ số ngày ở đầu ô
+
+// Xếp các thanh trong 1 tuần vào lane để không đè nhau; clamp theo các ngày thật của tuần.
+function layoutWeek(week: (string | null)[], spans: SpanProject[]) {
+  type Bar = { project: Project; colStart: number; span: number; roundLeft: boolean; roundRight: boolean; lane: number };
+  const bars: Bar[] = [];
+  for (const s of spans) {
+    const cols: number[] = [];
+    week.forEach((d, c) => { if (d && d >= s.start && d <= s.end) cols.push(c); });
+    if (!cols.length) continue;
+    const colStart = Math.min(...cols);
+    const colEnd = Math.max(...cols);
+    bars.push({
+      project: s.project,
+      colStart,
+      span: colEnd - colStart + 1,
+      roundLeft: week[colStart] === s.start, // đầu thật của dự án nằm trong tuần này
+      roundRight: week[colEnd] === s.end,    // deadline nằm trong tuần này
+      lane: 0,
+    });
+  }
+  bars.sort((a, b) => a.colStart - b.colStart);
+  const laneEnd: number[] = []; // cột cuối đang bị chiếm của mỗi lane
+  for (const bar of bars) {
+    let lane = laneEnd.findIndex((e) => e < bar.colStart);
+    if (lane === -1) { lane = laneEnd.length; laneEnd.push(-1); }
+    laneEnd[lane] = bar.colStart + bar.span - 1;
+    bar.lane = lane;
+  }
+  return { bars, laneCount: laneEnd.length };
 }
 
 /* ================================================================
@@ -400,7 +439,22 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
     }
   };
 
-  // Gom mọi entry của tháng theo ngày
+  // Dự án inhouse đang chạy có ngày tạo + deadline → vẽ thanh nối liền (start=createdAt → deadline).
+  // Thiếu createdAt hoặc deadline, hoặc là outsource → rơi về chip 1 ngày (ở byDay dưới).
+  const spanProjects = useMemo<SpanProject[]>(() => {
+    const [mStart, mEnd] = monthRange(month);
+    return projects.flatMap((p) => {
+      if (isProjectFinished(p.status) || p.projectType === 'outsource') return [];
+      const start = tsToDateStr(p.createdAt);
+      const end = p.deadline || null;
+      if (!start || !end || start > end) return [];
+      if (end < mStart || start > mEnd) return []; // không giao với tháng đang xem
+      return [{ project: p, start, end }];
+    });
+  }, [projects, month]);
+  const spanIds = useMemo(() => new Set(spanProjects.map((s) => s.project.id)), [spanProjects]);
+
+  // Gom mọi entry của tháng theo ngày (bỏ qua dự án đã vẽ thành thanh nối liền)
   const byDay = useMemo(() => {
     const map: Record<string, CalEntry[]> = {};
     const push = (date: string, e: CalEntry) => { (map[date] ||= []).push(e); };
@@ -408,8 +462,9 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
     dailyContent.forEach((d) => {
       if ((d.dueDate || '').startsWith(month)) push(d.dueDate!, { kind: 'daily', daily: d });
     });
-    // Dự án đang chạy, deadline trong tháng
+    // Dự án đang chạy, deadline trong tháng (trừ dự án đã thành thanh)
     projects.forEach((p) => {
+      if (spanIds.has(p.id)) return;
       if (!isProjectFinished(p.status) && (p.deadline || '').startsWith(month)) push(p.deadline!, { kind: 'project', project: p });
     });
     // Task tiền kỳ chưa xong, deadline trong tháng
@@ -419,9 +474,9 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
       }
     });
     return map;
-  }, [dailyContent, projects, allTasks, month]);
+  }, [dailyContent, projects, allTasks, month, spanIds]);
 
-  const monthCount = useMemo(() => Object.values(byDay).reduce((s, l) => s + l.length, 0), [byDay]);
+  const monthCount = useMemo(() => Object.values(byDay).reduce((s, l) => s + l.length, 0) + spanProjects.length, [byDay, spanProjects]);
 
   // Calendar cells
   const [yy, mm] = month.split('-').map(Number);
@@ -432,6 +487,8 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
     const d = i - startOffset + 1;
     return d >= 1 && d <= lastDate ? `${month}-${String(d).padStart(2, '0')}` : null;
   });
+  const weeks: (string | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
   const selectedEntries = selectedDay ? byDay[selectedDay] || [] : [];
   const selDailies = selectedEntries.filter((e): e is Extract<CalEntry, { kind: 'daily' }> => e.kind === 'daily');
@@ -451,55 +508,93 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
       <MonthNav month={month} onChange={setMonth} />
 
       <Card className="p-3 sm:p-4">
-        <div className="grid grid-cols-7 gap-2">
+        <div className="grid grid-cols-7 gap-2 mb-2">
           {DAY_LABELS.map((d) => <div key={d} className="text-center text-xs font-bold text-dim py-1">{d}</div>)}
-          {cells.map((date, i) => {
-            if (!date) return <div key={i} />;
-            const list = byDay[date] || [];
-            const isToday = date === today;
-            const isSelected = date === selectedDay;
-            const isDragOver = date === dragOverDay;
+        </div>
+        <div className="space-y-2">
+          {weeks.map((week, wi) => {
+            // Bố cục thanh dự án nối liền của tuần này
+            const { bars, laneCount } = layoutWeek(week, spanProjects);
             return (
-              // Ô ngày là <div> (không phải <button>) để các chip lồng bên trong nhận
-              // được sự kiện double-click riêng — button không giao event cho con.
-              <div
-                key={date}
-                role="button"
-                tabIndex={0}
-                onClick={() => setSelectedDay(isSelected ? null : date)}
-                onDoubleClick={() => startCreate(date)}
-                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverDay !== date) setDragOverDay(date); }}
-                onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverDay((cur) => (cur === date ? null : cur)); }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragOverDay(null);
-                  const payload = e.dataTransfer.getData('text/plain');
-                  if (payload) handleDropOnDay(date, payload);
-                }}
-                title={canEditDaily ? (isEditor ? 'Nhấn đúp để tạo mới (dự án / nội dung)' : 'Nhấn đúp vào chỗ trống để tạo nội dung') : undefined}
-                className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col select-none ${
-                  isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40' : isSelected ? 'border-accent bg-accent/10' : isToday ? 'border-indigo-500/40 bg-surface-2' : 'border-line hover:border-line-2'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className={`text-sm font-bold ${isToday ? 'text-indigo-300' : 'text-muted'}`}>{Number(date.slice(8))}</span>
-                  {list.length > 0 && <span className="text-[10px] font-bold text-dim">{list.length}</span>}
+              <div key={wi} className="relative">
+                {/* Lớp ô ngày */}
+                <div className="grid grid-cols-7 gap-2">
+                  {week.map((date, c) => {
+                    if (!date) return <div key={c} />;
+                    const list = byDay[date] || [];
+                    const isToday = date === today;
+                    const isSelected = date === selectedDay;
+                    const isDragOver = date === dragOverDay;
+                    return (
+                      // Ô ngày là <div> (không phải <button>) để các chip lồng bên trong nhận
+                      // được sự kiện double-click riêng — button không giao event cho con.
+                      <div
+                        key={date}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedDay(isSelected ? null : date)}
+                        onDoubleClick={() => startCreate(date)}
+                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverDay !== date) setDragOverDay(date); }}
+                        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverDay((cur) => (cur === date ? null : cur)); }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setDragOverDay(null);
+                          const payload = e.dataTransfer.getData('text/plain');
+                          if (payload) handleDropOnDay(date, payload);
+                        }}
+                        title={canEditDaily ? (isEditor ? 'Nhấn đúp để tạo mới (dự án / nội dung)' : 'Nhấn đúp vào chỗ trống để tạo nội dung') : undefined}
+                        className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col select-none ${
+                          isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40' : isSelected ? 'border-accent bg-accent/10' : isToday ? 'border-indigo-500/40 bg-surface-2' : 'border-line hover:border-line-2'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className={`text-sm font-bold ${isToday ? 'text-indigo-300' : 'text-muted'}`}>{Number(date.slice(8))}</span>
+                          {list.length > 0 && <span className="text-[10px] font-bold text-dim">{list.length}</span>}
+                        </div>
+                        {/* Chừa chỗ phía trên cho các thanh dự án nối liền của tuần */}
+                        <div className="space-y-1 flex-1" style={laneCount ? { marginTop: laneCount * BAR_UNIT } : undefined}>
+                          {list.slice(0, 4).map((entry, j) => (
+                            <CalChip
+                              key={j}
+                              entry={entry}
+                              today={today}
+                              canEditDaily={canEditDaily}
+                              isEditor={isEditor}
+                              assigneeName={(id) => memberOf(id)?.username}
+                              onDetail={setDetailItem}
+                              onOpenProject={onOpenProject}
+                            />
+                          ))}
+                          {list.length > 4 && <span className="text-[10px] text-dim block pl-1">+{list.length - 4} mục khác</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="space-y-1 flex-1">
-                  {list.slice(0, 4).map((entry, j) => (
-                    <CalChip
-                      key={j}
-                      entry={entry}
-                      today={today}
-                      canEditDaily={canEditDaily}
-                      isEditor={isEditor}
-                      assigneeName={(id) => memberOf(id)?.username}
-                      onDetail={setDetailItem}
-                      onOpenProject={onOpenProject}
-                    />
-                  ))}
-                  {list.length > 4 && <span className="text-[10px] text-dim block pl-1">+{list.length - 4} mục khác</span>}
-                </div>
+
+                {/* Lớp thanh dự án nối liền (overlay) — grid-column phủ luôn khoảng gap → liền mạch */}
+                {bars.length > 0 && (
+                  <div className="absolute inset-0 grid grid-cols-7 gap-2 pointer-events-none" style={{ paddingTop: BAR_TOP }}>
+                    {bars.map((bar) => {
+                      const p = bar.project;
+                      const overdue = (p.deadline || '') < today;
+                      return (
+                        <div
+                          key={p.id}
+                          style={{ gridColumn: `${bar.colStart + 1} / span ${bar.span}`, gridRow: 1, alignSelf: 'start', marginTop: bar.lane * BAR_UNIT, height: BAR_UNIT - 4 }}
+                          onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
+                          title={`${p.title}${p.deadline ? ` · deadline ${formatDate(p.deadline)}` : ''}`}
+                          className={`pointer-events-auto cursor-pointer flex items-center gap-1 px-2 text-[11px] font-semibold overflow-hidden select-none border ${
+                            overdue ? 'bg-red-500/25 border-red-500/50 text-red-100' : 'bg-sky-500/25 border-sky-500/50 text-sky-50'
+                          } ${bar.roundLeft ? 'rounded-l-md ml-0.5' : ''} ${bar.roundRight ? 'rounded-r-md mr-0.5' : ''}`}
+                        >
+                          {bar.roundLeft && <FolderKanban size={11} className="shrink-0" />}
+                          <span className="truncate">{p.title}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}

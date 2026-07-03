@@ -7,9 +7,24 @@ export function genId(): string {
   return Array.from({ length: 7 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
-export function todayStr(): string {
-  const d = new Date();
+function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function todayStr(): string {
+  return localDateStr(new Date());
+}
+
+/** Chuyển createdAt (Firestore Timestamp / Date / số / chuỗi) → 'YYYY-MM-DD' theo giờ local. */
+export function tsToDateStr(ts: unknown): string | null {
+  if (!ts) return null;
+  if (typeof ts === 'string') return ts.slice(0, 10) || null;
+  if (typeof ts === 'number') return localDateStr(new Date(ts));
+  if (ts instanceof Date) return localDateStr(ts);
+  const o = ts as { toDate?: () => Date; seconds?: number };
+  if (typeof o.toDate === 'function') return localDateStr(o.toDate());
+  if (typeof o.seconds === 'number') return localDateStr(new Date(o.seconds * 1000));
+  return null;
 }
 
 export function currentMonth(): string {
