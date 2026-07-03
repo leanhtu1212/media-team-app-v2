@@ -30,9 +30,9 @@ const isDailyOverdue = (d: DailyContent) =>
 
 // Nền chip theo LOẠI mục (phân biệt content / dự án inhouse / dự án outsource / task tiền kỳ)
 const TYPE_TINT = {
-  content: 'bg-violet-500/12 text-violet-200',
+  content: 'bg-orange-500/12 text-orange-200',
   inhouse: 'bg-sky-500/12 text-sky-200',
-  outsource: 'bg-fuchsia-500/12 text-fuchsia-200',
+  outsource: 'bg-emerald-500/12 text-emerald-200',
   task: 'bg-amber-500/12 text-amber-200',
 } as const;
 
@@ -603,9 +603,9 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
         <div className="mt-3 space-y-2">
           <div className="flex flex-wrap gap-3 items-center text-[11px] text-muted">
             <span className="font-bold text-dim uppercase text-[10px] tracking-wide">Loại</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500/50" /> Content</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500/50" /> Content</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-sky-500/50" /> Dự án inhouse</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-fuchsia-500/50" /> Dự án outsource</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/50" /> Dự án outsource</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500/50" /> Task tiền kỳ</span>
           </div>
           <div className="flex flex-wrap gap-3 items-center text-[11px] text-muted">
