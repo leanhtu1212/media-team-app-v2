@@ -8,7 +8,7 @@ export type View = 'dashboard' | 'projects' | 'daily' | 'reports' | 'performance
 const NAV: { view: View; label: string; icon: typeof LayoutDashboard; adminOnly?: boolean }[] = [
   { view: 'dashboard', label: 'Tổng quan', icon: LayoutDashboard },
   { view: 'projects', label: 'Dự án', icon: FolderKanban },
-  { view: 'daily', label: 'Daily Content', icon: CalendarDays },
+  { view: 'daily', label: 'Lịch tháng', icon: CalendarDays },
   { view: 'reports', label: 'Báo cáo', icon: FileText },
   { view: 'performance', label: 'Hiệu suất', icon: TrendingUp, adminOnly: true },
   { view: 'settings', label: 'Cài đặt', icon: Settings },

@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, CalendarDays, LayoutGrid, Calendar as CalIcon } from 'lucide-react';
+import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
-import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, EmptyState, Drawer } from '../components/ui';
+import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
 import { createDailyContent, updateDailyContent, deleteDailyContent } from '../lib/actions';
-import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate } from '../lib/utils';
+import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
-import type { DailyContent, DailyStatus } from '../types';
+import type { DailyContent, DailyStatus, Project, Task } from '../types';
 import type { User } from '../lib/firebase';
 
 const STATUSES: DailyStatus[] = ['planned', 'in-progress', 'done', 'published'];
@@ -24,240 +24,30 @@ const PLATFORM_COLOR: Record<string, string> = {
   'Đa kênh': 'bg-violet-500/15 text-violet-300',
 };
 
-export function DailyContentPage({ user }: { user: User }) {
-  const { dailyContent, members, canEditDaily } = useAppData();
+const isDailyOverdue = (d: DailyContent) =>
+  d.status !== 'published' && d.status !== 'done' && (d.dueDate || '') < todayStr();
+
+/* ================================================================
+ * Shared modal/drawer wiring — dùng cho cả kanban (tab Content ở
+ * trang Dự án) lẫn trang Lịch tháng, tránh lặp state 2 nơi.
+ * ================================================================ */
+function useContentModals(user: User) {
+  const { members, canEditDaily } = useAppData();
   const toast = useToast();
-  const [viewMode, setViewMode] = useState<'kanban' | 'month'>('month');
-  const [month, setMonth] = useState(currentMonth());
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<DailyContent | null>(null);
   const [confirmDel, setConfirmDel] = useState<DailyContent | null>(null);
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [dragOverCol, setDragOverCol] = useState<DailyStatus | null>(null);
   const [detailItem, setDetailItem] = useState<DailyContent | null>(null);
 
-  const handleDrop = async (id: string, status: DailyStatus) => {
-    const item = dailyContent.find((d) => d.id === id);
-    if (!item || item.status === status) return;
-    try {
-      await updateDailyContent(id, { status });
-      toast(`"${item.title}" → ${STATUS_LABEL[status]}`);
-    } catch (e: unknown) {
-      toast(`Lỗi: ${(e as Error).message}`, 'error');
-    }
-  };
-
   const memberOf = (id?: string) => members.find((m) => m.uid === id || m.id === id);
-
-  const monthItems = useMemo(
-    () => dailyContent.filter((d) => (d.dueDate || '').startsWith(month)),
-    [dailyContent, month],
-  );
-
   const openNew = (presetDate?: string) => {
     setEditing(presetDate ? ({ dueDate: presetDate } as DailyContent) : null);
     setModalOpen(true);
   };
+  const openEdit = (item: DailyContent) => { setEditing(item); setModalOpen(true); };
 
-  const ItemCard = ({ item }: { item: DailyContent }) => {
-    const assignee = memberOf(item.assigneeId);
-    const overdue = item.status !== 'published' && item.status !== 'done' && (item.dueDate || '') < todayStr();
-    const next = NEXT_STATUS[item.status];
-    return (
-      <Card
-        draggable={canEditDaily}
-        onDragStart={(e: React.DragEvent) => e.dataTransfer.setData('text/plain', item.id)}
-        onDoubleClick={() => setDetailItem(item)}
-        title="Nhấn đúp để xem chi tiết"
-        className="p-3 group hover:border-line-2 transition-all select-none"
-      >
-        <div className="flex items-start justify-between gap-2 mb-1.5">
-          <Badge color={PLATFORM_COLOR[item.platform] || PLATFORM_COLOR['Đa kênh']}>{item.platform}</Badge>
-          {canEditDaily && (
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button onClick={() => { setEditing(item); setModalOpen(true); }} className="text-muted hover:text-ink cursor-pointer"><Pencil size={12} /></button>
-              <button onClick={() => setConfirmDel(item)} className="text-muted hover:text-red-400 cursor-pointer"><Trash2 size={12} /></button>
-            </div>
-          )}
-        </div>
-        <p className="text-sm font-bold leading-snug">{item.title}</p>
-        <p className="text-[11px] text-dim mt-0.5">{item.type}</p>
-        {item.notes && <p className="text-[11px] text-muted mt-1 line-clamp-2">{item.notes}</p>}
-        <div className="flex items-center justify-between mt-2.5">
-          <div className="flex items-center gap-1.5">
-            {assignee && <Avatar name={assignee.username} url={assignee.avatarUrl} size={20} />}
-            <span className={`text-[11px] ${overdue ? 'text-red-400 font-bold' : 'text-dim'}`}>{formatDate(item.dueDate)}</span>
-          </div>
-          {canEditDaily && next && (
-            <button
-              onClick={() => updateDailyContent(item.id, { status: next }).then(() => toast(`→ ${STATUS_LABEL[next]}`)).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
-              className="flex items-center gap-0.5 text-[11px] font-bold text-indigo-300 hover:text-indigo-200 cursor-pointer"
-            >
-              {STATUS_LABEL[next]} <ChevronRight size={11} />
-            </button>
-          )}
-        </div>
-      </Card>
-    );
-  };
-
-  // Month calendar cells
-  const [yy, mm] = month.split('-').map(Number);
-  const startOffset = (new Date(yy, mm - 1, 1).getDay() + 6) % 7;
-  const lastDate = new Date(yy, mm, 0).getDate();
-  const totalCells = Math.ceil((startOffset + lastDate) / 7) * 7;
-  const cells: (string | null)[] = Array.from({ length: totalCells }, (_, i) => {
-    const d = i - startOffset + 1;
-    return d >= 1 && d <= lastDate ? `${month}-${String(d).padStart(2, '0')}` : null;
-  });
-  const byDay = useMemo(() => {
-    const map: Record<string, DailyContent[]> = {};
-    monthItems.forEach((d) => { (map[d.dueDate || ''] ||= []).push(d); });
-    return map;
-  }, [monthItems]);
-
-  return (
-    <div className="fade-up space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-extrabold tracking-tight">Daily Content</h1>
-          <p className="text-sm text-muted">{monthItems.length} nội dung trong {monthLabel(month).toLowerCase()}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex bg-surface border border-line rounded-lg p-0.5">
-            <button
-              onClick={() => setViewMode('month')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${viewMode === 'month' ? 'bg-accent text-white' : 'text-muted hover:text-ink'}`}
-            >
-              <CalIcon size={13} /> Lịch tháng
-            </button>
-            <button
-              onClick={() => setViewMode('kanban')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${viewMode === 'kanban' ? 'bg-accent text-white' : 'text-muted hover:text-ink'}`}
-            >
-              <LayoutGrid size={13} /> Kanban
-            </button>
-          </div>
-          {canEditDaily && <Button onClick={() => openNew()}><Plus size={15} /> Nội dung</Button>}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button onClick={() => setMonth(shiftMonth(month, -1))} className="p-1.5 text-muted hover:text-ink cursor-pointer"><ChevronLeft size={17} /></button>
-        <span className="font-bold text-sm">{monthLabel(month)}</span>
-        <button onClick={() => setMonth(shiftMonth(month, 1))} className="p-1.5 text-muted hover:text-ink cursor-pointer"><ChevronRight size={17} /></button>
-        {month !== currentMonth() && (
-          <button onClick={() => setMonth(currentMonth())} className="text-xs text-indigo-300 hover:underline cursor-pointer">Về tháng này</button>
-        )}
-      </div>
-
-      {viewMode === 'kanban' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          {STATUSES.map((status) => {
-            const items = monthItems.filter((d) => d.status === status).sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
-            return (
-              <div
-                key={status}
-                className={`space-y-3 rounded-xl transition-colors ${dragOverCol === status ? 'bg-accent/5 outline-2 outline-dashed outline-accent/40' : ''}`}
-                onDragOver={(e) => { if (canEditDaily) { e.preventDefault(); setDragOverCol(status); } }}
-                onDragLeave={(e) => { if (e.currentTarget === e.target || !e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCol(null); }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragOverCol(null);
-                  const id = e.dataTransfer.getData('text/plain');
-                  if (id) handleDrop(id, status);
-                }}
-              >
-                <div className="flex items-center justify-between px-1">
-                  <Badge color={STATUS_BADGE[status]}>{STATUS_LABEL[status]}</Badge>
-                  <span className="text-xs font-bold text-dim">{items.length}</span>
-                </div>
-                <div className="space-y-2.5">
-                  {items.map((item) => <ItemCard key={item.id} item={item} />)}
-                  {items.length === 0 && <div className="border border-dashed border-line rounded-xl py-8 text-center text-xs text-dim">Trống</div>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <>
-          <Card className="p-3 sm:p-4">
-            <div className="grid grid-cols-7 gap-2">
-              {DAY_LABELS.map((d) => <div key={d} className="text-center text-xs font-bold text-dim py-1">{d}</div>)}
-              {cells.map((date, i) => {
-                if (!date) return <div key={i} />;
-                const list = byDay[date] || [];
-                const isToday = date === todayStr();
-                const isSelected = date === selectedDay;
-                return (
-                  <button
-                    key={date}
-                    onClick={() => setSelectedDay(isSelected ? null : date)}
-                    onDoubleClick={() => canEditDaily && openNew(date)}
-                    title={canEditDaily ? 'Nhấn đúp để tạo nội dung' : undefined}
-                    className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col ${
-                      isSelected ? 'border-accent bg-accent/10' : isToday ? 'border-indigo-500/40 bg-surface-2' : 'border-line hover:border-line-2'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className={`text-sm font-bold ${isToday ? 'text-indigo-300' : 'text-muted'}`}>{Number(date.slice(8))}</span>
-                      {list.length > 0 && <span className="text-[10px] font-bold text-dim">{list.length}</span>}
-                    </div>
-                    <div className="space-y-1 flex-1">
-                      {list.slice(0, 4).map((d) => {
-                        const assignee = memberOf(d.assigneeId);
-                        const overdue = d.status !== 'published' && d.status !== 'done' && (d.dueDate || '') < todayStr();
-                        return (
-                          <div
-                            key={d.id}
-                            onDoubleClick={(e) => { e.stopPropagation(); setDetailItem(d); }}
-                            title="Nhấn đúp để xem chi tiết"
-                            className={`rounded-md px-1.5 py-1 border-l-2 ${STATUS_BADGE[d.status]} ${overdue ? 'border-red-500' : 'border-transparent'}`}
-                          >
-                            <p className="text-[11px] font-bold leading-tight line-clamp-2">{d.title}</p>
-                            <div className="flex items-center gap-1 mt-0.5">
-                              <span className={`text-[9px] px-1 rounded font-bold ${PLATFORM_COLOR[d.platform] || PLATFORM_COLOR['Đa kênh']}`}>{d.platform}</span>
-                              {assignee && <span className="text-[9px] text-dim truncate">{assignee.username}</span>}
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {list.length > 4 && <span className="text-[10px] text-dim block pl-1">+{list.length - 4} nội dung khác</span>}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-muted">
-              {(['planned', 'in-progress', 'done', 'published'] as const).map((s) => (
-                <span key={s} className="flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-sm ${STATUS_BADGE[s]}`} /> {STATUS_LABEL[s]}</span>
-              ))}
-              <span className="flex items-center gap-1.5 ml-auto"><span className="w-0.5 h-3 bg-red-500 rounded" /> Quá hạn</span>
-            </div>
-          </Card>
-
-          {selectedDay && (
-            <Card className="fade-up">
-              <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-                <h3 className="font-bold text-sm">Nội dung ngày {formatDate(selectedDay)}</h3>
-                {canEditDaily && (
-                  <Button variant="outline" onClick={() => openNew(selectedDay)} className="!py-1 !px-2.5 !text-xs"><Plus size={13} /> Thêm</Button>
-                )}
-              </div>
-              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {(byDay[selectedDay] || []).map((item) => <ItemCard key={item.id} item={item} />)}
-                {(byDay[selectedDay] || []).length === 0 && <p className="text-sm text-dim col-span-full text-center py-4">Chưa có nội dung</p>}
-              </div>
-            </Card>
-          )}
-        </>
-      )}
-
-      {monthItems.length === 0 && viewMode === 'kanban' && (
-        <EmptyState icon={<CalendarDays size={32} />} text="Chưa có nội dung nào trong tháng" />
-      )}
-
+  const modals = (
+    <>
       <ContentFormModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -278,7 +68,6 @@ export function DailyContentPage({ user }: { user: User }) {
           }
         }}
       />
-
       <ConfirmDialog
         open={!!confirmDel}
         onClose={() => setConfirmDel(null)}
@@ -286,14 +75,392 @@ export function DailyContentPage({ user }: { user: User }) {
         message={`Xoá "${confirmDel?.title}"?`}
         onConfirm={() => confirmDel && deleteDailyContent(confirmDel.id).then(() => toast('Đã xoá')).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
       />
-
       <ContentDetailDrawer
         item={detailItem}
         assignee={detailItem ? memberOf(detailItem.assigneeId) : undefined}
         canEdit={canEditDaily}
         onClose={() => setDetailItem(null)}
-        onEdit={(it) => { setDetailItem(null); setEditing(it); setModalOpen(true); }}
+        onEdit={(it) => { setDetailItem(null); openEdit(it); }}
       />
+    </>
+  );
+
+  return { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals };
+}
+
+function MonthNav({ month, onChange }: { month: string; onChange: (m: string) => void }) {
+  return (
+    <div className="flex items-center gap-3">
+      <button onClick={() => onChange(shiftMonth(month, -1))} className="p-1.5 text-muted hover:text-ink cursor-pointer"><ChevronLeft size={17} /></button>
+      <span className="font-bold text-sm">{monthLabel(month)}</span>
+      <button onClick={() => onChange(shiftMonth(month, 1))} className="p-1.5 text-muted hover:text-ink cursor-pointer"><ChevronRight size={17} /></button>
+      {month !== currentMonth() && (
+        <button onClick={() => onChange(currentMonth())} className="text-xs text-indigo-300 hover:underline cursor-pointer">Về tháng này</button>
+      )}
+    </div>
+  );
+}
+
+function ItemCard({
+  item, assignee, canEdit, toast, onEdit, onDelete, onDetail,
+}: {
+  item: DailyContent;
+  assignee?: { username?: string; avatarUrl?: string };
+  canEdit: boolean;
+  toast: (m: string, t?: 'success' | 'error') => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onDetail: () => void;
+}) {
+  const overdue = isDailyOverdue(item);
+  const next = NEXT_STATUS[item.status];
+  return (
+    <Card
+      draggable={canEdit}
+      onDragStart={(e: React.DragEvent) => e.dataTransfer.setData('text/plain', item.id)}
+      onDoubleClick={onDetail}
+      title="Nhấn đúp để xem chi tiết"
+      className="p-3 group hover:border-line-2 transition-all select-none"
+    >
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <Badge color={PLATFORM_COLOR[item.platform] || PLATFORM_COLOR['Đa kênh']}>{item.platform}</Badge>
+        {canEdit && (
+          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={onEdit} className="text-muted hover:text-ink cursor-pointer"><Pencil size={12} /></button>
+            <button onClick={onDelete} className="text-muted hover:text-red-400 cursor-pointer"><Trash2 size={12} /></button>
+          </div>
+        )}
+      </div>
+      <p className="text-sm font-bold leading-snug">{item.title}</p>
+      <p className="text-[11px] text-dim mt-0.5">{item.type}</p>
+      {item.notes && <p className="text-[11px] text-muted mt-1 line-clamp-2">{item.notes}</p>}
+      <div className="flex items-center justify-between mt-2.5">
+        <div className="flex items-center gap-1.5">
+          {assignee && <Avatar name={assignee.username} url={assignee.avatarUrl} size={20} />}
+          <span className={`text-[11px] ${overdue ? 'text-red-400 font-bold' : 'text-dim'}`}>{formatDate(item.dueDate)}</span>
+        </div>
+        {canEdit && next && (
+          <button
+            onClick={() => updateDailyContent(item.id, { status: next }).then(() => toast(`→ ${STATUS_LABEL[next]}`)).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
+            className="flex items-center gap-0.5 text-[11px] font-bold text-indigo-300 hover:text-indigo-200 cursor-pointer"
+          >
+            {STATUS_LABEL[next]} <ChevronRight size={11} />
+          </button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/* ================================================================
+ * ContentKanban — kanban Daily Content, render trong tab "Content"
+ * của trang Dự án.
+ * ================================================================ */
+export function ContentKanban({ user }: { user: User }) {
+  const { dailyContent } = useAppData();
+  const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
+  const [month, setMonth] = useState(currentMonth());
+  const [dragOverCol, setDragOverCol] = useState<DailyStatus | null>(null);
+
+  const monthItems = useMemo(
+    () => dailyContent.filter((d) => (d.dueDate || '').startsWith(month)),
+    [dailyContent, month],
+  );
+
+  const handleDrop = async (id: string, status: DailyStatus) => {
+    const item = dailyContent.find((d) => d.id === id);
+    if (!item || item.status === status) return;
+    try {
+      await updateDailyContent(id, { status });
+      toast(`"${item.title}" → ${STATUS_LABEL[status]}`);
+    } catch (e: unknown) {
+      toast(`Lỗi: ${(e as Error).message}`, 'error');
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <MonthNav month={month} onChange={setMonth} />
+        {canEditDaily && <Button onClick={() => openNew()}><Plus size={15} /> Nội dung</Button>}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        {STATUSES.map((status) => {
+          const items = monthItems.filter((d) => d.status === status).sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
+          return (
+            <div
+              key={status}
+              className={`space-y-3 rounded-xl transition-colors ${dragOverCol === status ? 'bg-accent/5 outline-2 outline-dashed outline-accent/40' : ''}`}
+              onDragOver={(e) => { if (canEditDaily) { e.preventDefault(); setDragOverCol(status); } }}
+              onDragLeave={(e) => { if (e.currentTarget === e.target || !e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCol(null); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverCol(null);
+                const id = e.dataTransfer.getData('text/plain');
+                if (id) handleDrop(id, status);
+              }}
+            >
+              <div className="flex items-center justify-between px-1">
+                <Badge color={STATUS_BADGE[status]}>{STATUS_LABEL[status]}</Badge>
+                <span className="text-xs font-bold text-dim">{items.length}</span>
+              </div>
+              <div className="space-y-2.5">
+                {items.map((item) => (
+                  <ItemCard
+                    key={item.id}
+                    item={item}
+                    assignee={memberOf(item.assigneeId)}
+                    canEdit={canEditDaily}
+                    toast={toast}
+                    onEdit={() => openEdit(item)}
+                    onDelete={() => setConfirmDel(item)}
+                    onDetail={() => setDetailItem(item)}
+                  />
+                ))}
+                {items.length === 0 && <div className="border border-dashed border-line rounded-xl py-8 text-center text-xs text-dim">Trống</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {modals}
+    </div>
+  );
+}
+
+/* ================================================================
+ * Trang "Lịch tháng" — lịch hiển thị mọi thứ đang chạy:
+ *   - Daily Content theo ngày đăng
+ *   - Deadline dự án chưa hoàn thành
+ *   - Task tiền kỳ chưa xong (theo deadline)
+ * ================================================================ */
+type CalEntry =
+  | { kind: 'daily'; daily: DailyContent }
+  | { kind: 'project'; project: Project }
+  | { kind: 'task'; task: Task; project?: Project };
+
+export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
+  const { dailyContent, projects, allTasks } = useAppData();
+  const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
+  const [month, setMonth] = useState(currentMonth());
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+
+  const today = todayStr();
+
+  // Gom mọi entry của tháng theo ngày
+  const byDay = useMemo(() => {
+    const map: Record<string, CalEntry[]> = {};
+    const push = (date: string, e: CalEntry) => { (map[date] ||= []).push(e); };
+
+    dailyContent.forEach((d) => {
+      if ((d.dueDate || '').startsWith(month)) push(d.dueDate!, { kind: 'daily', daily: d });
+    });
+    // Dự án đang chạy, deadline trong tháng
+    projects.forEach((p) => {
+      if (!isProjectFinished(p.status) && (p.deadline || '').startsWith(month)) push(p.deadline!, { kind: 'project', project: p });
+    });
+    // Task tiền kỳ chưa xong, deadline trong tháng
+    allTasks.forEach((t) => {
+      if (t.category === 'pre-production' && t.status !== 'completed' && !t.dntt && (t.deadline || '').startsWith(month)) {
+        push(t.deadline!, { kind: 'task', task: t, project: projects.find((p) => p.id === t.projectId) });
+      }
+    });
+    return map;
+  }, [dailyContent, projects, allTasks, month]);
+
+  const monthCount = useMemo(() => Object.values(byDay).reduce((s, l) => s + l.length, 0), [byDay]);
+
+  // Calendar cells
+  const [yy, mm] = month.split('-').map(Number);
+  const startOffset = (new Date(yy, mm - 1, 1).getDay() + 6) % 7;
+  const lastDate = new Date(yy, mm, 0).getDate();
+  const totalCells = Math.ceil((startOffset + lastDate) / 7) * 7;
+  const cells: (string | null)[] = Array.from({ length: totalCells }, (_, i) => {
+    const d = i - startOffset + 1;
+    return d >= 1 && d <= lastDate ? `${month}-${String(d).padStart(2, '0')}` : null;
+  });
+
+  const Chip = ({ entry }: { entry: CalEntry }) => {
+    if (entry.kind === 'daily') {
+      const d = entry.daily;
+      const assignee = memberOf(d.assigneeId);
+      return (
+        <div
+          onDoubleClick={(e) => { e.stopPropagation(); setDetailItem(d); }}
+          title="Nhấn đúp để xem chi tiết"
+          className={`rounded-md px-1.5 py-1 border-l-2 ${STATUS_BADGE[d.status]} ${isDailyOverdue(d) ? 'border-red-500' : 'border-transparent'}`}
+        >
+          <p className="text-[11px] font-bold leading-tight line-clamp-2">{d.title}</p>
+          <div className="flex items-center gap-1 mt-0.5">
+            <span className={`text-[9px] px-1 rounded font-bold ${PLATFORM_COLOR[d.platform] || PLATFORM_COLOR['Đa kênh']}`}>{d.platform}</span>
+            {assignee && <span className="text-[9px] text-dim truncate">{assignee.username}</span>}
+          </div>
+        </div>
+      );
+    }
+    if (entry.kind === 'project') {
+      const p = entry.project;
+      const overdue = p.deadline! < today;
+      return (
+        <div
+          onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
+          title="Deadline dự án — nhấn đúp để mở"
+          className={`rounded-md px-1.5 py-1 border-l-2 bg-indigo-500/10 text-indigo-300 ${overdue ? 'border-red-500' : 'border-indigo-400/50'}`}
+        >
+          <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><FolderKanban size={10} className="mt-0.5 shrink-0" />{p.title}</p>
+          <span className="text-[9px] font-bold uppercase">{STATUS_LABEL[p.status]}</span>
+        </div>
+      );
+    }
+    const { task, project } = entry;
+    const overdue = task.deadline! < today;
+    return (
+      <div
+        onDoubleClick={(e) => { e.stopPropagation(); if (project) onOpenProject(project.id); }}
+        title="Task tiền kỳ — nhấn đúp để mở dự án"
+        className={`rounded-md px-1.5 py-1 border-l-2 bg-amber-500/10 text-amber-300 ${overdue ? 'border-red-500' : 'border-amber-400/50'}`}
+      >
+        <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><Wallet size={10} className="mt-0.5 shrink-0" />{task.title}</p>
+        {project && <span className="text-[9px] text-dim truncate block">{project.title}</span>}
+      </div>
+    );
+  };
+
+  const selectedEntries = selectedDay ? byDay[selectedDay] || [] : [];
+  const selDailies = selectedEntries.filter((e): e is Extract<CalEntry, { kind: 'daily' }> => e.kind === 'daily');
+  const selProjects = selectedEntries.filter((e): e is Extract<CalEntry, { kind: 'project' }> => e.kind === 'project');
+  const selTasks = selectedEntries.filter((e): e is Extract<CalEntry, { kind: 'task' }> => e.kind === 'task');
+
+  return (
+    <div className="fade-up space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-extrabold tracking-tight">Lịch tháng</h1>
+          <p className="text-sm text-muted">{monthCount} mục trong {monthLabel(month).toLowerCase()} — nội dung, deadline dự án & task đang chạy</p>
+        </div>
+        {canEditDaily && <Button onClick={() => openNew()}><Plus size={15} /> Nội dung</Button>}
+      </div>
+
+      <MonthNav month={month} onChange={setMonth} />
+
+      <Card className="p-3 sm:p-4">
+        <div className="grid grid-cols-7 gap-2">
+          {DAY_LABELS.map((d) => <div key={d} className="text-center text-xs font-bold text-dim py-1">{d}</div>)}
+          {cells.map((date, i) => {
+            if (!date) return <div key={i} />;
+            const list = byDay[date] || [];
+            const isToday = date === today;
+            const isSelected = date === selectedDay;
+            return (
+              <button
+                key={date}
+                onClick={() => setSelectedDay(isSelected ? null : date)}
+                onDoubleClick={() => canEditDaily && openNew(date)}
+                title={canEditDaily ? 'Nhấn đúp để tạo nội dung' : undefined}
+                className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col ${
+                  isSelected ? 'border-accent bg-accent/10' : isToday ? 'border-indigo-500/40 bg-surface-2' : 'border-line hover:border-line-2'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className={`text-sm font-bold ${isToday ? 'text-indigo-300' : 'text-muted'}`}>{Number(date.slice(8))}</span>
+                  {list.length > 0 && <span className="text-[10px] font-bold text-dim">{list.length}</span>}
+                </div>
+                <div className="space-y-1 flex-1">
+                  {list.slice(0, 4).map((entry, j) => <Chip key={j} entry={entry} />)}
+                  {list.length > 4 && <span className="text-[10px] text-dim block pl-1">+{list.length - 4} mục khác</span>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-muted">
+          {(['planned', 'in-progress', 'done', 'published'] as const).map((s) => (
+            <span key={s} className="flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-sm ${STATUS_BADGE[s]}`} /> {STATUS_LABEL[s]}</span>
+          ))}
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-indigo-500/40" /> Deadline dự án</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500/40" /> Task tiền kỳ</span>
+          <span className="flex items-center gap-1.5 ml-auto"><span className="w-0.5 h-3 bg-red-500 rounded" /> Quá hạn</span>
+        </div>
+      </Card>
+
+      {selectedDay && (
+        <Card className="fade-up">
+          <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+            <h3 className="font-bold text-sm">Ngày {formatDate(selectedDay)}</h3>
+            {canEditDaily && (
+              <Button variant="outline" onClick={() => openNew(selectedDay)} className="!py-1 !px-2.5 !text-xs"><Plus size={13} /> Thêm nội dung</Button>
+            )}
+          </div>
+          <div className="p-4 space-y-5">
+            {selectedEntries.length === 0 && <p className="text-sm text-dim text-center py-4">Không có mục nào</p>}
+
+            {selDailies.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-muted uppercase tracking-wide mb-2">Nội dung ({selDailies.length})</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {selDailies.map(({ daily }) => (
+                    <ItemCard
+                      key={daily.id}
+                      item={daily}
+                      assignee={memberOf(daily.assigneeId)}
+                      canEdit={canEditDaily}
+                      toast={toast}
+                      onEdit={() => openEdit(daily)}
+                      onDelete={() => setConfirmDel(daily)}
+                      onDetail={() => setDetailItem(daily)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {selProjects.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-muted uppercase tracking-wide mb-2">Deadline dự án ({selProjects.length})</p>
+                <div className="space-y-2">
+                  {selProjects.map(({ project }) => (
+                    <button
+                      key={project.id}
+                      onClick={() => onOpenProject(project.id)}
+                      className="w-full flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-line-2 transition-all text-left cursor-pointer group"
+                    >
+                      <FolderKanban size={15} className="text-indigo-300 shrink-0" />
+                      <span className="flex-1 text-sm font-bold truncate group-hover:text-indigo-300 transition-colors">{project.title}</span>
+                      <Badge color={STATUS_BADGE[project.status]}>{STATUS_LABEL[project.status]}</Badge>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {selTasks.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-muted uppercase tracking-wide mb-2">Task tiền kỳ ({selTasks.length})</p>
+                <div className="space-y-2">
+                  {selTasks.map(({ task, project }) => (
+                    <button
+                      key={task.id}
+                      onClick={() => project && onOpenProject(project.id)}
+                      className="w-full flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-line-2 transition-all text-left cursor-pointer group"
+                    >
+                      <Wallet size={15} className="text-amber-300 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold truncate group-hover:text-indigo-300 transition-colors">{task.title}</p>
+                        {project && <p className="text-[11px] text-dim truncate">{project.title}</p>}
+                      </div>
+                      {(Number(task.amount) || 0) > 0 && <span className="text-xs font-bold text-amber-300 tabular-nums">{formatVND(Number(task.amount) || 0)}</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {modals}
     </div>
   );
 }
@@ -309,7 +476,7 @@ function ContentDetailDrawer({
   onEdit: (it: DailyContent) => void;
 }) {
   if (!item) return null;
-  const overdue = item.status !== 'published' && item.status !== 'done' && (item.dueDate || '') < todayStr();
+  const overdue = isDailyOverdue(item);
   const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
     <div className="flex items-start justify-between gap-4 py-2.5 border-b border-line">
       <span className="text-xs font-bold text-muted uppercase tracking-wide shrink-0">{label}</span>

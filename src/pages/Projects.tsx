@@ -5,18 +5,22 @@ import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, EmptyStat
 import { createProject, updateProject } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
 import { formatDate, todayStr, normalize, itemStatusFromProjectStatus, isProjectFinished } from '../lib/utils';
+import { ContentKanban } from './DailyContent';
 import type { Project, ProjectStatus } from '../types';
 import type { User } from '../lib/firebase';
 
 const COLUMNS: ProjectStatus[] = ['plan', 'pre-production', 'post-production', 'done', 'payment'];
+
+export type ProjectsTab = 'inhouse' | 'outsource' | 'content';
+const TAB_LABEL: Record<ProjectsTab, string> = { inhouse: 'Inhouse', outsource: 'Outsource', content: 'Content' };
 
 export function ProjectsPage({
   user, onOpenProject, typeFilter, onTypeFilterChange,
 }: {
   user: User;
   onOpenProject: (id: string) => void;
-  typeFilter: 'inhouse' | 'outsource';
-  onTypeFilterChange: (t: 'inhouse' | 'outsource') => void;
+  typeFilter: ProjectsTab;
+  onTypeFilterChange: (t: ProjectsTab) => void;
 }) {
   const { projects, allTasks, productTypes, isEditor } = useAppData();
   const toast = useToast();
@@ -29,6 +33,7 @@ export function ProjectsPage({
   // Legacy data may have projectType 'photo' | 'video' | undefined — treat everything
   // that is not explicitly 'outsource' as inhouse so no project is hidden.
   const filtered = useMemo(() => {
+    if (typeFilter === 'content') return [];
     const q = normalize(search);
     return projects.filter((p) => {
       if (typeFilter === 'outsource' ? p.projectType !== 'outsource' : p.projectType === 'outsource') return false;
@@ -63,25 +68,29 @@ export function ProjectsPage({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-extrabold tracking-tight">Dự án</h1>
-          <p className="text-sm text-muted">{filtered.length} dự án {typeFilter}</p>
+          <p className="text-sm text-muted">
+            {typeFilter === 'content' ? 'Kanban nội dung hằng ngày' : `${filtered.length} dự án ${typeFilter}`}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Tìm dự án..."
-              className="!w-44 sm:!w-56 !pl-8 !pr-7"
-            />
-            {search && (
-              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-ink cursor-pointer">
-                <X size={13} />
-              </button>
-            )}
-          </div>
+          {typeFilter !== 'content' && (
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Tìm dự án..."
+                className="!w-44 sm:!w-56 !pl-8 !pr-7"
+              />
+              {search && (
+                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-ink cursor-pointer">
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex bg-surface border border-line rounded-lg p-0.5">
-            {(['inhouse', 'outsource'] as const).map((t) => (
+            {(['inhouse', 'outsource', 'content'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => onTypeFilterChange(t)}
@@ -89,17 +98,22 @@ export function ProjectsPage({
                   typeFilter === t ? 'bg-accent text-white' : 'text-muted hover:text-ink'
                 }`}
               >
-                {t === 'inhouse' ? 'Inhouse' : 'Outsource'}
+                {TAB_LABEL[t]}
               </button>
             ))}
           </div>
-          {isEditor && (
+          {typeFilter !== 'content' && isEditor && (
             <Button onClick={() => { setEditing(null); setModalOpen(true); }}>
               <Plus size={15} /> Dự án mới
             </Button>
           )}
         </div>
       </div>
+
+      {typeFilter === 'content' && <ContentKanban user={user} />}
+
+      {typeFilter !== 'content' && (
+      <>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
         {COLUMNS.map((status) => {
@@ -169,6 +183,8 @@ export function ProjectsPage({
       </div>
 
       {filtered.length === 0 && <EmptyState icon={<FolderKanban size={32} />} text="Chưa có dự án nào" />}
+      </>
+      )}
 
       <ProjectFormModal
         open={modalOpen}

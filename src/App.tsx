@@ -7,7 +7,7 @@ import { Sidebar, type View } from './components/layout/Sidebar';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoginPage } from './pages/Login';
 import { DashboardPage } from './pages/Dashboard';
-import { ProjectsPage } from './pages/Projects';
+import { ProjectsPage, type ProjectsTab } from './pages/Projects';
 import { ProjectDetailPage } from './pages/ProjectDetail';
 import { DailyContentPage } from './pages/DailyContent';
 import { ReportsPage } from './pages/Reports';
@@ -18,8 +18,8 @@ function Shell({ user }: { user: User }) {
   const { loading } = useAppData();
   const [view, setView] = useState<View>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  // Lifted so the Inhouse/Outsource tab survives opening a project detail
-  const [projectsTypeFilter, setProjectsTypeFilter] = useState<'inhouse' | 'outsource'>('inhouse');
+  // Lifted so the Inhouse/Outsource/Content tab survives opening a project detail
+  const [projectsTypeFilter, setProjectsTypeFilter] = useState<ProjectsTab>('inhouse');
 
   if (loading) {
     return (
@@ -46,7 +46,7 @@ function Shell({ user }: { user: User }) {
             <>
               {view === 'dashboard' && <DashboardPage onOpenProject={openProject} />}
               {view === 'projects' && <ProjectsPage user={user} onOpenProject={openProject} typeFilter={projectsTypeFilter} onTypeFilterChange={setProjectsTypeFilter} />}
-              {view === 'daily' && <DailyContentPage user={user} />}
+              {view === 'daily' && <DailyContentPage user={user} onOpenProject={openProject} />}
               {view === 'reports' && <ReportsPage user={user} />}
               {view === 'performance' && <PerformancePage onOpenProject={openProject} />}
               {view === 'settings' && <SettingsPage user={user} />}
