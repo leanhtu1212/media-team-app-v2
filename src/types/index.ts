@@ -24,6 +24,7 @@ export interface Project {
   id: string;
   title: string;
   description?: string;
+  startDate?: string; // YYYY-MM-DD — ngày bắt đầu (vẽ thanh lịch từ đây → deadline)
   deadline?: string; // YYYY-MM-DD
   status: ProjectStatus;
   itemStatus?: string;

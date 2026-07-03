@@ -335,12 +335,15 @@ export function ProjectFormModal({
             </Select>
           </Field>
         </div>
+        <Field label="Loại sản phẩm">
+          <Select value={form.productType || ''} onChange={(e) => set('productType', e.target.value)}>
+            <option value="">— Tuỳ chỉnh —</option>
+            {productTypes.map((n) => <option key={n} value={n}>{n}</option>)}
+          </Select>
+        </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Loại sản phẩm">
-            <Select value={form.productType || ''} onChange={(e) => set('productType', e.target.value)}>
-              <option value="">— Tuỳ chỉnh —</option>
-              {productTypes.map((n) => <option key={n} value={n}>{n}</option>)}
-            </Select>
+          <Field label="Ngày bắt đầu">
+            <Input type="date" value={form.startDate || ''} onChange={(e) => set('startDate', e.target.value)} />
           </Field>
           <Field label="Deadline">
             <Input type="date" value={form.deadline || ''} onChange={(e) => set('deadline', e.target.value)} />

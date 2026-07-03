@@ -400,7 +400,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
   // Chọn loại khi tạo mới từ lịch (inhouse / outsource / content).
   // Vai trò content (canEditDaily nhưng không phải editor) → bỏ qua bước chọn, tạo thẳng content.
   const [pickerDate, setPickerDate] = useState<string | null>(null);
-  const [projModal, setProjModal] = useState<{ projectType: 'inhouse' | 'outsource'; deadline: string } | null>(null);
+  const [projModal, setProjModal] = useState<{ projectType: 'inhouse' | 'outsource'; startDate: string } | null>(null);
 
   // Điểm vào duy nhất khi tạo mới ở một ngày: editor → hiện bảng chọn; content → tạo content luôn
   const startCreate = (date: string) => {
@@ -439,15 +439,16 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
     }
   };
 
-  // Dự án inhouse đang chạy có ngày tạo + deadline → vẽ thanh nối liền (start=createdAt → deadline).
-  // Thiếu createdAt hoặc deadline, hoặc là outsource → rơi về chip 1 ngày (ở byDay dưới).
+  // Dự án inhouse đang chạy → vẽ thanh nối liền từ NGÀY BẮT ĐẦU (startDate) → deadline.
+  // startDate là ngày người dùng chọn khi tạo (double-tap trên lịch), không phải ngày tạo bản ghi.
+  // Dự án cũ chưa có startDate → tạm lấy createdAt để vẫn hiển thị. Thiếu deadline → thanh 1 ngày ở start.
   const spanProjects = useMemo<SpanProject[]>(() => {
     const [mStart, mEnd] = monthRange(month);
     return projects.flatMap((p) => {
       if (isProjectFinished(p.status) || p.projectType === 'outsource') return [];
-      const start = tsToDateStr(p.createdAt);
-      const end = p.deadline || null;
-      if (!start || !end || start > end) return [];
+      const start = p.startDate || tsToDateStr(p.createdAt);
+      if (!start) return [];
+      const end = p.deadline && p.deadline >= start ? p.deadline : start;
       if (end < mStart || start > mEnd) return []; // không giao với tháng đang xem
       return [{ project: p, start, end }];
     });
@@ -698,7 +699,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
         <div className="grid grid-cols-1 gap-2.5">
           <button
             type="button"
-            onClick={() => { const d = pickerDate!; setPickerDate(null); setProjModal({ projectType: 'inhouse', deadline: d }); }}
+            onClick={() => { const d = pickerDate!; setPickerDate(null); setProjModal({ projectType: 'inhouse', startDate: d }); }}
             className="flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-sky-500/50 transition-all text-left cursor-pointer"
           >
             <Camera size={18} className="text-sky-300 shrink-0" />
@@ -709,7 +710,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
           </button>
           <button
             type="button"
-            onClick={() => { const d = pickerDate!; setPickerDate(null); setProjModal({ projectType: 'outsource', deadline: d }); }}
+            onClick={() => { const d = pickerDate!; setPickerDate(null); setProjModal({ projectType: 'outsource', startDate: d }); }}
             className="flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-fuchsia-500/50 transition-all text-left cursor-pointer"
           >
             <Video size={18} className="text-fuchsia-300 shrink-0" />
@@ -738,7 +739,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
         onClose={() => setProjModal(null)}
         editing={null}
         productTypes={productTypes.map((t) => t.name)}
-        preset={projModal ? { projectType: projModal.projectType, deadline: projModal.deadline } : undefined}
+        preset={projModal ? { projectType: projModal.projectType, startDate: projModal.startDate } : undefined}
         onSave={async (data) => {
           try {
             await createProject(data, user);
