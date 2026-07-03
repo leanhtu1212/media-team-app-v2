@@ -27,6 +27,35 @@ const PLATFORM_COLOR: Record<string, string> = {
 const isDailyOverdue = (d: DailyContent) =>
   d.status !== 'published' && d.status !== 'done' && (d.dueDate || '') < todayStr();
 
+// Nền chip theo LOẠI mục (phân biệt content / dự án inhouse / dự án outsource / task tiền kỳ)
+const TYPE_TINT = {
+  content: 'bg-violet-500/12 text-violet-200',
+  inhouse: 'bg-sky-500/12 text-sky-200',
+  outsource: 'bg-fuchsia-500/12 text-fuchsia-200',
+  task: 'bg-amber-500/12 text-amber-200',
+} as const;
+
+// Vạch trái theo TIẾN ĐỘ: quá hạn → đỏ, xong → xanh lá, đang làm → vàng, chưa bắt đầu → xám
+function stripeFor(entry: CalEntry, today: string): string {
+  if (entry.kind === 'daily') {
+    const d = entry.daily;
+    if (isDailyOverdue(d)) return 'border-red-500';
+    if (d.status === 'published' || d.status === 'done') return 'border-emerald-500';
+    if (d.status === 'in-progress') return 'border-amber-400';
+    return 'border-slate-500';
+  }
+  if (entry.kind === 'project') {
+    const p = entry.project;
+    if ((p.deadline || '') < today) return 'border-red-500';
+    if (p.status === 'post-production') return 'border-amber-400';
+    if (p.status === 'pre-production') return 'border-sky-400';
+    return 'border-slate-500';
+  }
+  const t = entry.task;
+  if ((t.deadline || '') < today) return 'border-red-500';
+  return 'border-amber-400';
+}
+
 /* ================================================================
  * Shared modal/drawer wiring — dùng cho cả kanban (tab Content ở
  * trang Dự án) lẫn trang Lịch tháng, tránh lặp state 2 nơi.
@@ -283,14 +312,15 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
   });
 
   const Chip = ({ entry }: { entry: CalEntry }) => {
+    const stripe = stripeFor(entry, today);
     if (entry.kind === 'daily') {
       const d = entry.daily;
       const assignee = memberOf(d.assigneeId);
       return (
         <div
           onDoubleClick={(e) => { e.stopPropagation(); setDetailItem(d); }}
-          title="Nhấn đúp để xem chi tiết"
-          className={`rounded-md px-1.5 py-1 border-l-2 ${STATUS_BADGE[d.status]} ${isDailyOverdue(d) ? 'border-red-500' : 'border-transparent'}`}
+          title="Nội dung — nhấn đúp để xem chi tiết"
+          className={`rounded-md px-1.5 py-1 border-l-2 ${stripe} ${TYPE_TINT.content}`}
         >
           <p className="text-[11px] font-bold leading-tight line-clamp-2">{d.title}</p>
           <div className="flex items-center gap-1 mt-0.5">
@@ -302,25 +332,24 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
     }
     if (entry.kind === 'project') {
       const p = entry.project;
-      const overdue = p.deadline! < today;
+      const isOut = p.projectType === 'outsource';
       return (
         <div
           onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
-          title="Deadline dự án — nhấn đúp để mở"
-          className={`rounded-md px-1.5 py-1 border-l-2 bg-indigo-500/10 text-indigo-300 ${overdue ? 'border-red-500' : 'border-indigo-400/50'}`}
+          title={`Dự án ${isOut ? 'outsource' : 'inhouse'} — nhấn đúp để mở`}
+          className={`rounded-md px-1.5 py-1 border-l-2 ${stripe} ${isOut ? TYPE_TINT.outsource : TYPE_TINT.inhouse}`}
         >
           <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><FolderKanban size={10} className="mt-0.5 shrink-0" />{p.title}</p>
-          <span className="text-[9px] font-bold uppercase">{STATUS_LABEL[p.status]}</span>
+          <span className="text-[9px] font-bold uppercase opacity-80">{isOut ? 'Outsource' : 'Inhouse'} · {STATUS_LABEL[p.status]}</span>
         </div>
       );
     }
     const { task, project } = entry;
-    const overdue = task.deadline! < today;
     return (
       <div
         onDoubleClick={(e) => { e.stopPropagation(); if (project) onOpenProject(project.id); }}
         title="Task tiền kỳ — nhấn đúp để mở dự án"
-        className={`rounded-md px-1.5 py-1 border-l-2 bg-amber-500/10 text-amber-300 ${overdue ? 'border-red-500' : 'border-amber-400/50'}`}
+        className={`rounded-md px-1.5 py-1 border-l-2 ${stripe} ${TYPE_TINT.task}`}
       >
         <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><Wallet size={10} className="mt-0.5 shrink-0" />{task.title}</p>
         {project && <span className="text-[9px] text-dim truncate block">{project.title}</span>}
@@ -354,12 +383,16 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
             const isToday = date === today;
             const isSelected = date === selectedDay;
             return (
-              <button
+              // Ô ngày là <div> (không phải <button>) để các chip lồng bên trong nhận
+              // được sự kiện double-click riêng — button không giao event cho con.
+              <div
                 key={date}
+                role="button"
+                tabIndex={0}
                 onClick={() => setSelectedDay(isSelected ? null : date)}
                 onDoubleClick={() => canEditDaily && openNew(date)}
-                title={canEditDaily ? 'Nhấn đúp để tạo nội dung' : undefined}
-                className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col ${
+                title={canEditDaily ? 'Nhấn đúp vào chỗ trống để tạo nội dung' : undefined}
+                className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col select-none ${
                   isSelected ? 'border-accent bg-accent/10' : isToday ? 'border-indigo-500/40 bg-surface-2' : 'border-line hover:border-line-2'
                 }`}
               >
@@ -371,17 +404,25 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                   {list.slice(0, 4).map((entry, j) => <Chip key={j} entry={entry} />)}
                   {list.length > 4 && <span className="text-[10px] text-dim block pl-1">+{list.length - 4} mục khác</span>}
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
-        <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-muted">
-          {(['planned', 'in-progress', 'done', 'published'] as const).map((s) => (
-            <span key={s} className="flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-sm ${STATUS_BADGE[s]}`} /> {STATUS_LABEL[s]}</span>
-          ))}
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-indigo-500/40" /> Deadline dự án</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500/40" /> Task tiền kỳ</span>
-          <span className="flex items-center gap-1.5 ml-auto"><span className="w-0.5 h-3 bg-red-500 rounded" /> Quá hạn</span>
+        <div className="mt-3 space-y-2">
+          <div className="flex flex-wrap gap-3 items-center text-[11px] text-muted">
+            <span className="font-bold text-dim uppercase text-[10px] tracking-wide">Loại</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500/50" /> Content</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-sky-500/50" /> Dự án inhouse</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-fuchsia-500/50" /> Dự án outsource</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500/50" /> Task tiền kỳ</span>
+          </div>
+          <div className="flex flex-wrap gap-3 items-center text-[11px] text-muted">
+            <span className="font-bold text-dim uppercase text-[10px] tracking-wide">Tiến độ (vạch)</span>
+            <span className="flex items-center gap-1.5"><span className="w-0.5 h-3 bg-slate-500 rounded" /> Chưa bắt đầu</span>
+            <span className="flex items-center gap-1.5"><span className="w-0.5 h-3 bg-amber-400 rounded" /> Đang làm</span>
+            <span className="flex items-center gap-1.5"><span className="w-0.5 h-3 bg-emerald-500 rounded" /> Xong</span>
+            <span className="flex items-center gap-1.5"><span className="w-0.5 h-3 bg-red-500 rounded" /> Quá hạn</span>
+          </div>
         </div>
       </Card>
 
