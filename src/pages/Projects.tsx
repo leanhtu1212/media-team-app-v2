@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, FolderKanban, Calendar, Camera, Video, Search, X } from 'lucide-react';
+import { Plus, FolderKanban, Calendar, Camera, Video, Search, X, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, EmptyState, Modal, Input, Select, Textarea, Field } from '../components/ui';
 import { createProject, updateProject } from '../lib/actions';
@@ -9,10 +9,49 @@ import { ContentKanban } from './DailyContent';
 import type { Project, ProjectStatus } from '../types';
 import type { User } from '../lib/firebase';
 
-const COLUMNS: ProjectStatus[] = ['plan', 'pre-production', 'post-production', 'done', 'payment'];
+// Luồng: Kế hoạch → Tiền kỳ → Hậu kỳ → Thanh toán → (Done, ở ô ngang riêng bên dưới).
+// 'done' KHÔNG nằm trong kanban — dự án đã thanh toán xong mới rơi xuống ô Done.
+const COLUMNS: ProjectStatus[] = ['plan', 'pre-production', 'post-production', 'payment'];
+const ALL_STATUS: ProjectStatus[] = ['plan', 'pre-production', 'post-production', 'payment', 'done'];
 
 export type ProjectsTab = 'inhouse' | 'outsource' | 'content';
 const TAB_LABEL: Record<ProjectsTab, string> = { inhouse: 'Inhouse', outsource: 'Outsource', content: 'Content' };
+
+interface Prog { photoDone: number; videoDone: number; pct: number }
+
+/** Card dự án dùng chung cho cột kanban và ô Done. */
+function ProjectCard({
+  p, prog, draggable, onOpen, onDragStart,
+}: {
+  p: Project;
+  prog: Prog;
+  draggable: boolean;
+  onOpen: () => void;
+  onDragStart: (e: React.DragEvent) => void;
+}) {
+  return (
+    <Card
+      draggable={draggable}
+      onDragStart={onDragStart}
+      className="p-4 hover:border-line-2 transition-all cursor-pointer group"
+    >
+      <div onClick={onOpen}>
+        <h3 className="font-bold text-sm mb-1 group-hover:text-indigo-300 transition-colors">{p.title}</h3>
+        {p.productType && <p className="text-[11px] text-muted mb-2">{p.productType}</p>}
+        <div className="flex items-center gap-3 text-[11px] text-muted mb-3">
+          <span className="flex items-center gap-1"><Camera size={11} /> {prog.photoDone}/{p.photoTarget || 0}</span>
+          <span className="flex items-center gap-1"><Video size={11} /> {prog.videoDone}/{p.videoTarget || 0}</span>
+          {p.deadline && (
+            <span className={`flex items-center gap-1 ml-auto ${!isProjectFinished(p.status) && p.deadline < todayStr() ? 'text-red-400 font-bold' : ''}`}>
+              <Calendar size={11} /> {formatDate(p.deadline)}
+            </span>
+          )}
+        </div>
+        <ProgressBar value={prog.pct} />
+      </div>
+    </Card>
+  );
+}
 
 export function ProjectsPage({
   user, onOpenProject, typeFilter, onTypeFilterChange,
@@ -41,6 +80,12 @@ export function ProjectsPage({
       return normalize(`${p.title || ''} ${p.productType || ''} ${p.description || ''}`).includes(q);
     });
   }, [projects, typeFilter, search]);
+
+  // Dự án đã hoàn thành (status 'done') — hiển thị ở ô ngang riêng, mới nhất trước
+  const doneProjects = useMemo(
+    () => filtered.filter((p) => p.status === 'done').sort((a, b) => (b.deadline || '').localeCompare(a.deadline || '')),
+    [filtered],
+  );
 
   const handleDrop = async (projectId: string, status: ProjectStatus) => {
     const p = projects.find((x) => x.id === projectId);
@@ -115,15 +160,12 @@ export function ProjectsPage({
       {typeFilter !== 'content' && (
       <>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {COLUMNS.map((status) => {
-          // Unknown/legacy status values fall into the "plan" column so nothing is hidden
-          const allColProjects = filtered.filter((p) =>
-            status === 'plan' ? p.status === 'plan' || !COLUMNS.includes(p.status) : p.status === status,
+          // Unknown/legacy status → cột "Kế hoạch" (trừ 'done' đã tách ra ô riêng)
+          const colProjects = filtered.filter((p) =>
+            status === 'plan' ? p.status === 'plan' || !ALL_STATUS.includes(p.status) : p.status === status,
           );
-          // Done/Payment tích luỹ nhiều theo thời gian → thu gọn, chỉ hiện 5 đầu
-          const doneHidden = isProjectFinished(status) && !showAllDone && allColProjects.length > 5;
-          const colProjects = doneHidden ? allColProjects.slice(0, 5) : allColProjects;
           return (
             <div
               key={status}
@@ -139,40 +181,19 @@ export function ProjectsPage({
             >
               <div className="flex items-center justify-between px-1">
                 <Badge color={STATUS_BADGE[status]}>{STATUS_LABEL[status]}</Badge>
-                <span className="text-xs font-bold text-dim">{allColProjects.length}</span>
+                <span className="text-xs font-bold text-dim">{colProjects.length}</span>
               </div>
               <div className="space-y-3">
-                {colProjects.map((p) => {
-                  const prog = progressOf(p);
-                  return (
-                    <Card
-                      key={p.id}
-                      draggable={isEditor}
-                      onDragStart={(e: React.DragEvent) => e.dataTransfer.setData('text/plain', p.id)}
-                      className="p-4 hover:border-line-2 transition-all cursor-pointer group"
-                    >
-                      <div onClick={() => onOpenProject(p.id)}>
-                        <h3 className="font-bold text-sm mb-1 group-hover:text-indigo-300 transition-colors">{p.title}</h3>
-                        {p.productType && <p className="text-[11px] text-muted mb-2">{p.productType}</p>}
-                        <div className="flex items-center gap-3 text-[11px] text-muted mb-3">
-                          <span className="flex items-center gap-1"><Camera size={11} /> {prog.photoDone}/{p.photoTarget || 0}</span>
-                          <span className="flex items-center gap-1"><Video size={11} /> {prog.videoDone}/{p.videoTarget || 0}</span>
-                          {p.deadline && (
-                            <span className={`flex items-center gap-1 ml-auto ${!isProjectFinished(p.status) && p.deadline < todayStr() ? 'text-red-400 font-bold' : ''}`}>
-                              <Calendar size={11} /> {formatDate(p.deadline)}
-                            </span>
-                          )}
-                        </div>
-                        <ProgressBar value={prog.pct} />
-                      </div>
-                    </Card>
-                  );
-                })}
-                {doneHidden && (
-                  <button onClick={() => setShowAllDone(true)} className="w-full text-xs text-muted hover:text-ink py-2 cursor-pointer">
-                    Xem tất cả ({allColProjects.length})
-                  </button>
-                )}
+                {colProjects.map((p) => (
+                  <ProjectCard
+                    key={p.id}
+                    p={p}
+                    prog={progressOf(p)}
+                    draggable={isEditor}
+                    onOpen={() => onOpenProject(p.id)}
+                    onDragStart={(e) => e.dataTransfer.setData('text/plain', p.id)}
+                  />
+                ))}
                 {colProjects.length === 0 && (
                   <div className="border border-dashed border-line rounded-xl py-8 text-center text-xs text-dim">Trống</div>
                 )}
@@ -180,6 +201,50 @@ export function ProjectsPage({
             </div>
           );
         })}
+      </div>
+
+      {/* Ô ngang "Done" — dự án đã thanh toán xong. Kéo card vào đây để đánh dấu done. */}
+      <div
+        className={`rounded-xl border transition-colors ${dragOverCol === 'done' ? 'border-accent bg-accent/5 outline-2 outline-dashed outline-accent/40' : 'border-line'}`}
+        onDragOver={(e) => { if (isEditor) { e.preventDefault(); setDragOverCol('done'); } }}
+        onDragLeave={(e) => { if (e.currentTarget === e.target || !e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCol(null); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOverCol(null);
+          const id = e.dataTransfer.getData('text/plain');
+          if (id) handleDrop(id, 'done');
+        }}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-line">
+          <div className="flex items-center gap-2 font-bold text-sm">
+            <CheckCircle2 size={16} className="text-emerald-400" /> Đã hoàn thành
+            <Badge color={STATUS_BADGE.done}>Done</Badge>
+            <span className="text-xs font-bold text-dim">{doneProjects.length}</span>
+          </div>
+          {doneProjects.length > 5 && (
+            <button onClick={() => setShowAllDone((v) => !v)} className="flex items-center gap-1 text-xs font-bold text-muted hover:text-ink cursor-pointer">
+              {showAllDone ? <>Thu gọn <ChevronUp size={14} /></> : <>Xem thêm ({doneProjects.length - 5}) <ChevronDown size={14} /></>}
+            </button>
+          )}
+        </div>
+        <div className="p-4">
+          {doneProjects.length === 0 ? (
+            <p className="text-sm text-dim text-center py-6">Chưa có dự án hoàn thành — kéo dự án đã thanh toán vào đây</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+              {(showAllDone ? doneProjects : doneProjects.slice(0, 5)).map((p) => (
+                <ProjectCard
+                  key={p.id}
+                  p={p}
+                  prog={progressOf(p)}
+                  draggable={isEditor}
+                  onOpen={() => onOpenProject(p.id)}
+                  onDragStart={(e) => e.dataTransfer.setData('text/plain', p.id)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {filtered.length === 0 && <EmptyState icon={<FolderKanban size={32} />} text="Chưa có dự án nào" />}
@@ -256,8 +321,8 @@ export function ProjectFormModal({
               <option value="plan">Kế hoạch</option>
               <option value="pre-production">Tiền kỳ</option>
               <option value="post-production">Hậu kỳ</option>
-              <option value="done">Hoàn thành</option>
               <option value="payment">Thanh toán</option>
+              <option value="done">Hoàn thành</option>
             </Select>
           </Field>
           <Field label="Loại dự án">

@@ -494,8 +494,8 @@ function InfoPanel({ project, isEditor, toast }: { project: Project; isEditor: b
           <option value="plan">Kế hoạch</option>
           <option value="pre-production">Tiền kỳ</option>
           <option value="post-production">Hậu kỳ</option>
-          <option value="done">Hoàn thành</option>
           <option value="payment">Thanh toán</option>
+          <option value="done">Hoàn thành</option>
         </Select>
       </div>
     </Card>
