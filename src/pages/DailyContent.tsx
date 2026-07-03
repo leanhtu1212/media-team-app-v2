@@ -584,8 +584,8 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                           style={{ gridColumn: `${bar.colStart + 1} / span ${bar.span}`, gridRow: 1, alignSelf: 'start', marginTop: bar.lane * BAR_UNIT, height: BAR_UNIT - 4 }}
                           onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
                           title={`${p.title}${p.deadline ? ` · deadline ${formatDate(p.deadline)}` : ''}`}
-                          className={`pointer-events-auto cursor-pointer flex items-center gap-1 px-2 text-[11px] font-semibold overflow-hidden select-none border ${
-                            overdue ? 'bg-red-500/25 border-red-500/50 text-red-100' : 'bg-sky-500/25 border-sky-500/50 text-sky-50'
+                          className={`pointer-events-auto cursor-pointer flex items-center gap-1 px-2 text-[11px] font-semibold overflow-hidden select-none shadow-sm ${
+                            overdue ? 'bg-red-600 text-white' : 'bg-sky-600 text-white'
                           } ${bar.roundLeft ? 'rounded-l-md ml-0.5' : ''} ${bar.roundRight ? 'rounded-r-md mr-0.5' : ''}`}
                         >
                           {bar.roundLeft && <FolderKanban size={11} className="shrink-0" />}
