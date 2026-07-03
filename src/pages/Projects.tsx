@@ -109,7 +109,7 @@ export function ProjectsPage({
   };
 
   return (
-    <div className="fade-up space-y-5">
+    <div className="fade-up flex flex-col gap-5 min-h-[calc(100vh-2rem)] lg:min-h-[calc(100vh-4rem)]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-extrabold tracking-tight">Dự án</h1>
@@ -203,9 +203,10 @@ export function ProjectsPage({
         })}
       </div>
 
-      {/* Ô ngang "Done" — dự án đã thanh toán xong. Kéo card vào đây để đánh dấu done. */}
+      {/* Ô ngang "Done" — dự án đã thanh toán xong. Kéo card vào đây để đánh dấu done.
+          mt-auto đẩy ô sát xuống đáy màn hình. */}
       <div
-        className={`rounded-xl border transition-colors ${dragOverCol === 'done' ? 'border-accent bg-accent/5 outline-2 outline-dashed outline-accent/40' : 'border-line'}`}
+        className={`mt-auto rounded-xl border transition-colors ${dragOverCol === 'done' ? 'border-accent bg-accent/5 outline-2 outline-dashed outline-accent/40' : 'border-line'}`}
         onDragOver={(e) => { if (isEditor) { e.preventDefault(); setDragOverCol('done'); } }}
         onDragLeave={(e) => { if (e.currentTarget === e.target || !e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCol(null); }}
         onDrop={(e) => {
