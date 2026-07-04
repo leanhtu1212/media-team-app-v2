@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Plus, Trash2, Pencil, FileText, Download } f
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, EmptyState } from '../components/ui';
 import { createManualReport, updateReport, deleteReport } from '../lib/actions';
-import { currentMonth, shiftMonth, monthLabel, monthRange, todayStr, formatDate, isProjectFinished } from '../lib/utils';
+import { currentMonth, shiftMonth, monthLabel, monthRange, todayStr, formatDate, formatDateTime, isProjectFinished } from '../lib/utils';
 import { hexA } from '../components/tags';
 import { useToast } from '../hooks/useToast';
 import type { Report } from '../types';
@@ -18,6 +18,13 @@ function keyColor(key: string): string {
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
   return MEMBER_PALETTE[h % MEMBER_PALETTE.length];
 }
+
+// Nội dung báo cáo tự động: "Hoàn thành {số} ảnh/video - {Project}" (tính từ field, hợp cả dữ liệu cũ)
+function autoLabel(r: Report, projTitle?: string): string {
+  const out = r.outputType === 'photo' ? 'ảnh' : r.outputType === 'video' ? 'video' : (r.outputType || '');
+  return `Hoàn thành ${r.quantity || 1} ${out}${projTitle ? ` - ${projTitle}` : ''}`;
+}
+const isAutoReport = (r: Report) => r.reportType === 'auto' || (r.content || '').startsWith('Báo cáo tự động:');
 
 export function ReportsPage({ user }: { user: User }) {
   const { reports, projects, members, productTypes, allTasks, isEditor } = useAppData();
@@ -153,9 +160,9 @@ export function ReportsPage({ user }: { user: User }) {
                 {list.length > 0 && (
                   <div className="mt-1 space-y-1">
                     {list.slice(0, 3).map((r) => {
-                      const isAuto = r.reportType === 'auto' || r.content?.startsWith('Báo cáo tự động:');
+                      const isAuto = isAutoReport(r);
                       const name = memberOf(r)?.username || r.userEmail?.split('@')[0] || '?';
-                      const summary = isAuto ? (r.content || '').replace('Báo cáo tự động: ', '') : (r.content || '');
+                      const summary = isAuto ? autoLabel(r, projects.find((p) => p.id === r.projectId)?.title) : (r.content || '');
                       const color = colorOf(r);
                       return (
                         <div
@@ -164,8 +171,8 @@ export function ReportsPage({ user }: { user: User }) {
                           className="rounded px-1.5 py-1 text-[11px] leading-tight text-ink/90"
                           title={isAuto ? 'Báo cáo tự động' : 'Báo cáo thủ công'}
                         >
-                          <span className="font-bold" style={{ color }}>{name}:</span>{' '}
-                          <span className="opacity-80">{summary.length > 42 ? summary.slice(0, 42) + '…' : summary}</span>
+                          <p className="truncate"><span className="font-bold" style={{ color }}>{name}</span>{isAuto ? ' ' : ': '}<span className="opacity-90">{summary}</span></p>
+                          <p className="text-[10px] text-dim mt-0.5 truncate">{formatDateTime(r.createdAt) || formatDate(r.reportDate)}</p>
                         </div>
                       );
                     })}
@@ -196,18 +203,30 @@ export function ReportsPage({ user }: { user: User }) {
             {dayReports.map((r) => {
               const proj = projects.find((p) => p.id === r.projectId);
               const creator = memberOf(r);
-              const isAuto = r.reportType === 'auto' || r.content?.startsWith('Báo cáo tự động:');
+              const isAuto = isAutoReport(r);
               const canEdit = isEditor && !isAuto && (r.createdBy === user.uid);
               return (
                 <div key={r.id} className="flex items-center gap-3 py-3 group">
                   <Avatar name={creator?.username} url={creator?.avatarUrl} size={28} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm">{r.content}</p>
-                    <div className="flex items-center gap-2 mt-0.5 text-[11px] text-dim flex-wrap">
-                      <span className="font-bold text-muted">{creator?.username || r.userEmail}</span>
-                      {proj && <span>· {proj.title}</span>}
-                      {r.outputType && r.outputType !== 'none' && <span>· {r.quantity || 1} {r.outputType}</span>}
-                    </div>
+                    {isAuto ? (
+                      <>
+                        <p className="text-sm">{autoLabel(r, proj?.title)}</p>
+                        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-dim flex-wrap">
+                          <span className="font-bold text-muted">{creator?.username || r.userEmail}</span>
+                          <span>· {formatDateTime(r.createdAt) || formatDate(r.reportDate)}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm">{r.content}</p>
+                        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-dim flex-wrap">
+                          <span className="font-bold text-muted">{creator?.username || r.userEmail}</span>
+                          {proj && <span>· {proj.title}</span>}
+                          {r.outputType && r.outputType !== 'none' && <span>· {r.quantity || 1} {r.outputType}</span>}
+                        </div>
+                      </>
+                    )}
                   </div>
                   <Badge color={isAuto ? 'bg-indigo-500/15 text-indigo-300' : 'bg-emerald-500/15 text-emerald-400'}>
                     {isAuto ? 'Tự động' : 'Thủ công'}

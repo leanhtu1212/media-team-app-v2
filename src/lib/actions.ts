@@ -188,9 +188,10 @@ async function createAutoReport(
   user: User,
 ): Promise<string> {
   const id = genId();
+  const outLabel = info.category === 'photo' ? 'ảnh' : info.category === 'video' ? 'video' : info.category;
   await setDoc(ref.report(id), {
     id,
-    content: `Báo cáo tự động: ${info.title} — ${info.projectTitle}`,
+    content: `Hoàn thành ${info.quantity} ${outLabel} - ${info.projectTitle}`,
     reportDate: info.reportDate,
     projectId: info.projectId,
     quantity: info.quantity,

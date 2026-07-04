@@ -15,16 +15,31 @@ export function todayStr(): string {
   return localDateStr(new Date());
 }
 
+/** Chuyển createdAt (Firestore Timestamp / Date / số / chuỗi) → Date (giờ local). */
+export function tsToDate(ts: unknown): Date | null {
+  if (!ts) return null;
+  if (ts instanceof Date) return ts;
+  if (typeof ts === 'number') return new Date(ts);
+  if (typeof ts === 'string') return new Date(ts);
+  const o = ts as { toDate?: () => Date; seconds?: number };
+  if (typeof o.toDate === 'function') return o.toDate();
+  if (typeof o.seconds === 'number') return new Date(o.seconds * 1000);
+  return null;
+}
+
 /** Chuyển createdAt (Firestore Timestamp / Date / số / chuỗi) → 'YYYY-MM-DD' theo giờ local. */
 export function tsToDateStr(ts: unknown): string | null {
-  if (!ts) return null;
   if (typeof ts === 'string') return ts.slice(0, 10) || null;
-  if (typeof ts === 'number') return localDateStr(new Date(ts));
-  if (ts instanceof Date) return localDateStr(ts);
-  const o = ts as { toDate?: () => Date; seconds?: number };
-  if (typeof o.toDate === 'function') return localDateStr(o.toDate());
-  if (typeof o.seconds === 'number') return localDateStr(new Date(o.seconds * 1000));
-  return null;
+  const d = tsToDate(ts);
+  return d ? localDateStr(d) : null;
+}
+
+/** 'HH:mm · dd/MM/yyyy' từ Firestore Timestamp; rỗng nếu không có. */
+export function formatDateTime(ts: unknown): string {
+  const d = tsToDate(ts);
+  if (!d) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())} · ${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
 export function currentMonth(): string {
