@@ -3,7 +3,7 @@ import { Camera, Video, Wallet, Trophy, ArrowRight, Crown, FolderKanban, CheckCi
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Avatar, Input } from '../components/ui';
 import { calculateTeamKpi } from '../lib/kpi';
-import { currentMonth, monthRange, formatVND, formatDate, todayStr, isProjectFinished } from '../lib/utils';
+import { currentMonth, monthRange, shiftMonth, formatVND, formatDate, todayStr, isProjectFinished } from '../lib/utils';
 import type { Project } from '../types';
 
 const PLATFORM_COLOR: Record<string, string> = {
@@ -27,6 +27,22 @@ export function DashboardPage({ onOpenProject }: { onOpenProject: (id: string) =
   const photoCount = monthTasks.filter((t) => t.category === 'photo' && (t.status === 'completed' || t.dntt)).reduce((s, t) => s + (Number(t.quantity) || 1), 0);
   const videoCount = monthTasks.filter((t) => t.category === 'video' && (t.status === 'completed' || t.dntt)).reduce((s, t) => s + (Number(t.quantity) || 1), 0);
   const monthCost = monthTasks.filter((t) => t.category === 'pre-production').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+  // Chi phí tháng trước (để so sánh trên ô "Chi phí tháng")
+  const [prevStart, prevEnd] = monthRange(shiftMonth(month, -1));
+  const prevMonthCost = allTasks
+    .filter((t) => t.category === 'pre-production' && (t.reportDate || '') >= prevStart && (t.reportDate || '') <= prevEnd)
+    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+  // DNTT chưa thanh toán = khoản tiền kỳ có chi phí nhưng CHƯA tick (dntt) — toàn bộ dự án, mọi thời điểm.
+  // Tick ở "Tiền kỳ & Chi phí" = đã thanh toán.
+  const unpaidTasks = useMemo(
+    () => allTasks
+      .filter((t) => t.category === 'pre-production' && (Number(t.amount) || 0) > 0 && !t.dntt)
+      .sort((a, b) => (a.deadline || '9999').localeCompare(b.deadline || '9999')),
+    [allTasks],
+  );
+  const unpaidTotal = unpaidTasks.reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
   const kpi = useMemo(() => calculateTeamKpi(members, month, allTasks, projects, reports), [members, month, allTasks, projects, reports]);
   const totalOutput = kpi.reduce((s, m) => s + m.outputCount, 0);
@@ -95,16 +111,56 @@ export function DashboardPage({ onOpenProject }: { onOpenProject: (id: string) =
         <StatCard icon={<Camera size={16} />} tint="text-indigo-300" label="Ảnh hoàn thành" value={photoCount} sub={`${monthTasks.filter((t) => t.category === 'photo').length} task`} />
         <StatCard icon={<Video size={16} />} tint="text-violet-300" label="Video hoàn thành" value={videoCount} sub={`${monthTasks.filter((t) => t.category === 'video').length} task`} />
         <StatCard icon={<Trophy size={16} />} tint="text-emerald-400" label="Tổng sản lượng" value={totalOutput} sub="SP toàn team" />
-        {isAdmin && <StatCard icon={<Wallet size={16} />} tint="text-amber-300" label="Chi phí tháng" value={formatVND(monthCost)} sub={`${monthTasks.filter((t) => t.category === 'pre-production').length} khoản`} />}
+        {isAdmin && <StatCard icon={<Wallet size={16} />} tint="text-amber-300" label="Chi phí tháng" value={formatVND(monthCost)} sub={`Tháng trước: ${formatVND(prevMonthCost)}`} />}
       </div>
 
       {/* Row 2 — project & activity overview */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={<FolderKanban size={16} />} tint="text-blue-300" label="Dự án đang chạy" value={activeCount} sub={`${projects.length} tổng cộng`} />
         <StatCard icon={<AlertTriangle size={16} />} tint="text-red-400" label="Dự án quá hạn" value={overdueProjects.length} sub={overdueProjects.length > 0 ? 'cần xử lý' : 'không có'} danger={overdueProjects.length > 0} />
-        <StatCard icon={<FileText size={16} />} tint="text-emerald-300" label="Báo cáo tháng" value={monthReports.length} sub={`${monthReports.filter((r) => r.reportType !== 'auto' && !r.content?.startsWith('Báo cáo tự động:')).length} thủ công`} />
+        {isAdmin ? (
+          <StatCard icon={<Wallet size={16} />} tint="text-rose-300" label="DNTT chưa thanh toán" value={formatVND(unpaidTotal)} sub={`${unpaidTasks.length} khoản chưa TT`} danger={unpaidTotal > 0} />
+        ) : (
+          <StatCard icon={<FileText size={16} />} tint="text-emerald-300" label="Báo cáo tháng" value={monthReports.length} sub={`${monthReports.filter((r) => r.reportType !== 'auto' && !r.content?.startsWith('Báo cáo tự động:')).length} thủ công`} />
+        )}
         <StatCard icon={<CalendarDays size={16} />} tint="text-pink-300" label="Daily content" value={monthDaily.length} sub={`${monthDaily.filter((d) => d.status === 'published').length} đã đăng`} />
       </div>
+
+      {/* DNTT chưa thanh toán — danh sách các khoản tiền kỳ chưa tick (admin) */}
+      {isAdmin && (
+        <Card>
+          <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+            <h2 className="font-bold text-sm flex items-center gap-2"><Wallet size={15} className="text-rose-300" /> DNTT chưa thanh toán</h2>
+            <span className="text-xs font-bold text-rose-300 tabular-nums">{formatVND(unpaidTotal)} · {unpaidTasks.length} khoản</span>
+          </div>
+          <div className="p-3">
+            {unpaidTasks.length === 0 ? (
+              <p className="text-sm text-dim text-center py-6">Không có khoản nào chưa thanh toán 🎉</p>
+            ) : (
+              <div className="space-y-1.5">
+                {unpaidTasks.map((t) => {
+                  const p = projects.find((x) => x.id === t.projectId);
+                  const overdue = t.deadline && t.deadline < today;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => p && onOpenProject(p.id)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 bg-bg border border-line rounded-xl hover:border-line-2 transition-all text-left cursor-pointer group"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold truncate group-hover:text-indigo-300 transition-colors">{t.title}</p>
+                        <p className="text-[11px] text-dim truncate">{p?.title || 'Dự án đã xoá'}{t.deadline ? ` · hạn ${formatDate(t.deadline)}` : ''}</p>
+                      </div>
+                      {overdue && <span className="text-[10px] font-bold text-red-400 uppercase shrink-0">Quá hạn</span>}
+                      <span className="text-sm font-bold text-amber-300 tabular-nums shrink-0">{formatVND(Number(t.amount) || 0)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Project status distribution */}
       <Card className="p-4">
