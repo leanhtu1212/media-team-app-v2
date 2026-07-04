@@ -53,6 +53,18 @@ export async function updateProject(id: string, data: Partial<Project>): Promise
   await updateDoc(ref.project(id), { ...data, updatedAt: serverTimestamp() });
 }
 
+/** Dọn dữ liệu mồ côi: xoá task + report của các project đã bị xoá trước đây
+ *  (thời điểm chưa có cascade). Nhận sẵn danh sách đã tính ở client. */
+export async function deleteOrphans(
+  tasks: { projectId: string; id: string }[],
+  reportIds: string[],
+): Promise<void> {
+  await Promise.all([
+    ...tasks.map((t) => deleteDoc(ref.task(t.projectId, t.id))),
+    ...reportIds.map((id) => deleteDoc(ref.report(id))),
+  ]);
+}
+
 export async function deleteProject(id: string): Promise<void> {
   // Xoá cascade: Firestore không tự xoá subcollection → phải xoá tay tất cả
   // task (gồm DNTT/chi phí tiền kỳ) và report liên quan, rồi mới xoá project.

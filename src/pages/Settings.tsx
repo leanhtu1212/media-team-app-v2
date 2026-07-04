@@ -5,14 +5,14 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage
 import { auth, storage, signOut, updatePassword, createNewUser, type User } from '../lib/firebase';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Input, Select, Field, ConfirmDialog, Avatar, Modal } from '../components/ui';
-import { ref as dbRef } from '../lib/actions';
+import { ref as dbRef, deleteOrphans } from '../lib/actions';
 import { buildSheetsPayload, postToWebhook } from '../lib/sheets';
-import { currentMonth } from '../lib/utils';
+import { currentMonth, formatVND } from '../lib/utils';
 import { DEFAULT_PRODUCT_TYPES } from '../lib/points';
 import { useToast } from '../hooks/useToast';
 import type { Member, Role } from '../types';
 
-type Tab = 'general' | 'members' | 'kpi' | 'products' | 'sheets';
+type Tab = 'general' | 'members' | 'kpi' | 'products' | 'sheets' | 'data';
 
 export function SettingsPage({ user }: { user: User }) {
   const { isAdmin } = useAppData();
@@ -24,6 +24,7 @@ export function SettingsPage({ user }: { user: User }) {
     { key: 'kpi', label: 'KPI', adminOnly: true },
     { key: 'products', label: 'Loại sản phẩm', adminOnly: true },
     { key: 'sheets', label: 'Google Sheet', adminOnly: true },
+    { key: 'data', label: 'Dọn dữ liệu', adminOnly: true },
   ];
 
   return (
@@ -52,7 +53,80 @@ export function SettingsPage({ user }: { user: User }) {
       {tab === 'kpi' && isAdmin && <KpiTab />}
       {tab === 'products' && isAdmin && <ProductsTab />}
       {tab === 'sheets' && isAdmin && <SheetsTab />}
+      {tab === 'data' && isAdmin && <DataCleanupTab />}
     </div>
+  );
+}
+
+/* ---------- Dọn dữ liệu mồ côi ---------- */
+
+function DataCleanupTab() {
+  const { projects, allTasks, reports } = useAppData();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+
+  const liveIds = new Set(projects.map((p) => p.id));
+  const orphanTasks = allTasks.filter((t) => t.projectId && !liveIds.has(t.projectId));
+  const orphanReports = reports.filter((r) => r.projectId && !liveIds.has(r.projectId));
+  const orphanCost = orphanTasks
+    .filter((t) => t.category === 'pre-production')
+    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const total = orphanTasks.length + orphanReports.length;
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      await deleteOrphans(
+        orphanTasks.map((t) => ({ projectId: t.projectId, id: t.id })),
+        orphanReports.map((r) => r.id),
+      );
+      toast(`Đã dọn ${total} mục mồ côi`);
+    } catch (e: unknown) {
+      toast(`Lỗi: ${(e as Error).message}`, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="p-6 space-y-4">
+      <div>
+        <h2 className="font-bold text-base">Dọn dữ liệu mồ côi</h2>
+        <p className="text-sm text-muted mt-1">
+          Xoá task (gồm chi phí) và báo cáo còn sót lại của các project đã bị xoá trước đây.
+          Project xoá gần đây đã tự dọn — mục này chỉ để dọn dữ liệu cũ.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-bg border border-line rounded-xl p-3">
+          <p className="text-2xl font-extrabold tabular-nums">{orphanTasks.length}</p>
+          <p className="text-[11px] text-dim">task mồ côi</p>
+        </div>
+        <div className="bg-bg border border-line rounded-xl p-3">
+          <p className="text-2xl font-extrabold tabular-nums">{orphanReports.length}</p>
+          <p className="text-[11px] text-dim">báo cáo mồ côi</p>
+        </div>
+        <div className="bg-bg border border-line rounded-xl p-3">
+          <p className="text-2xl font-extrabold tabular-nums text-amber-300">{formatVND(orphanCost)}</p>
+          <p className="text-[11px] text-dim">chi phí mồ côi</p>
+        </div>
+      </div>
+
+      <Button variant="danger" onClick={() => setConfirm(true)} disabled={busy || total === 0}>
+        {busy ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+        {total === 0 ? 'Không có dữ liệu mồ côi' : `Dọn ${total} mục`}
+      </Button>
+
+      <ConfirmDialog
+        open={confirm}
+        onClose={() => setConfirm(false)}
+        onConfirm={run}
+        title="Dọn dữ liệu mồ côi?"
+        message={`Xoá vĩnh viễn ${orphanTasks.length} task và ${orphanReports.length} báo cáo của các project đã xoá. Không thể hoàn tác.`}
+      />
+    </Card>
   );
 }
 

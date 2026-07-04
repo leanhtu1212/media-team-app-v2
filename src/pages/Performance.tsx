@@ -41,7 +41,8 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
       }, 0);
       // Video = số lượng video INHOUSE
       const video = mt.filter((t) => t.category === 'video' && !isOut(t.projectId) && (t.status === 'completed' || t.dntt)).reduce((s, t) => s + (Number(t.quantity) || 1), 0);
-      const cost = mt.filter((t) => t.category === 'pre-production').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+      // Bỏ chi phí mồ côi (project đã xoá) khỏi tổng
+      const cost = mt.filter((t) => t.category === 'pre-production' && projects.some((p) => p.id === t.projectId)).reduce((s, t) => s + (Number(t.amount) || 0), 0);
       const teamKpi = calculateTeamKpi(members, mo, allTasks, projects, reports);
       const output = teamKpi.reduce((s, k) => s + k.outputCount, 0);
       const avgKpi = teamKpi.length > 0 ? teamKpi.reduce((s, k) => s + k.finalKPI, 0) / teamKpi.length : 0;
@@ -53,8 +54,8 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
   const cur = trend[thisIdx];
   const prev = trend[thisIdx - 1];
 
-  // Cost analysis: pre-production tasks in month grouped by project
-  const costTasks = monthTasks.filter((t) => t.category === 'pre-production');
+  // Cost analysis: pre-production tasks in month grouped by project (bỏ mồ côi)
+  const costTasks = monthTasks.filter((t) => t.category === 'pre-production' && projects.some((p) => p.id === t.projectId));
   const costByProject = new Map<string, Task[]>();
   costTasks.forEach((t) => {
     const list = costByProject.get(t.projectId) || [];
