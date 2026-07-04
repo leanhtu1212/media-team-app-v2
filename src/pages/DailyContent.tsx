@@ -466,7 +466,7 @@ function NoteFormModal({
 }
 
 export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
-  const { dailyContent, projects, allTasks, notes, tags, isEditor } = useAppData();
+  const { dailyContent, projects, allTasks, notes, tags, isEditor, isAdmin } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
   const [month, setMonth] = useState(currentMonth());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -555,18 +555,20 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
       if (spanIds.has(p.id)) return;
       if (!isProjectFinished(p.status) && (p.deadline || '').startsWith(month)) push(p.deadline!, { kind: 'project', project: p });
     });
-    // Task tiền kỳ chưa xong, deadline trong tháng
-    allTasks.forEach((t) => {
-      if (t.category === 'pre-production' && t.status !== 'completed' && !t.dntt && (t.deadline || '').startsWith(month)) {
-        push(t.deadline!, { kind: 'task', task: t, project: projects.find((p) => p.id === t.projectId) });
-      }
-    });
+    // Khoản chi phí tiền kỳ chưa xong, deadline trong tháng — CHỈ admin thấy (dữ liệu chi phí)
+    if (isAdmin) {
+      allTasks.forEach((t) => {
+        if (t.category === 'pre-production' && t.status !== 'completed' && !t.dntt && (t.deadline || '').startsWith(month)) {
+          push(t.deadline!, { kind: 'task', task: t, project: projects.find((p) => p.id === t.projectId) });
+        }
+      });
+    }
     // Ghi chú ghim theo ngày trong tháng
     notes.forEach((n) => {
       if ((n.date || '').startsWith(month)) push(n.date, { kind: 'note', note: n });
     });
     return map;
-  }, [dailyContent, projects, allTasks, notes, month, spanIds]);
+  }, [dailyContent, projects, allTasks, notes, month, spanIds, isAdmin]);
 
   const monthCount = useMemo(() => Object.values(byDay).reduce((s, l) => s + l.length, 0) + spanProjects.length, [byDay, spanProjects]);
 
@@ -704,7 +706,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500/50" /> Content</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-sky-500/50" /> Dự án inhouse</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/50" /> Dự án outsource</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500/50" /> Task tiền kỳ</span>
+            {isAdmin && <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500/50" /> Chi phí</span>}
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500/50" /> Ghi chú</span>
           </div>
           <div className="flex flex-wrap gap-3 items-center text-[11px] text-muted">
@@ -769,7 +771,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
 
             {selTasks.length > 0 && (
               <div>
-                <p className="text-xs font-bold text-muted uppercase tracking-wide mb-2">Task tiền kỳ ({selTasks.length})</p>
+                <p className="text-xs font-bold text-muted uppercase tracking-wide mb-2">Chi phí ({selTasks.length})</p>
                 <div className="space-y-2">
                   {selTasks.map(({ task, project }) => (
                     <button

@@ -15,7 +15,7 @@ import { PerformancePage } from './pages/Performance';
 import { SettingsPage } from './pages/Settings';
 
 function Shell({ user }: { user: User }) {
-  const { loading } = useAppData();
+  const { loading, isAdmin } = useAppData();
   const [view, setView] = useState<View>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   // Lifted so the Inhouse/Outsource/Content tab survives opening a project detail
@@ -48,7 +48,7 @@ function Shell({ user }: { user: User }) {
               {view === 'projects' && <ProjectsPage user={user} onOpenProject={openProject} typeFilter={projectsTypeFilter} onTypeFilterChange={setProjectsTypeFilter} />}
               {view === 'daily' && <DailyContentPage user={user} onOpenProject={openProject} />}
               {view === 'reports' && <ReportsPage user={user} />}
-              {view === 'performance' && <PerformancePage onOpenProject={openProject} />}
+              {view === 'performance' && isAdmin && <PerformancePage onOpenProject={openProject} />}
               {view === 'settings' && <SettingsPage user={user} />}
             </>
           )}
