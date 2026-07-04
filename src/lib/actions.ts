@@ -3,7 +3,7 @@ import {
 } from 'firebase/firestore';
 import { db, type User } from './firebase';
 import { MAIN_TEAM_ID, genId, todayStr } from './utils';
-import type { Project, Task, Report, DailyContent, TaskCategory } from '../types';
+import type { Project, Task, Report, DailyContent, Note, TaskCategory } from '../types';
 
 const teamPath = ['teams', MAIN_TEAM_ID] as const;
 
@@ -14,6 +14,7 @@ export const col = {
   reports: () => collection(db, ...teamPath, 'reports'),
   productTypes: () => collection(db, ...teamPath, 'productTypes'),
   dailyContent: () => collection(db, ...teamPath, 'dailyContent'),
+  notes: () => collection(db, ...teamPath, 'notes'),
 };
 
 export const ref = {
@@ -24,6 +25,7 @@ export const ref = {
   report: (id: string) => doc(db, ...teamPath, 'reports', id),
   productType: (id: string) => doc(db, ...teamPath, 'productTypes', id),
   daily: (id: string) => doc(db, ...teamPath, 'dailyContent', id),
+  note: (id: string) => doc(db, ...teamPath, 'notes', id),
 };
 
 /* ---------- Projects ---------- */
@@ -233,4 +235,23 @@ export async function updateDailyContent(id: string, data: Partial<DailyContent>
 
 export async function deleteDailyContent(id: string): Promise<void> {
   await deleteDoc(ref.daily(id));
+}
+
+/* ---------- Notes (ghi chú ghim vào ngày trên lịch) ---------- */
+
+export async function createNote(data: Partial<Note>, user: User): Promise<void> {
+  await addDoc(col.notes(), {
+    text: data.text || '',
+    date: data.date || todayStr(),
+    createdAt: serverTimestamp(),
+    createdBy: user.uid,
+  });
+}
+
+export async function updateNote(id: string, data: Partial<Note>): Promise<void> {
+  await updateDoc(ref.note(id), { ...data, updatedAt: serverTimestamp() });
+}
+
+export async function deleteNote(id: string): Promise<void> {
+  await deleteDoc(ref.note(id));
 }

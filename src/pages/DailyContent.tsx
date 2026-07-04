@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
-import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video } from 'lucide-react';
+import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video, StickyNote } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
-import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject } from '../lib/actions';
+import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject, createNote, updateNote, deleteNote } from '../lib/actions';
 import { ProjectFormModal } from './Projects';
 import { Linkify } from './ProjectDetail';
 import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
-import type { DailyContent, DailyStatus, Project, Task } from '../types';
+import type { DailyContent, DailyStatus, Project, Task, Note } from '../types';
 import type { User } from '../lib/firebase';
 
 const STATUSES: DailyStatus[] = ['planned', 'in-progress', 'done', 'published'];
@@ -35,6 +35,7 @@ const TYPE_TINT = {
   inhouse: 'bg-sky-500/12 text-sky-200',
   outsource: 'bg-emerald-500/12 text-emerald-200',
   task: 'bg-amber-500/12 text-amber-200',
+  note: 'bg-violet-500/12 text-violet-200',
 } as const;
 
 // Vạch trái theo TIẾN ĐỘ: quá hạn → đỏ, xong → xanh lá, đang làm → vàng, chưa bắt đầu → xám
@@ -46,6 +47,7 @@ function stripeFor(entry: CalEntry, today: string): string {
     if (d.status === 'in-progress') return 'border-amber-400';
     return 'border-slate-500';
   }
+  if (entry.kind === 'note') return 'border-violet-400';
   if (entry.kind === 'project') {
     const p = entry.project;
     if ((p.deadline || '') < today) return 'border-red-500';
@@ -310,12 +312,14 @@ export function ContentKanban({ user }: { user: User }) {
 type CalEntry =
   | { kind: 'daily'; daily: DailyContent }
   | { kind: 'project'; project: Project }
-  | { kind: 'task'; task: Task; project?: Project };
+  | { kind: 'task'; task: Task; project?: Project }
+  | { kind: 'note'; note: Note };
 
 /** Mã hoá payload kéo-thả cho từng loại chip → parse ở handler drop. */
 function dragPayload(entry: CalEntry): string {
   if (entry.kind === 'daily') return `daily:${entry.daily.id}`;
   if (entry.kind === 'project') return `project:${entry.project.id}`;
+  if (entry.kind === 'note') return `note:${entry.note.id}`;
   return `task:${entry.task.projectId}:${entry.task.id}`;
 }
 
@@ -323,7 +327,7 @@ function dragPayload(entry: CalEntry): string {
  *  DailyContentPage) — nếu inline, mỗi lần re-render (vd click chọn ngày) React coi
  *  là component mới → remount chip → cú double-click bị gián đoạn giữa 2 lần click. */
 function CalChip({
-  entry, today, canEditDaily, isEditor, assigneeName, onDetail, onOpenProject,
+  entry, today, canEditDaily, isEditor, assigneeName, onDetail, onOpenProject, onNote,
 }: {
   entry: CalEntry;
   today: string;
@@ -332,15 +336,30 @@ function CalChip({
   assigneeName: (id?: string) => string | undefined;
   onDetail: (d: DailyContent) => void;
   onOpenProject: (id: string) => void;
+  onNote: (n: Note) => void;
 }) {
   const stripe = stripeFor(entry, today);
-  const canDrag = entry.kind === 'daily' ? canEditDaily : isEditor;
+  const canDrag = entry.kind === 'daily' || entry.kind === 'note' ? canEditDaily : isEditor;
   const dragProps = canDrag ? {
     draggable: true,
     onDragStart: (e: React.DragEvent) => { e.stopPropagation(); e.dataTransfer.setData('text/plain', dragPayload(entry)); e.dataTransfer.effectAllowed = 'move'; },
   } : {};
   const dragCls = canDrag ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer';
 
+  if (entry.kind === 'note') {
+    const n = entry.note;
+    return (
+      <div
+        {...dragProps}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => { e.stopPropagation(); onNote(n); }}
+        title={`Ghi chú — nhấn đúp để sửa${canDrag ? ', kéo để đổi ngày' : ''}`}
+        className={`rounded-md px-1.5 py-1 border-l-2 ${dragCls} ${stripe} ${TYPE_TINT.note}`}
+      >
+        <p className="text-[11px] font-semibold leading-tight line-clamp-3 flex items-start gap-1"><StickyNote size={10} className="mt-0.5 shrink-0" />{n.text || '(trống)'}</p>
+      </div>
+    );
+  }
   if (entry.kind === 'daily') {
     const d = entry.daily;
     const name = assigneeName(d.assigneeId);
@@ -391,17 +410,60 @@ function CalChip({
   );
 }
 
+/** Modal tạo/sửa ghi chú (ghim vào 1 ngày). Component cấp module để input không remount. */
+function NoteFormModal({
+  state, onClose, onSave, onDelete,
+}: {
+  state: { note: Note | null; date: string } | null;
+  onClose: () => void;
+  onSave: (text: string) => Promise<void>;
+  onDelete?: () => Promise<void>;
+}) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const open = !!state;
+  const [lastOpen, setLastOpen] = useState(false);
+  if (open && !lastOpen) { setText(state!.note?.text || ''); setLastOpen(true); }
+  else if (!open && lastOpen) setLastOpen(false);
+
+  const submit = async () => {
+    if (busy || !text.trim()) return;
+    setBusy(true);
+    await onSave(text.trim());
+    setBusy(false);
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} onSubmit={submit} title={state?.note ? 'Sửa ghi chú' : 'Ghi chú mới'}>
+      <div className="space-y-4">
+        <Field label={`Nội dung${state ? ` · ${formatDate(state.date)}` : ''}`}>
+          <Textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Nhập ghi chú… (dán link cũng được)" />
+        </Field>
+        <div className="flex justify-between items-center gap-2 pt-1">
+          {onDelete ? <Button variant="danger" onClick={onDelete}>Xoá</Button> : <span />}
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose}>Huỷ</Button>
+            <Button type="submit" disabled={busy || !text.trim()}>{state?.note ? 'Lưu' : 'Thêm'}</Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
-  const { dailyContent, projects, allTasks, productTypes, isEditor } = useAppData();
+  const { dailyContent, projects, allTasks, notes, productTypes, isEditor } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
   const [month, setMonth] = useState(currentMonth());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
 
-  // Chọn loại khi tạo mới từ lịch (inhouse / outsource / content).
+  // Chọn loại khi tạo mới từ lịch (inhouse / outsource / content / ghi chú).
   // Vai trò content (canEditDaily nhưng không phải editor) → bỏ qua bước chọn, tạo thẳng content.
   const [pickerDate, setPickerDate] = useState<string | null>(null);
   const [projModal, setProjModal] = useState<{ projectType: 'inhouse' | 'outsource'; startDate: string } | null>(null);
+  // Modal tạo/sửa ghi chú: { note } khi sửa, hoặc { date } khi tạo mới ở 1 ngày
+  const [noteModal, setNoteModal] = useState<{ note: Note | null; date: string } | null>(null);
 
   // Điểm vào duy nhất khi tạo mới ở một ngày: editor → hiện bảng chọn; content → tạo content luôn
   const startCreate = (date: string) => {
@@ -434,6 +496,12 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
         if (!t || t.deadline === date) return;
         await updateTask(a, b, { deadline: date });
         toast(`Deadline task → ${formatDate(date)}`);
+      } else if (kind === 'note') {
+        if (!canEditDaily) return;
+        const n = notes.find((x) => x.id === a);
+        if (!n || n.date === date) return;
+        await updateNote(a, { date });
+        toast(`Ghi chú → ${formatDate(date)}`);
       }
     } catch (e: unknown) {
       toast(`Lỗi: ${(e as Error).message}`, 'error');
@@ -475,8 +543,12 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
         push(t.deadline!, { kind: 'task', task: t, project: projects.find((p) => p.id === t.projectId) });
       }
     });
+    // Ghi chú ghim theo ngày trong tháng
+    notes.forEach((n) => {
+      if ((n.date || '').startsWith(month)) push(n.date, { kind: 'note', note: n });
+    });
     return map;
-  }, [dailyContent, projects, allTasks, month, spanIds]);
+  }, [dailyContent, projects, allTasks, notes, month, spanIds]);
 
   const monthCount = useMemo(() => Object.values(byDay).reduce((s, l) => s + l.length, 0) + spanProjects.length, [byDay, spanProjects]);
 
@@ -496,6 +568,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
   const selDailies = selectedEntries.filter((e): e is Extract<CalEntry, { kind: 'daily' }> => e.kind === 'daily');
   const selProjects = selectedEntries.filter((e): e is Extract<CalEntry, { kind: 'project' }> => e.kind === 'project');
   const selTasks = selectedEntries.filter((e): e is Extract<CalEntry, { kind: 'task' }> => e.kind === 'task');
+  const selNotes = selectedEntries.filter((e): e is Extract<CalEntry, { kind: 'note' }> => e.kind === 'note');
 
   return (
     <div className="fade-up space-y-5">
@@ -565,6 +638,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                               assigneeName={(id) => memberOf(id)?.username}
                               onDetail={setDetailItem}
                               onOpenProject={onOpenProject}
+                              onNote={(n) => setNoteModal({ note: n, date: n.date })}
                             />
                           ))}
                           {list.length > 4 && <span className="text-[10px] text-dim block pl-1">+{list.length - 4} mục khác</span>}
@@ -608,6 +682,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-sky-500/50" /> Dự án inhouse</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/50" /> Dự án outsource</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500/50" /> Task tiền kỳ</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500/50" /> Ghi chú</span>
           </div>
           <div className="flex flex-wrap gap-3 items-center text-[11px] text-muted">
             <span className="font-bold text-dim uppercase text-[10px] tracking-wide">Tiến độ (vạch)</span>
@@ -690,6 +765,24 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                 </div>
               </div>
             )}
+
+            {selNotes.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-muted uppercase tracking-wide mb-2">Ghi chú ({selNotes.length})</p>
+                <div className="space-y-2">
+                  {selNotes.map(({ note }) => (
+                    <button
+                      key={note.id}
+                      onClick={() => canEditDaily && setNoteModal({ note, date: note.date })}
+                      className="w-full flex items-start gap-3 p-3 bg-bg border border-line rounded-xl hover:border-line-2 transition-all text-left cursor-pointer"
+                    >
+                      <StickyNote size={15} className="text-violet-300 shrink-0 mt-0.5" />
+                      <p className="flex-1 text-sm text-muted whitespace-pre-wrap break-words"><Linkify text={note.text || '(trống)'} /></p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </Card>
       )}
@@ -723,16 +816,55 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
           <button
             type="button"
             onClick={() => { const d = pickerDate!; setPickerDate(null); openNew(d); }}
-            className="flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-violet-500/50 transition-all text-left cursor-pointer"
+            className="flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-orange-500/50 transition-all text-left cursor-pointer"
           >
-            <Plus size={18} className="text-violet-300 shrink-0" />
+            <Plus size={18} className="text-orange-300 shrink-0" />
             <div className="min-w-0">
               <p className="text-sm font-bold">Nội dung</p>
               <p className="text-[11px] text-dim">Nội dung hằng ngày (Reels, Short…)</p>
             </div>
           </button>
+          <button
+            type="button"
+            onClick={() => { const d = pickerDate!; setPickerDate(null); setNoteModal({ note: null, date: d }); }}
+            className="flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-violet-500/50 transition-all text-left cursor-pointer"
+          >
+            <StickyNote size={18} className="text-violet-300 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold">Ghi chú</p>
+              <p className="text-[11px] text-dim">Ghi chú nhanh ghim vào ngày này</p>
+            </div>
+          </button>
         </div>
       </Modal>
+
+      <NoteFormModal
+        state={noteModal}
+        onClose={() => setNoteModal(null)}
+        onSave={async (text) => {
+          try {
+            if (noteModal?.note) {
+              await updateNote(noteModal.note.id, { text });
+              toast('Đã cập nhật ghi chú');
+            } else if (noteModal) {
+              await createNote({ text, date: noteModal.date }, user);
+              toast('Đã thêm ghi chú');
+            }
+            setNoteModal(null);
+          } catch (e: unknown) {
+            toast(`Lỗi: ${(e as Error).message}`, 'error');
+          }
+        }}
+        onDelete={noteModal?.note ? async () => {
+          try {
+            await deleteNote(noteModal.note!.id);
+            toast('Đã xoá ghi chú');
+            setNoteModal(null);
+          } catch (e: unknown) {
+            toast(`Lỗi: ${(e as Error).message}`, 'error');
+          }
+        } : undefined}
+      />
 
       {/* Form tạo dự án mới với loại + deadline điền sẵn từ lịch */}
       <ProjectFormModal

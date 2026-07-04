@@ -106,6 +106,15 @@ export interface DailyContent {
   createdBy?: string;
 }
 
+/** Ghi chú tự do ghim vào 1 ngày trên lịch (collection teams/{id}/notes). */
+export interface Note {
+  id: string;
+  text: string;    // nội dung ghi chú
+  date: string;    // YYYY-MM-DD — ngày ghim
+  createdAt?: unknown;
+  createdBy?: string;
+}
+
 export interface TeamDoc {
   id: string;
   name?: string;

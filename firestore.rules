@@ -109,6 +109,13 @@ service cloud.firestore {
         allow create, update: if canEditDaily(teamId);
         allow delete: if canEditDaily(teamId);
       }
+
+      // Notes Subcollection — ghi chú ghim vào ngày trên lịch (editor/admin/content ghi)
+      match /notes/{noteId} {
+        allow read: if isTeamMember(teamId);
+        allow create, update: if canEditDaily(teamId);
+        allow delete: if canEditDaily(teamId);
+      }
     }
   }
 }
