@@ -101,6 +101,18 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
         </Card>
       </div>
 
+      {/* So sánh chi phí giữa các tháng */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-bold text-sm flex items-center gap-2"><Wallet size={15} className="text-amber-300" /> Chi phí theo tháng</h2>
+          <span className="text-xs text-muted">
+            {cur.cost >= prev.cost ? '▲' : '▼'} {formatVND(Math.abs(cur.cost - prev.cost))} so tháng trước
+          </span>
+        </div>
+        <p className="text-xs text-muted mb-4">Tổng chi phí tiền kỳ 6 tháng gần nhất</p>
+        <CostBarChart data={trend.map((t) => ({ label: t.label, cost: t.cost }))} />
+      </Card>
+
       <Card className="overflow-x-auto">
         <table className="w-full text-sm min-w-[760px]">
           <thead>
@@ -309,6 +321,38 @@ function LineChart({ data, suffix = '', color }: { data: { label: string; value:
           <text x={p.x} y={H - 8} textAnchor="middle" fontSize={10} fill="#8b8b94">{p.label}</text>
         </g>
       ))}
+    </svg>
+  );
+}
+
+/* ---------- Cost-by-month bar chart (SVG) ---------- */
+function costShort(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(n >= 1e10 ? 0 : 1)} tỷ`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)} tr`;
+  if (n >= 1e3) return `${Math.round(n / 1e3)}k`;
+  return `${n}`;
+}
+function CostBarChart({ data }: { data: { label: string; cost: number }[] }) {
+  const W = 480, H = 200, padB = 26, padL = 24, padT = 22;
+  const max = Math.max(1, ...data.map((d) => d.cost)) * 1.18;
+  const groupW = (W - padL * 2) / data.length;
+  const barW = Math.min(36, groupW - 14);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 200 }}>
+      {[0.25, 0.5, 0.75, 1].map((f) => (
+        <line key={f} x1={padL} x2={W - padL} y1={padT + (H - padT - padB) * (1 - f)} y2={padT + (H - padT - padB) * (1 - f)} stroke="#26262c" strokeWidth={1} />
+      ))}
+      {data.map((d, i) => {
+        const gx = padL + groupW * i + groupW / 2;
+        const h = ((H - padT - padB) * d.cost) / max;
+        return (
+          <g key={i}>
+            <rect x={gx - barW / 2} y={H - padB - h} width={barW} height={h} rx={3} fill="#fbbf24" />
+            {d.cost > 0 && <text x={gx} y={H - padB - h - 4} textAnchor="middle" fontSize={9} fill="#e6b34d" fontWeight="bold">{costShort(d.cost)}</text>}
+            <text x={gx} y={H - 8} textAnchor="middle" fontSize={10} fill="#8b8b94">{d.label}</text>
+          </g>
+        );
+      })}
     </svg>
   );
 }
