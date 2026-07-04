@@ -36,6 +36,7 @@ export interface Project {
   photoPoint?: number; // default 1
   videoPoint?: number; // default 3
   qualityScore?: number; // 0-10 when done
+  tagId?: string;
   createdAt?: unknown;
   createdBy?: string;
 }
@@ -55,6 +56,7 @@ export interface Task {
   difficulty?: number; // 1-5
   dntt?: boolean;
   deadline?: string;
+  tagId?: string;
   hasKB?: boolean;
   images?: string[];
   reportDate?: string; // YYYY-MM-DD
@@ -102,6 +104,7 @@ export interface DailyContent {
   points?: number;
   status: DailyStatus;
   projectId?: string;
+  tagId?: string;
   createdAt?: unknown;
   createdBy?: string;
 }
@@ -111,6 +114,16 @@ export interface Note {
   id: string;
   text: string;    // nội dung ghi chú
   date: string;    // YYYY-MM-DD — ngày ghim
+  tagId?: string;
+  createdAt?: unknown;
+  createdBy?: string;
+}
+
+/** Tag màu tuỳ chỉnh gán cho mục trên lịch (collection teams/{id}/tags). */
+export interface Tag {
+  id: string;
+  name: string;
+  color: string; // hex, vd "#f97316"
   createdAt?: unknown;
   createdBy?: string;
 }

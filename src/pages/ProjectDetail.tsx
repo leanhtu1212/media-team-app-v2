@@ -3,6 +3,7 @@ import { ArrowLeft, Plus, Trash2, Pencil, Camera, Video, Wallet, Star, CheckCirc
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
 import { updateProject, deleteProject, createTask, updateTask, deleteTask, toggleDntt } from '../lib/actions';
+import { TagSelect } from '../components/tags';
 import { formatVND, formatDate, todayStr, itemStatusFromProjectStatus, isProjectFinished } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { ProjectFormModal } from './Projects';
@@ -583,14 +584,19 @@ function TaskFormModal({
           )}
         </div>
         {isPre && (
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Deadline">
-              <Input type="date" value={form.deadline || ''} onChange={(e) => set('deadline', e.target.value)} />
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Deadline">
+                <Input type="date" value={form.deadline || ''} onChange={(e) => set('deadline', e.target.value)} />
+              </Field>
+              <Field label="Độ khó (1–5)">
+                <Input type="number" min={1} max={5} value={form.difficulty ?? 1} onChange={(e) => set('difficulty', Math.min(5, Math.max(1, Number(e.target.value))))} />
+              </Field>
+            </div>
+            <Field label="Tag màu">
+              <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} />
             </Field>
-            <Field label="Độ khó (1–5)">
-              <Input type="number" min={1} max={5} value={form.difficulty ?? 1} onChange={(e) => set('difficulty', Math.min(5, Math.max(1, Number(e.target.value))))} />
-            </Field>
-          </div>
+          </>
         )}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Huỷ</Button>

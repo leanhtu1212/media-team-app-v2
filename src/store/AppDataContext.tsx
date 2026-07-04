@@ -4,7 +4,7 @@ import {
 } from 'firebase/firestore';
 import { db, type User } from '../lib/firebase';
 import { MAIN_TEAM_ID, ADMIN_EMAILS } from '../lib/utils';
-import type { Member, Project, Task, Report, ProductType, DailyContent, Note, TeamDoc } from '../types';
+import type { Member, Project, Task, Report, ProductType, DailyContent, Note, Tag, TeamDoc } from '../types';
 
 interface AppData {
   team: TeamDoc | null;
@@ -15,6 +15,7 @@ interface AppData {
   productTypes: ProductType[];
   dailyContent: DailyContent[];
   notes: Note[];
+  tags: Tag[];
   loading: boolean;
   isAdmin: boolean;
   isEditor: boolean;
@@ -34,6 +35,7 @@ export function AppDataProvider({ user, children }: { user: User; children: Reac
   const [productTypes, setProductTypes] = useState<ProductType[]>([]);
   const [dailyContent, setDailyContent] = useState<DailyContent[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
   const [loaded, setLoaded] = useState({ members: false, projects: false, tasks: false });
 
   useEffect(() => {
@@ -82,6 +84,10 @@ export function AppDataProvider({ user, children }: { user: User; children: Reac
       onSnapshot(collection(db, 'teams', MAIN_TEAM_ID, 'notes'), (snap) =>
         setNotes(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Note))),
       ),
+
+      onSnapshot(collection(db, 'teams', MAIN_TEAM_ID, 'tags'), (snap) =>
+        setTags(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Tag))),
+      ),
     ];
     return () => unsubs.forEach((u) => u());
   }, [user.uid]);
@@ -95,7 +101,7 @@ export function AppDataProvider({ user, children }: { user: User; children: Reac
 
   return (
     <AppDataContext.Provider
-      value={{ team, members, projects, allTasks, reports, productTypes, dailyContent, notes, loading, isAdmin, isEditor, canEditDaily, currentMember }}
+      value={{ team, members, projects, allTasks, reports, productTypes, dailyContent, notes, tags, loading, isAdmin, isEditor, canEditDaily, currentMember }}
     >
       {children}
     </AppDataContext.Provider>

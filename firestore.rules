@@ -116,6 +116,12 @@ service cloud.firestore {
         allow create, update: if canEditDaily(teamId);
         allow delete: if canEditDaily(teamId);
       }
+
+      // Tags Subcollection — nhãn màu tuỳ chỉnh cho mục lịch (editor/admin quản lý)
+      match /tags/{tagId} {
+        allow read: if isTeamMember(teamId);
+        allow create, update, delete: if isEditor(teamId);
+      }
     }
   }
 }

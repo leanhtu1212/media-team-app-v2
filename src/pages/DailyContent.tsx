@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video, StickyNote } from 'lucide-react';
+import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video, StickyNote, Tag } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
 import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject, createNote, updateNote, deleteNote } from '../lib/actions';
 import { ProjectFormModal } from './Projects';
 import { Linkify } from './ProjectDetail';
+import { TagManagerModal, TagSelect, hexA } from '../components/tags';
 import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import type { DailyContent, DailyStatus, Project, Task, Note } from '../types';
@@ -327,7 +328,7 @@ function dragPayload(entry: CalEntry): string {
  *  DailyContentPage) — nếu inline, mỗi lần re-render (vd click chọn ngày) React coi
  *  là component mới → remount chip → cú double-click bị gián đoạn giữa 2 lần click. */
 function CalChip({
-  entry, today, canEditDaily, isEditor, assigneeName, onDetail, onOpenProject, onNote,
+  entry, today, canEditDaily, isEditor, assigneeName, onDetail, onOpenProject, onNote, tagColor,
 }: {
   entry: CalEntry;
   today: string;
@@ -337,9 +338,14 @@ function CalChip({
   onDetail: (d: DailyContent) => void;
   onOpenProject: (id: string) => void;
   onNote: (n: Note) => void;
+  tagColor: (id?: string) => string | undefined;
 }) {
   const stripe = stripeFor(entry, today);
   const canDrag = entry.kind === 'daily' || entry.kind === 'note' ? canEditDaily : isEditor;
+  // Nếu mục được gán tag → nền chip đổi sang màu tag (giữ nguyên vạch tiến độ bên trái)
+  const tagIdOf = entry.kind === 'daily' ? entry.daily.tagId : entry.kind === 'project' ? entry.project.tagId : entry.kind === 'task' ? entry.task.tagId : entry.note.tagId;
+  const tagCol = tagColor(tagIdOf);
+  const tagStyle = tagCol ? { backgroundColor: hexA(tagCol, 0.32), color: '#fff' } : undefined;
   const dragProps = canDrag ? {
     draggable: true,
     onDragStart: (e: React.DragEvent) => { e.stopPropagation(); e.dataTransfer.setData('text/plain', dragPayload(entry)); e.dataTransfer.effectAllowed = 'move'; },
@@ -354,6 +360,7 @@ function CalChip({
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => { e.stopPropagation(); onNote(n); }}
         title={`Ghi chú — nhấn đúp để sửa${canDrag ? ', kéo để đổi ngày' : ''}`}
+        style={tagStyle}
         className={`rounded-md px-1.5 py-1 border-l-2 ${dragCls} ${stripe} ${TYPE_TINT.note}`}
       >
         <p className="text-[11px] font-semibold leading-tight line-clamp-3 flex items-start gap-1"><StickyNote size={10} className="mt-0.5 shrink-0" />{n.text || '(trống)'}</p>
@@ -369,6 +376,7 @@ function CalChip({
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => { e.stopPropagation(); onDetail(d); }}
         title={`Nội dung — nhấn đúp để xem chi tiết${canDrag ? ', kéo để đổi ngày' : ''}`}
+        style={tagStyle}
         className={`rounded-md px-1.5 py-1 border-l-2 ${dragCls} ${stripe} ${TYPE_TINT.content}`}
       >
         <p className="text-[11px] font-bold leading-tight line-clamp-2">{d.title}</p>
@@ -388,6 +396,7 @@ function CalChip({
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
         title={`Dự án ${isOut ? 'outsource' : 'inhouse'} — nhấn đúp để mở${canDrag ? ', kéo để đổi deadline' : ''}`}
+        style={tagStyle}
         className={`rounded-md px-1.5 py-1 border-l-2 ${dragCls} ${stripe} ${isOut ? TYPE_TINT.outsource : TYPE_TINT.inhouse}`}
       >
         <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><FolderKanban size={10} className="mt-0.5 shrink-0" />{p.title}</p>
@@ -402,6 +411,7 @@ function CalChip({
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => { e.stopPropagation(); if (project) onOpenProject(project.id); }}
       title={`Task tiền kỳ — nhấn đúp để mở dự án${canDrag ? ', kéo để đổi deadline' : ''}`}
+      style={tagStyle}
       className={`rounded-md px-1.5 py-1 border-l-2 ${dragCls} ${stripe} ${TYPE_TINT.task}`}
     >
       <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><Wallet size={10} className="mt-0.5 shrink-0" />{task.title}</p>
@@ -416,20 +426,21 @@ function NoteFormModal({
 }: {
   state: { note: Note | null; date: string } | null;
   onClose: () => void;
-  onSave: (text: string) => Promise<void>;
+  onSave: (text: string, tagId: string) => Promise<void>;
   onDelete?: () => Promise<void>;
 }) {
   const [text, setText] = useState('');
+  const [tagId, setTagId] = useState('');
   const [busy, setBusy] = useState(false);
   const open = !!state;
   const [lastOpen, setLastOpen] = useState(false);
-  if (open && !lastOpen) { setText(state!.note?.text || ''); setLastOpen(true); }
+  if (open && !lastOpen) { setText(state!.note?.text || ''); setTagId(state!.note?.tagId || ''); setLastOpen(true); }
   else if (!open && lastOpen) setLastOpen(false);
 
   const submit = async () => {
     if (busy || !text.trim()) return;
     setBusy(true);
-    await onSave(text.trim());
+    await onSave(text.trim(), tagId);
     setBusy(false);
   };
 
@@ -438,6 +449,9 @@ function NoteFormModal({
       <div className="space-y-4">
         <Field label={`Nội dung${state ? ` · ${formatDate(state.date)}` : ''}`}>
           <Textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Nhập ghi chú… (dán link cũng được)" />
+        </Field>
+        <Field label="Tag màu">
+          <TagSelect value={tagId} onChange={setTagId} />
         </Field>
         <div className="flex justify-between items-center gap-2 pt-1">
           {onDelete ? <Button variant="danger" onClick={onDelete}>Xoá</Button> : <span />}
@@ -452,11 +466,15 @@ function NoteFormModal({
 }
 
 export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
-  const { dailyContent, projects, allTasks, notes, isEditor } = useAppData();
+  const { dailyContent, projects, allTasks, notes, tags, isEditor } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
   const [month, setMonth] = useState(currentMonth());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
+  const [tagManagerOpen, setTagManagerOpen] = useState(false);
+
+  // Màu tag theo id (dùng tô nền chip & thanh dự án)
+  const tagColorOf = (id?: string) => (id ? tags.find((t) => t.id === id)?.color : undefined);
 
   // Chọn loại khi tạo mới từ lịch (inhouse / outsource / content / ghi chú).
   // Vai trò content (canEditDaily nhưng không phải editor) → bỏ qua bước chọn, tạo thẳng content.
@@ -577,7 +595,10 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
           <h1 className="text-xl font-extrabold tracking-tight">Lịch tháng</h1>
           <p className="text-sm text-muted">{monthCount} mục trong {monthLabel(month).toLowerCase()} — nội dung, deadline dự án & task đang chạy</p>
         </div>
-        {canEditDaily && <Button onClick={() => openNew()}><Plus size={15} /> Nội dung</Button>}
+        <div className="flex items-center gap-2">
+          {isEditor && <Button variant="outline" onClick={() => setTagManagerOpen(true)}><Tag size={15} /> Tag màu</Button>}
+          {canEditDaily && <Button onClick={() => openNew()}><Plus size={15} /> Nội dung</Button>}
+        </div>
       </div>
 
       <MonthNav month={month} onChange={setMonth} />
@@ -639,6 +660,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                               onDetail={setDetailItem}
                               onOpenProject={onOpenProject}
                               onNote={(n) => setNoteModal({ note: n, date: n.date })}
+                              tagColor={tagColorOf}
                             />
                           ))}
                           {list.length > 4 && <span className="text-[10px] text-dim block pl-1">+{list.length - 4} mục khác</span>}
@@ -654,14 +676,15 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                     {bars.map((bar) => {
                       const p = bar.project;
                       const overdue = (p.deadline || '') < today;
+                      const tagCol = tagColorOf(p.tagId);
                       return (
                         <div
                           key={p.id}
-                          style={{ gridColumn: `${bar.colStart + 1} / span ${bar.span}`, gridRow: 1, alignSelf: 'start', marginTop: bar.lane * BAR_UNIT, height: BAR_UNIT - 4 }}
+                          style={{ gridColumn: `${bar.colStart + 1} / span ${bar.span}`, gridRow: 1, alignSelf: 'start', marginTop: bar.lane * BAR_UNIT, height: BAR_UNIT - 4, ...(tagCol ? { backgroundColor: tagCol } : {}) }}
                           onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
                           title={`${p.title}${p.deadline ? ` · deadline ${formatDate(p.deadline)}` : ''}`}
-                          className={`pointer-events-auto cursor-pointer flex items-center gap-1 px-2 text-[11px] font-semibold overflow-hidden select-none shadow-sm ${
-                            overdue ? 'bg-red-600 text-white' : 'bg-sky-600 text-white'
+                          className={`pointer-events-auto cursor-pointer flex items-center gap-1 px-2 text-[11px] font-semibold overflow-hidden select-none shadow-sm text-white ${
+                            tagCol ? '' : overdue ? 'bg-red-600' : 'bg-sky-600'
                           } ${bar.roundLeft ? 'rounded-l-md ml-0.5' : ''} ${bar.roundRight ? 'rounded-r-md mr-0.5' : ''}`}
                         >
                           {bar.roundLeft && <FolderKanban size={11} className="shrink-0" />}
@@ -841,13 +864,13 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
       <NoteFormModal
         state={noteModal}
         onClose={() => setNoteModal(null)}
-        onSave={async (text) => {
+        onSave={async (text, tagId) => {
           try {
             if (noteModal?.note) {
-              await updateNote(noteModal.note.id, { text });
+              await updateNote(noteModal.note.id, { text, tagId });
               toast('Đã cập nhật ghi chú');
             } else if (noteModal) {
-              await createNote({ text, date: noteModal.date }, user);
+              await createNote({ text, date: noteModal.date, tagId }, user);
               toast('Đã thêm ghi chú');
             }
             setNoteModal(null);
@@ -882,6 +905,8 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
           }
         }}
       />
+
+      <TagManagerModal open={tagManagerOpen} onClose={() => setTagManagerOpen(false)} user={user} />
 
       {modals}
     </div>
@@ -1000,11 +1025,16 @@ function ContentFormModal({
             <Input type="date" value={form.dueDate || ''} onChange={(e) => set('dueDate', e.target.value)} />
           </Field>
         </div>
-        <Field label="Trạng thái">
-          <Select value={form.status || 'planned'} onChange={(e) => set('status', e.target.value)}>
-            {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-          </Select>
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Trạng thái">
+            <Select value={form.status || 'planned'} onChange={(e) => set('status', e.target.value)}>
+              {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+            </Select>
+          </Field>
+          <Field label="Tag màu">
+            <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} />
+          </Field>
+        </div>
         <Field label="Ghi chú">
           <Textarea rows={2} value={form.notes || ''} onChange={(e) => set('notes', e.target.value)} />
         </Field>

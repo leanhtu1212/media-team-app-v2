@@ -6,6 +6,7 @@ import { createProject, updateProject } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
 import { formatDate, todayStr, normalize, itemStatusFromProjectStatus, isProjectFinished } from '../lib/utils';
 import { ContentKanban } from './DailyContent';
+import { TagSelect } from '../components/tags';
 import type { Project, ProjectStatus } from '../types';
 import type { User } from '../lib/firebase';
 
@@ -334,6 +335,9 @@ export function ProjectFormModal({
             <Input type="number" min={0} value={form.videoTarget ?? 0} onChange={(e) => set('videoTarget', Number(e.target.value))} />
           </Field>
         </div>
+        <Field label="Tag màu">
+          <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} />
+        </Field>
         {isProjectFinished(form.status || 'plan') && (
           <Field label="Điểm chất lượng (0–10)">
             <Input type="number" min={0} max={10} step={0.5} value={form.qualityScore ?? ''} onChange={(e) => set('qualityScore', e.target.value === '' ? undefined : Number(e.target.value))} />

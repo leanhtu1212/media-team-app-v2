@@ -3,7 +3,7 @@ import {
 } from 'firebase/firestore';
 import { db, type User } from './firebase';
 import { MAIN_TEAM_ID, genId, todayStr } from './utils';
-import type { Project, Task, Report, DailyContent, Note, TaskCategory } from '../types';
+import type { Project, Task, Report, DailyContent, Note, Tag, TaskCategory } from '../types';
 
 const teamPath = ['teams', MAIN_TEAM_ID] as const;
 
@@ -15,6 +15,7 @@ export const col = {
   productTypes: () => collection(db, ...teamPath, 'productTypes'),
   dailyContent: () => collection(db, ...teamPath, 'dailyContent'),
   notes: () => collection(db, ...teamPath, 'notes'),
+  tags: () => collection(db, ...teamPath, 'tags'),
 };
 
 export const ref = {
@@ -26,6 +27,7 @@ export const ref = {
   productType: (id: string) => doc(db, ...teamPath, 'productTypes', id),
   daily: (id: string) => doc(db, ...teamPath, 'dailyContent', id),
   note: (id: string) => doc(db, ...teamPath, 'notes', id),
+  tag: (id: string) => doc(db, ...teamPath, 'tags', id),
 };
 
 /* ---------- Projects ---------- */
@@ -70,6 +72,7 @@ interface NewTaskInput {
   reportDate?: string;
   status?: Task['status'];
   dntt?: boolean;
+  tagId?: string;
 }
 
 /** Create task; if created as completed → also create the linked auto-report. */
@@ -101,6 +104,7 @@ export async function createTask(input: NewTaskInput, user: User, projectTitle: 
     hasKB: !!input.hasKB,
     images: input.images || [],
     reportDate,
+    tagId: input.tagId || '',
     createdAt: serverTimestamp(),
     createdBy: user.uid,
     ...(isCompleted ? { completedAt: serverTimestamp() } : {}),
@@ -224,6 +228,7 @@ export async function createDailyContent(data: Partial<DailyContent>, user: User
     points: Number(data.points) || 3,
     status: data.status || 'planned',
     projectId: data.projectId || '',
+    tagId: data.tagId || '',
     createdAt: serverTimestamp(),
     createdBy: user.uid,
   });
@@ -243,6 +248,7 @@ export async function createNote(data: Partial<Note>, user: User): Promise<void>
   await addDoc(col.notes(), {
     text: data.text || '',
     date: data.date || todayStr(),
+    tagId: data.tagId || '',
     createdAt: serverTimestamp(),
     createdBy: user.uid,
   });
@@ -254,4 +260,23 @@ export async function updateNote(id: string, data: Partial<Note>): Promise<void>
 
 export async function deleteNote(id: string): Promise<void> {
   await deleteDoc(ref.note(id));
+}
+
+/* ---------- Tags (nhãn màu tuỳ chỉnh cho mục lịch) ---------- */
+
+export async function createTag(data: Partial<Tag>, user: User): Promise<void> {
+  await addDoc(col.tags(), {
+    name: data.name || '',
+    color: data.color || '#6366f1',
+    createdAt: serverTimestamp(),
+    createdBy: user.uid,
+  });
+}
+
+export async function updateTag(id: string, data: Partial<Tag>): Promise<void> {
+  await updateDoc(ref.tag(id), { ...data });
+}
+
+export async function deleteTag(id: string): Promise<void> {
+  await deleteDoc(ref.tag(id));
 }
