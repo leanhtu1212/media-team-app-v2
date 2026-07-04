@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Plus, FolderKanban, Calendar, Camera, Video, Search, X, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, EmptyState, Modal, Input, Textarea, Field } from '../components/ui';
@@ -62,8 +62,9 @@ export function ProjectsPage({
   typeFilter: ProjectsTab;
   onTypeFilterChange: (t: ProjectsTab) => void;
 }) {
-  const { projects, allTasks, isEditor } = useAppData();
+  const { projects, allTasks, isEditor, canEditDaily } = useAppData();
   const toast = useToast();
+  const contentNewRef = useRef<(() => void) | null>(null);
   const [showAllDone, setShowAllDone] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
@@ -135,12 +136,12 @@ export function ProjectsPage({
               )}
             </div>
           )}
-          <div className="flex bg-surface border border-line rounded-lg p-0.5">
+          <div className="flex bg-surface border border-line rounded-xl p-1">
             {(['inhouse', 'outsource', 'content'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => onTypeFilterChange(t)}
-                className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${
                   typeFilter === t ? 'bg-accent text-white' : 'text-muted hover:text-ink'
                 }`}
               >
@@ -153,10 +154,15 @@ export function ProjectsPage({
               <Plus size={15} /> Dự án mới
             </Button>
           )}
+          {typeFilter === 'content' && canEditDaily && (
+            <Button onClick={() => contentNewRef.current?.()}>
+              <Plus size={15} /> Nội dung
+            </Button>
+          )}
         </div>
       </div>
 
-      {typeFilter === 'content' && <ContentKanban user={user} />}
+      {typeFilter === 'content' && <ContentKanban user={user} newRef={contentNewRef} />}
 
       {typeFilter !== 'content' && (
       <>

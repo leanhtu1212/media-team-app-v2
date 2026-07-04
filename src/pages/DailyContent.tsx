@@ -230,11 +230,14 @@ function ItemCard({
  * ContentKanban — kanban Daily Content, render trong tab "Content"
  * của trang Dự án.
  * ================================================================ */
-export function ContentKanban({ user }: { user: User }) {
+export function ContentKanban({ user, newRef }: { user: User; newRef?: React.MutableRefObject<(() => void) | null> }) {
   const { dailyContent } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
   const [month, setMonth] = useState(currentMonth());
   const [dragOverCol, setDragOverCol] = useState<DailyStatus | null>(null);
+
+  // Cho phép trang Dự án gọi "tạo nội dung" từ nút trên hàng tab (đồng nhất 3 tab)
+  if (newRef) newRef.current = canEditDaily ? () => openNew() : null;
 
   const monthItems = useMemo(
     () => dailyContent.filter((d) => (d.dueDate || '').startsWith(month)),
@@ -254,10 +257,7 @@ export function ContentKanban({ user }: { user: User }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <MonthNav month={month} onChange={setMonth} />
-        {canEditDaily && <Button onClick={() => openNew()}><Plus size={15} /> Nội dung</Button>}
-      </div>
+      <MonthNav month={month} onChange={setMonth} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {STATUSES.map((status) => {
