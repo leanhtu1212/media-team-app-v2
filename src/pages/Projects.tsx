@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Plus, FolderKanban, Calendar, Camera, Video, Search, X, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
-import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, EmptyState, Modal, Input, Select, Textarea, Field } from '../components/ui';
+import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, EmptyState, Modal, Input, Textarea, Field } from '../components/ui';
 import { createProject, updateProject } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
 import { formatDate, todayStr, normalize, itemStatusFromProjectStatus, isProjectFinished } from '../lib/utils';
@@ -61,7 +61,7 @@ export function ProjectsPage({
   typeFilter: ProjectsTab;
   onTypeFilterChange: (t: ProjectsTab) => void;
 }) {
-  const { projects, allTasks, productTypes, isEditor } = useAppData();
+  const { projects, allTasks, isEditor } = useAppData();
   const toast = useToast();
   const [showAllDone, setShowAllDone] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -256,7 +256,8 @@ export function ProjectsPage({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         editing={editing}
-        productTypes={productTypes.map((t) => t.name)}
+        // Không còn ô "Loại dự án" trong form → lấy theo tab đang mở
+        preset={{ projectType: typeFilter === 'outsource' ? 'outsource' : 'inhouse' }}
         onSave={async (data) => {
           try {
             if (editing) {
@@ -277,12 +278,11 @@ export function ProjectsPage({
 }
 
 export function ProjectFormModal({
-  open, onClose, editing, productTypes, onSave, preset,
+  open, onClose, editing, onSave, preset,
 }: {
   open: boolean;
   onClose: () => void;
   editing: Project | null;
-  productTypes: string[];
   onSave: (data: Partial<Project>) => Promise<void>;
   // Giá trị điền sẵn khi tạo MỚI (vd từ lịch tháng: projectType + deadline)
   preset?: Partial<Project>;
@@ -317,29 +317,6 @@ export function ProjectFormModal({
         </Field>
         <Field label="Mô tả">
           <Textarea rows={2} value={form.description || ''} onChange={(e) => set('description', e.target.value)} />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Trạng thái">
-            <Select value={form.status || 'plan'} onChange={(e) => set('status', e.target.value)}>
-              <option value="plan">Kế hoạch</option>
-              <option value="pre-production">Tiền kỳ</option>
-              <option value="post-production">Hậu kỳ</option>
-              <option value="payment">Thanh toán</option>
-              <option value="done">Hoàn thành</option>
-            </Select>
-          </Field>
-          <Field label="Loại dự án">
-            <Select value={form.projectType || 'inhouse'} onChange={(e) => set('projectType', e.target.value)}>
-              <option value="inhouse">Inhouse</option>
-              <option value="outsource">Outsource</option>
-            </Select>
-          </Field>
-        </div>
-        <Field label="Loại sản phẩm">
-          <Select value={form.productType || ''} onChange={(e) => set('productType', e.target.value)}>
-            <option value="">— Tuỳ chỉnh —</option>
-            {productTypes.map((n) => <option key={n} value={n}>{n}</option>)}
-          </Select>
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Ngày bắt đầu">

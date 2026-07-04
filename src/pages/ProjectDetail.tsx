@@ -18,7 +18,7 @@ function itemStatusColor(s: string): string {
 }
 
 export function ProjectDetailPage({ projectId, user, onBack }: { projectId: string; user: User; onBack: () => void }) {
-  const { projects, allTasks, members, productTypes, isAdmin, isEditor } = useAppData();
+  const { projects, allTasks, members, isAdmin, isEditor } = useAppData();
   const toast = useToast();
   const project = projects.find((p) => p.id === projectId);
 
@@ -265,7 +265,6 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
           open={editProject}
           onClose={() => setEditProject(false)}
           editing={project}
-          productTypes={productTypes.map((t) => t.name)}
           onSave={async (data) => {
             try {
               await updateProject(project.id, data);

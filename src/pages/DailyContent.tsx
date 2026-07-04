@@ -452,7 +452,7 @@ function NoteFormModal({
 }
 
 export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
-  const { dailyContent, projects, allTasks, notes, productTypes, isEditor } = useAppData();
+  const { dailyContent, projects, allTasks, notes, isEditor } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
   const [month, setMonth] = useState(currentMonth());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -871,7 +871,6 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
         open={!!projModal}
         onClose={() => setProjModal(null)}
         editing={null}
-        productTypes={productTypes.map((t) => t.name)}
         preset={projModal ? { projectType: projModal.projectType, startDate: projModal.startDate } : undefined}
         onSave={async (data) => {
           try {
