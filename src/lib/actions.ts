@@ -70,6 +70,7 @@ export async function deleteProject(id: string): Promise<void> {
 interface NewTaskInput {
   projectId: string;
   title: string;
+  description?: string;
   category: TaskCategory;
   quantity?: number;
   amount?: number;
@@ -102,6 +103,7 @@ export async function createTask(input: NewTaskInput, user: User, projectTitle: 
     projectId: input.projectId,
     teamId: MAIN_TEAM_ID,
     title: input.title,
+    description: input.description || '',
     category: input.category,
     status: input.status || 'pending',
     quantity: Number(input.quantity) || 1,

@@ -49,6 +49,7 @@ export interface Task {
   projectId: string;
   teamId?: string;
   title: string;
+  description?: string; // mô tả thêm (dùng cho khoản chi phí tiền kỳ)
   category: TaskCategory;
   status: TaskStatus;
   quantity?: number;

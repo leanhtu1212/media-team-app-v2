@@ -3,7 +3,6 @@ import { ArrowLeft, Plus, Trash2, Pencil, Camera, Video, Wallet, Star, CheckCirc
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
 import { updateProject, deleteProject, createTask, updateTask, deleteTask, toggleDntt } from '../lib/actions';
-import { TagSelect } from '../components/tags';
 import { formatVND, formatDate, todayStr, itemStatusFromProjectStatus, isProjectFinished } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { ProjectFormModal } from './Projects';
@@ -193,7 +192,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
             <Card>
               <SectionHeader
                 icon={<Wallet size={15} className="text-amber-300" />}
-                title="Tiền kỳ & Chi phí"
+                title="Chi phí"
                 category="pre-production"
                 extra={<span className="text-xs font-bold text-amber-300 tabular-nums">{formatVND(totalCost)}</span>}
               />
@@ -332,7 +331,7 @@ function TaskDetailDrawer({
 }) {
   if (!task) return null;
   const isPre = task.category === 'pre-production';
-  const catLabel = isPre ? 'Tiền kỳ & Chi phí' : task.category === 'photo' ? 'Ảnh' : 'Video';
+  const catLabel = isPre ? 'Chi phí' : task.category === 'photo' ? 'Ảnh' : 'Video';
   const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
     <div className="flex items-start justify-between gap-4 py-2.5 border-b border-line">
       <span className="text-xs font-bold text-muted uppercase tracking-wide shrink-0">{label}</span>
@@ -362,8 +361,14 @@ function TaskDetailDrawer({
           <>
             <Row label="Chi phí"><span className="font-bold text-amber-300">{formatVND(Number(task.amount) || 0)}</span></Row>
             {task.deadline && <Row label="Deadline">{formatDate(task.deadline)}</Row>}
-            <Row label="Độ khó">{task.difficulty || 1}/5</Row>
-            <Row label="Đã duyệt DNTT">{task.dntt ? <span className="text-emerald-400 font-bold">Có</span> : <span className="text-dim">Chưa</span>}</Row>
+            {(task.difficulty || 0) > 1 && <Row label="Độ khó">{task.difficulty}/5</Row>}
+            <Row label="Đã thanh toán">{task.dntt ? <span className="text-emerald-400 font-bold">Rồi</span> : <span className="text-dim">Chưa</span>}</Row>
+            {task.description && (
+              <div className="pt-2">
+                <p className="text-xs font-bold text-muted uppercase tracking-wide mb-1">Mô tả</p>
+                <p className="text-sm text-muted whitespace-pre-wrap break-words">{task.description}</p>
+              </div>
+            )}
           </>
         ) : (
           <Row label="Số lượng">×{task.quantity || 1}</Row>
@@ -556,7 +561,7 @@ function TaskFormModal({
   };
 
   return (
-    <Modal open={state.open} onClose={onClose} onSubmit={submit} title={state.editing ? 'Sửa task' : `Thêm ${isPre ? 'chi phí tiền kỳ' : state.category === 'photo' ? 'ảnh' : 'video'}`}>
+    <Modal open={state.open} onClose={onClose} onSubmit={submit} title={state.editing ? 'Sửa task' : `Thêm ${isPre ? 'chi phí' : state.category === 'photo' ? 'ảnh' : 'video'}`}>
       <div className="space-y-4">
         {isPre ? (
           <Field label="Tên khoản chi">
@@ -584,19 +589,9 @@ function TaskFormModal({
           )}
         </div>
         {isPre && (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Deadline">
-                <Input type="date" value={form.deadline || ''} onChange={(e) => set('deadline', e.target.value)} />
-              </Field>
-              <Field label="Độ khó (1–5)">
-                <Input type="number" min={1} max={5} value={form.difficulty ?? 1} onChange={(e) => set('difficulty', Math.min(5, Math.max(1, Number(e.target.value))))} />
-              </Field>
-            </div>
-            <Field label="Tag màu">
-              <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} />
-            </Field>
-          </>
+          <Field label="Mô tả">
+            <Textarea rows={2} value={form.description || ''} onChange={(e) => set('description', e.target.value)} placeholder="Ghi chú thêm về khoản chi (không bắt buộc)" />
+          </Field>
         )}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Huỷ</Button>
