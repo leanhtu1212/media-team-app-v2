@@ -44,7 +44,7 @@ function Shell({ user }: { user: User }) {
             <ProjectDetailPage projectId={selectedProjectId} user={user} onBack={closeProject} />
           ) : (
             <>
-              {view === 'dashboard' && <DashboardPage onOpenProject={openProject} />}
+              {view === 'dashboard' && <DashboardPage user={user} onOpenProject={openProject} />}
               {view === 'projects' && <ProjectsPage user={user} onOpenProject={openProject} typeFilter={projectsTypeFilter} onTypeFilterChange={setProjectsTypeFilter} />}
               {view === 'daily' && <DailyContentPage user={user} onOpenProject={openProject} />}
               {view === 'reports' && <ReportsPage user={user} />}

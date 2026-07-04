@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react';
-import { Camera, Video, Wallet, Trophy, ArrowRight, Crown, FolderKanban, CheckCircle2, AlertTriangle, CalendarClock, FileText, CalendarDays } from 'lucide-react';
+import { Camera, Video, Wallet, Trophy, ArrowRight, Crown, FolderKanban, CheckCircle2, Circle, AlertTriangle, CalendarClock, FileText, CalendarDays } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Avatar, Input } from '../components/ui';
 import { calculateTeamKpi } from '../lib/kpi';
+import { toggleDntt } from '../lib/actions';
+import { useToast } from '../hooks/useToast';
 import { currentMonth, monthRange, shiftMonth, formatVND, formatDate, todayStr, isProjectFinished } from '../lib/utils';
 import type { Project } from '../types';
+import type { User } from '../lib/firebase';
 
 const PLATFORM_COLOR: Record<string, string> = {
   Instagram: 'bg-pink-500/15 text-pink-300',
@@ -14,8 +17,9 @@ const PLATFORM_COLOR: Record<string, string> = {
   'Đa kênh': 'bg-violet-500/15 text-violet-300',
 };
 
-export function DashboardPage({ onOpenProject }: { onOpenProject: (id: string) => void }) {
+export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
   const { members, projects, allTasks, reports, dailyContent, isAdmin } = useAppData();
+  const toast = useToast();
   const [month, setMonth] = useState(currentMonth());
   const [monthStart, monthEnd] = monthRange(month);
   const today = todayStr();
@@ -36,12 +40,13 @@ export function DashboardPage({ onOpenProject }: { onOpenProject: (id: string) =
 
   // DNTT chưa thanh toán = khoản tiền kỳ có chi phí nhưng CHƯA tick (dntt) — toàn bộ dự án, mọi thời điểm.
   // Tick ở "Tiền kỳ & Chi phí" = đã thanh toán.
-  const unpaidTasks = useMemo(
-    () => allTasks
-      .filter((t) => t.category === 'pre-production' && (Number(t.amount) || 0) > 0 && !t.dntt)
-      .sort((a, b) => (a.deadline || '9999').localeCompare(b.deadline || '9999')),
-    [allTasks],
-  );
+  const unpaidTasks = useMemo(() => {
+    const liveIds = new Set(projects.map((p) => p.id));
+    return allTasks
+      // Bỏ task mồ côi (project đã xoá) — không còn là công nợ thật
+      .filter((t) => t.category === 'pre-production' && (Number(t.amount) || 0) > 0 && !t.dntt && liveIds.has(t.projectId))
+      .sort((a, b) => (a.deadline || '9999').localeCompare(b.deadline || '9999'));
+  }, [allTasks, projects]);
   const unpaidTotal = unpaidTasks.reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
   const kpi = useMemo(() => calculateTeamKpi(members, month, allTasks, projects, reports), [members, month, allTasks, projects, reports]);
@@ -282,20 +287,34 @@ export function DashboardPage({ onOpenProject }: { onOpenProject: (id: string) =
               <div className="space-y-1">
                 {unpaidTasks.map((t) => {
                   const p = projects.find((x) => x.id === t.projectId);
+                  if (!p) return null;
                   const overdue = t.deadline && t.deadline < today;
                   return (
-                    <button
+                    <div
                       key={t.id}
-                      onClick={() => p && onOpenProject(p.id)}
-                      className="w-full flex items-center gap-2 px-2.5 py-1.5 bg-bg border border-line rounded-lg hover:border-line-2 transition-all text-left cursor-pointer group"
+                      className="w-full flex items-center gap-2 px-2.5 py-1.5 bg-bg border border-line rounded-lg hover:border-line-2 transition-all group"
                     >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-semibold truncate group-hover:text-indigo-300 transition-colors">{t.title}</p>
-                        <p className="text-[10px] text-dim truncate">{p?.title || 'Dự án đã xoá'}{t.deadline ? ` · hạn ${formatDate(t.deadline)}` : ''}</p>
-                      </div>
-                      {overdue && <span className="text-[9px] font-bold text-red-400 uppercase shrink-0">Quá hạn</span>}
-                      <span className="text-[13px] font-bold text-amber-300 tabular-nums shrink-0">{formatVND(Number(t.amount) || 0)}</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleDntt(t, user, p.title).then(() => toast('Đã đánh dấu thanh toán')).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
+                        title="Đánh dấu đã thanh toán"
+                        className="shrink-0 text-dim hover:text-emerald-400 cursor-pointer"
+                      >
+                        <Circle size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenProject(p.id)}
+                        className="flex-1 min-w-0 flex items-center gap-2 text-left cursor-pointer"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-semibold truncate group-hover:text-indigo-300 transition-colors">{t.title}</p>
+                          <p className="text-[10px] text-dim truncate">{p.title}{t.deadline ? ` · hạn ${formatDate(t.deadline)}` : ''}</p>
+                        </div>
+                        {overdue && <span className="text-[9px] font-bold text-red-400 uppercase shrink-0">Quá hạn</span>}
+                        <span className="text-[13px] font-bold text-amber-300 tabular-nums shrink-0">{formatVND(Number(t.amount) || 0)}</span>
+                      </button>
+                    </div>
                   );
                 })}
               </div>

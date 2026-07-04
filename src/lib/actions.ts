@@ -1,5 +1,5 @@
 import {
-  addDoc, collection, deleteDoc, doc, serverTimestamp, setDoc, updateDoc,
+  addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where,
 } from 'firebase/firestore';
 import { db, type User } from './firebase';
 import { MAIN_TEAM_ID, genId, todayStr } from './utils';
@@ -54,6 +54,14 @@ export async function updateProject(id: string, data: Partial<Project>): Promise
 }
 
 export async function deleteProject(id: string): Promise<void> {
+  // Xoá cascade: Firestore không tự xoá subcollection → phải xoá tay tất cả
+  // task (gồm DNTT/chi phí tiền kỳ) và report liên quan, rồi mới xoá project.
+  const taskSnap = await getDocs(col.tasks(id));
+  await Promise.all(taskSnap.docs.map((d) => deleteDoc(d.ref)));
+
+  const reportSnap = await getDocs(query(col.reports(), where('projectId', '==', id)));
+  await Promise.all(reportSnap.docs.map((d) => deleteDoc(d.ref)));
+
   await deleteDoc(ref.project(id));
 }
 
