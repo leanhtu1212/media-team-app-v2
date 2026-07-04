@@ -126,42 +126,6 @@ export function DashboardPage({ onOpenProject }: { onOpenProject: (id: string) =
         <StatCard icon={<CalendarDays size={16} />} tint="text-pink-300" label="Daily content" value={monthDaily.length} sub={`${monthDaily.filter((d) => d.status === 'published').length} đã đăng`} />
       </div>
 
-      {/* DNTT chưa thanh toán — danh sách các khoản tiền kỳ chưa tick (admin) */}
-      {isAdmin && (
-        <Card>
-          <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-            <h2 className="font-bold text-sm flex items-center gap-2"><Wallet size={15} className="text-rose-300" /> DNTT chưa thanh toán</h2>
-            <span className="text-xs font-bold text-rose-300 tabular-nums">{formatVND(unpaidTotal)} · {unpaidTasks.length} khoản</span>
-          </div>
-          <div className="p-3">
-            {unpaidTasks.length === 0 ? (
-              <p className="text-sm text-dim text-center py-6">Không có khoản nào chưa thanh toán 🎉</p>
-            ) : (
-              <div className="space-y-1.5">
-                {unpaidTasks.map((t) => {
-                  const p = projects.find((x) => x.id === t.projectId);
-                  const overdue = t.deadline && t.deadline < today;
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => p && onOpenProject(p.id)}
-                      className="w-full flex items-center gap-3 px-3 py-2.5 bg-bg border border-line rounded-xl hover:border-line-2 transition-all text-left cursor-pointer group"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold truncate group-hover:text-indigo-300 transition-colors">{t.title}</p>
-                        <p className="text-[11px] text-dim truncate">{p?.title || 'Dự án đã xoá'}{t.deadline ? ` · hạn ${formatDate(t.deadline)}` : ''}</p>
-                      </div>
-                      {overdue && <span className="text-[10px] font-bold text-red-400 uppercase shrink-0">Quá hạn</span>}
-                      <span className="text-sm font-bold text-amber-300 tabular-nums shrink-0">{formatVND(Number(t.amount) || 0)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </Card>
-      )}
-
       {/* Project status distribution */}
       <Card className="p-4">
         <div className="flex items-center justify-between mb-3">
@@ -303,6 +267,42 @@ export function DashboardPage({ onOpenProject }: { onOpenProject: (id: string) =
           </div>
         </Card>
       </div>
+
+      {/* DNTT chưa thanh toán — danh sách gọn, đặt cuối trang (admin) */}
+      {isAdmin && (
+        <Card>
+          <div className="px-3 py-2 border-b border-line flex items-center justify-between">
+            <h2 className="font-bold text-[13px] flex items-center gap-1.5"><Wallet size={13} className="text-rose-300" /> DNTT chưa thanh toán</h2>
+            <span className="text-[11px] font-bold text-rose-300 tabular-nums">{formatVND(unpaidTotal)} · {unpaidTasks.length} khoản</span>
+          </div>
+          <div className="p-2 max-h-56 overflow-y-auto">
+            {unpaidTasks.length === 0 ? (
+              <p className="text-xs text-dim text-center py-4">Không có khoản nào chưa thanh toán 🎉</p>
+            ) : (
+              <div className="space-y-1">
+                {unpaidTasks.map((t) => {
+                  const p = projects.find((x) => x.id === t.projectId);
+                  const overdue = t.deadline && t.deadline < today;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => p && onOpenProject(p.id)}
+                      className="w-full flex items-center gap-2 px-2.5 py-1.5 bg-bg border border-line rounded-lg hover:border-line-2 transition-all text-left cursor-pointer group"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold truncate group-hover:text-indigo-300 transition-colors">{t.title}</p>
+                        <p className="text-[10px] text-dim truncate">{p?.title || 'Dự án đã xoá'}{t.deadline ? ` · hạn ${formatDate(t.deadline)}` : ''}</p>
+                      </div>
+                      {overdue && <span className="text-[9px] font-bold text-red-400 uppercase shrink-0">Quá hạn</span>}
+                      <span className="text-[13px] font-bold text-amber-300 tabular-nums shrink-0">{formatVND(Number(t.amount) || 0)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
