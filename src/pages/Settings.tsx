@@ -72,16 +72,21 @@ function DataCleanupTab() {
   const orphanCost = orphanTasks
     .filter((t) => t.category === 'pre-production')
     .reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  const total = orphanTasks.length + orphanReports.length;
+  // Báo cáo tự động của chi phí (dữ liệu cũ trước khi bỏ auto-report cho chi phí) — không kể mồ côi ở trên
+  const orphanReportIds = new Set(orphanReports.map((r) => r.id));
+  const costAutoReports = reports.filter(
+    (r) => !orphanReportIds.has(r.id) && r.outputType === 'pre-production' && (r.reportType === 'auto' || (r.content || '').startsWith('Báo cáo tự động:')),
+  );
+  const total = orphanTasks.length + orphanReports.length + costAutoReports.length;
 
   const run = async () => {
     setBusy(true);
     try {
       await deleteOrphans(
         orphanTasks.map((t) => ({ projectId: t.projectId, id: t.id })),
-        orphanReports.map((r) => r.id),
+        [...orphanReports.map((r) => r.id), ...costAutoReports.map((r) => r.id)],
       );
-      toast(`Đã dọn ${total} mục mồ côi`);
+      toast(`Đã dọn ${total} mục`);
     } catch (e: unknown) {
       toast(`Lỗi: ${(e as Error).message}`, 'error');
     } finally {
@@ -92,14 +97,14 @@ function DataCleanupTab() {
   return (
     <Card className="p-6 space-y-4">
       <div>
-        <h2 className="font-bold text-base">Dọn dữ liệu mồ côi</h2>
+        <h2 className="font-bold text-base">Dọn dữ liệu thừa</h2>
         <p className="text-sm text-muted mt-1">
-          Xoá task (gồm chi phí) và báo cáo còn sót lại của các project đã bị xoá trước đây.
-          Project xoá gần đây đã tự dọn — mục này chỉ để dọn dữ liệu cũ.
+          Xoá task &amp; báo cáo còn sót của project đã xoá, và báo cáo tự động cũ của chi phí
+          (nay chi phí không còn tạo báo cáo tự động). Project xoá gần đây đã tự dọn.
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-bg border border-line rounded-xl p-3">
           <p className="text-2xl font-extrabold tabular-nums">{orphanTasks.length}</p>
           <p className="text-[11px] text-dim">task mồ côi</p>
@@ -109,6 +114,10 @@ function DataCleanupTab() {
           <p className="text-[11px] text-dim">báo cáo mồ côi</p>
         </div>
         <div className="bg-bg border border-line rounded-xl p-3">
+          <p className="text-2xl font-extrabold tabular-nums">{costAutoReports.length}</p>
+          <p className="text-[11px] text-dim">báo cáo chi phí (cũ)</p>
+        </div>
+        <div className="bg-bg border border-line rounded-xl p-3">
           <p className="text-2xl font-extrabold tabular-nums text-amber-300">{formatVND(orphanCost)}</p>
           <p className="text-[11px] text-dim">chi phí mồ côi</p>
         </div>
@@ -116,15 +125,15 @@ function DataCleanupTab() {
 
       <Button variant="danger" onClick={() => setConfirm(true)} disabled={busy || total === 0}>
         {busy ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
-        {total === 0 ? 'Không có dữ liệu mồ côi' : `Dọn ${total} mục`}
+        {total === 0 ? 'Không có dữ liệu thừa' : `Dọn ${total} mục`}
       </Button>
 
       <ConfirmDialog
         open={confirm}
         onClose={() => setConfirm(false)}
         onConfirm={run}
-        title="Dọn dữ liệu mồ côi?"
-        message={`Xoá vĩnh viễn ${orphanTasks.length} task và ${orphanReports.length} báo cáo của các project đã xoá. Không thể hoàn tác.`}
+        title="Dọn dữ liệu thừa?"
+        message={`Xoá vĩnh viễn ${orphanTasks.length} task, ${orphanReports.length} báo cáo mồ côi và ${costAutoReports.length} báo cáo tự động của chi phí. Không thể hoàn tác.`}
       />
     </Card>
   );

@@ -296,7 +296,7 @@ export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProje
                     >
                       <button
                         type="button"
-                        onClick={() => toggleDntt(t, user, p.title).then(() => toast('Đã đánh dấu thanh toán')).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
+                        onClick={() => toggleDntt(t).then(() => toast('Đã đánh dấu thanh toán')).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
                         title="Đánh dấu đã thanh toán"
                         className="shrink-0 text-dim hover:text-emerald-400 cursor-pointer"
                       >

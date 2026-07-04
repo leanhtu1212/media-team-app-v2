@@ -65,7 +65,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
           >
             {category === 'pre-production' && (
               <button
-                onClick={() => isAdmin && toggleDntt(t, user, project.title).then(() => toast(t.dntt ? 'Đã bỏ DNTT' : 'Đã duyệt DNTT')).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
+                onClick={() => isAdmin && toggleDntt(t).then(() => toast(t.dntt ? 'Đã bỏ thanh toán' : 'Đã đánh dấu thanh toán')).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
                 disabled={!isAdmin}
                 title="Đã nộp tờ trình"
                 className="shrink-0 cursor-pointer disabled:cursor-default"

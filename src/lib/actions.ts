@@ -102,8 +102,9 @@ export async function createTask(input: NewTaskInput, user: User, projectTitle: 
   const isCompleted = input.status === 'completed' || !!input.dntt;
   const reportDate = input.reportDate || todayStr();
 
+  // Báo cáo tự động CHỈ cho ảnh & video — không tạo cho chi phí tiền kỳ.
   let sourceReportId: string | undefined;
-  if (isCompleted) {
+  if (isCompleted && input.category !== 'pre-production') {
     sourceReportId = await createAutoReport(
       { taskId: id, projectId: input.projectId, projectTitle, title: input.title, category: input.category, quantity: input.quantity || 1, hasKB: !!input.hasKB, reportDate },
       user,
@@ -162,22 +163,15 @@ export async function completeTask(task: Task, user: User, projectTitle: string)
   });
 }
 
-/** DNTT toggle on a pre-production task. ON: complete + auto-report. OFF: revert. */
-export async function toggleDntt(task: Task, user: User, projectTitle: string): Promise<void> {
+/** DNTT toggle trên khoản chi phí tiền kỳ. KHÔNG tạo báo cáo tự động (báo cáo tự động
+ *  chỉ dành cho ảnh & video). ON: đánh dấu thanh toán. OFF: bỏ. */
+export async function toggleDntt(task: Task): Promise<void> {
   if (!task.dntt) {
-    const reportId = await createAutoReport(
-      {
-        taskId: task.id, projectId: task.projectId, projectTitle,
-        title: task.title, category: 'pre-production',
-        quantity: 1, hasKB: false, reportDate: todayStr(),
-      },
-      user,
-    );
     await updateDoc(ref.task(task.projectId, task.id), {
-      dntt: true, status: 'completed', completedAt: serverTimestamp(),
-      sourceReportId: reportId, updatedAt: serverTimestamp(),
+      dntt: true, status: 'completed', completedAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
   } else {
+    // Dọn báo cáo tự động cũ nếu khoản này từng tạo (dữ liệu trước khi bỏ auto-report cho chi phí)
     if (task.sourceReportId) {
       try { await deleteDoc(ref.report(task.sourceReportId)); } catch { /* already gone */ }
     }
