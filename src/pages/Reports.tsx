@@ -4,11 +4,20 @@ import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, EmptyState } from '../components/ui';
 import { createManualReport, updateReport, deleteReport } from '../lib/actions';
 import { currentMonth, shiftMonth, monthLabel, monthRange, todayStr, formatDate, isProjectFinished } from '../lib/utils';
+import { hexA } from '../components/tags';
 import { useToast } from '../hooks/useToast';
 import type { Report } from '../types';
 import type { User } from '../lib/firebase';
 
 const DAY_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+
+// Mỗi người 1 màu ổn định (hash id/email → palette) để dễ phân biệt trên lịch báo cáo
+const MEMBER_PALETTE = ['#6366f1', '#22c55e', '#f97316', '#ec4899', '#06b6d4', '#eab308', '#a855f7', '#ef4444', '#14b8a6', '#f472b6'];
+function keyColor(key: string): string {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return MEMBER_PALETTE[h % MEMBER_PALETTE.length];
+}
 
 export function ReportsPage({ user }: { user: User }) {
   const { reports, projects, members, productTypes, allTasks, isEditor } = useAppData();
@@ -55,6 +64,20 @@ export function ReportsPage({ user }: { user: User }) {
 
   const memberOf = (r: Report) =>
     members.find((mm) => mm.uid === r.createdBy || mm.id === r.createdBy || mm.email?.toLowerCase() === r.userEmail?.toLowerCase());
+
+  // Màu theo người báo cáo (ổn định theo id/email)
+  const colorOf = (r: Report) => keyColor(memberOf(r)?.id || r.createdBy || r.userEmail || '?');
+
+  // Chú thích: danh sách người có báo cáo trong tháng + màu tương ứng
+  const reporters = useMemo(() => {
+    const map = new Map<string, { name: string; color: string }>();
+    monthReports.forEach((r) => {
+      const mem = memberOf(r);
+      const key = mem?.id || r.createdBy || r.userEmail || '?';
+      if (!map.has(key)) map.set(key, { name: mem?.username || r.userEmail?.split('@')[0] || '?', color: keyColor(key) });
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [monthReports, members]);
 
   const exportCsv = () => {
     const rows = [
@@ -133,12 +156,15 @@ export function ReportsPage({ user }: { user: User }) {
                       const isAuto = r.reportType === 'auto' || r.content?.startsWith('Báo cáo tự động:');
                       const name = memberOf(r)?.username || r.userEmail?.split('@')[0] || '?';
                       const summary = isAuto ? (r.content || '').replace('Báo cáo tự động: ', '') : (r.content || '');
+                      const color = colorOf(r);
                       return (
                         <div
                           key={r.id}
-                          className={`rounded px-1.5 py-1 text-[11px] leading-tight ${isAuto ? 'bg-indigo-500/10 text-indigo-200' : 'bg-emerald-500/10 text-emerald-200'}`}
+                          style={{ backgroundColor: hexA(color, 0.14), borderLeft: `3px solid ${color}` }}
+                          className="rounded px-1.5 py-1 text-[11px] leading-tight text-ink/90"
+                          title={isAuto ? 'Báo cáo tự động' : 'Báo cáo thủ công'}
                         >
-                          <span className="font-bold">{name}:</span>{' '}
+                          <span className="font-bold" style={{ color }}>{name}:</span>{' '}
                           <span className="opacity-80">{summary.length > 42 ? summary.slice(0, 42) + '…' : summary}</span>
                         </div>
                       );
@@ -150,9 +176,11 @@ export function ReportsPage({ user }: { user: User }) {
             );
           })}
         </div>
-        <div className="flex gap-4 mt-3 text-xs text-muted">
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-emerald-500/40" /> Thủ công</span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-indigo-500/40" /> Tự động</span>
+        <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 text-xs text-muted items-center">
+          {reporters.length > 0 && <span className="font-bold text-dim uppercase text-[10px] tracking-wide">Người báo cáo</span>}
+          {reporters.map((rp) => (
+            <span key={rp.name} className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: rp.color }} /> {rp.name}</span>
+          ))}
           <span className="ml-auto text-dim">Nhấn vào ngày để xem đầy đủ</span>
         </div>
       </Card>
