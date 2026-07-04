@@ -280,7 +280,7 @@ export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProje
             <h2 className="font-bold text-[13px] flex items-center gap-1.5"><Wallet size={13} className="text-rose-300" /> DNTT chưa thanh toán</h2>
             <span className="text-[11px] font-bold text-rose-300 tabular-nums">{formatVND(unpaidTotal)} · {unpaidTasks.length} khoản</span>
           </div>
-          <div className="p-2 max-h-56 overflow-y-auto">
+          <div className="p-2">
             {unpaidTasks.length === 0 ? (
               <p className="text-xs text-dim text-center py-4">Không có khoản nào chưa thanh toán 🎉</p>
             ) : (
