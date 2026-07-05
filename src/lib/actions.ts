@@ -285,6 +285,7 @@ export async function createTag(data: Partial<Tag>, user: User): Promise<void> {
   await addDoc(col.tags(), {
     name: data.name || '',
     color: data.color || '#6366f1',
+    ...(data.scope ? { scope: data.scope } : {}),
     createdAt: serverTimestamp(),
     createdBy: user.uid,
   });

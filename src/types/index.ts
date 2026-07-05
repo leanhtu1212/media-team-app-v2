@@ -120,11 +120,15 @@ export interface Note {
   createdBy?: string;
 }
 
+/** Loại mục mà tag áp dụng. Rỗng = dùng chung (hiện ở mọi form). */
+export type TagScope = 'inhouse-photo' | 'inhouse-video' | 'outsource' | 'note' | 'content';
+
 /** Tag màu tuỳ chỉnh gán cho mục trên lịch (collection teams/{id}/tags). */
 export interface Tag {
   id: string;
   name: string;
   color: string; // hex, vd "#f97316"
+  scope?: TagScope; // loại mục áp dụng; rỗng = dùng chung mọi nơi
   createdAt?: unknown;
   createdBy?: string;
 }

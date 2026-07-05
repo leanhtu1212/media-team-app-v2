@@ -481,7 +481,7 @@ function NoteFormModal({
   else if (!open && lastOpen) setLastOpen(false);
 
   const submit = async () => {
-    if (busy || !text.trim()) return;
+    if (busy || !text.trim() || !tagId) return;
     setBusy(true);
     await onSave(text.trim(), tagId);
     setBusy(false);
@@ -494,13 +494,13 @@ function NoteFormModal({
           <Textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Nhập ghi chú… (dán link cũng được)" />
         </Field>
         <Field label="Tag màu">
-          <TagSelect value={tagId} onChange={setTagId} />
+          <TagSelect value={tagId} onChange={setTagId} scope="note" autoSelect />
         </Field>
         <div className="flex justify-between items-center gap-2 pt-1">
           {onDelete ? <Button variant="danger" onClick={onDelete}>Xoá</Button> : <span />}
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>Huỷ</Button>
-            <Button type="submit" disabled={busy || !text.trim()}>{state?.note ? 'Lưu' : 'Thêm'}</Button>
+            <Button type="submit" disabled={busy || !text.trim() || !tagId}>{state?.note ? 'Lưu' : 'Thêm'}</Button>
           </div>
         </div>
       </div>
@@ -512,7 +512,6 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
   const { dailyContent, projects, allTasks, notes, tags, isEditor, isAdmin } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
   const [month, setMonth] = useState(currentMonth());
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
 
@@ -633,12 +632,6 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
   const weeks: (string | null)[][] = [];
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
-  const selectedEntries = selectedDay ? byDay[selectedDay] || [] : [];
-  const selDailies = selectedEntries.filter((e): e is Extract<CalEntry, { kind: 'daily' }> => e.kind === 'daily');
-  const selProjects = selectedEntries.filter((e): e is Extract<CalEntry, { kind: 'project' }> => e.kind === 'project');
-  const selTasks = selectedEntries.filter((e): e is Extract<CalEntry, { kind: 'task' }> => e.kind === 'task');
-  const selNotes = selectedEntries.filter((e): e is Extract<CalEntry, { kind: 'note' }> => e.kind === 'note');
-
   return (
     <div className="fade-up space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -670,7 +663,6 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                     if (!date) return <div key={c} />;
                     const list = byDay[date] || [];
                     const isToday = date === today;
-                    const isSelected = date === selectedDay;
                     const isDragOver = date === dragOverDay;
                     return (
                       // Ô ngày là <div> (không phải <button>) để các chip lồng bên trong nhận
@@ -679,7 +671,6 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                         key={date}
                         role="button"
                         tabIndex={0}
-                        onClick={() => setSelectedDay(isSelected ? null : date)}
                         onDoubleClick={() => startCreate(date)}
                         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverDay !== date) setDragOverDay(date); }}
                         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverDay((cur) => (cur === date ? null : cur)); }}
@@ -691,7 +682,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                         }}
                         title={canEditDaily ? (isEditor ? 'Nhấn đúp để tạo mới (dự án / nội dung)' : 'Nhấn đúp vào chỗ trống để tạo nội dung') : undefined}
                         className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col select-none ${
-                          isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40' : isSelected ? 'border-accent bg-accent/10' : isToday ? 'border-indigo-500/40 bg-surface-2' : 'border-line hover:border-line-2'
+                          isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40' : isToday ? 'border-indigo-500/40 bg-surface-2' : 'border-line hover:border-line-2'
                         }`}
                       >
                         <div className="flex items-center justify-between mb-1.5">
@@ -774,99 +765,6 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
           </div>
         </div>
       </Card>
-
-      {selectedDay && (
-        <Card className="fade-up">
-          <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-            <h3 className="font-bold text-sm">Ngày {formatDate(selectedDay)}</h3>
-            {canEditDaily && (
-              <Button variant="outline" onClick={() => openNew(selectedDay)} className="!py-1 !px-2.5 !text-xs"><Plus size={13} /> Thêm nội dung</Button>
-            )}
-          </div>
-          <div className="p-4 space-y-5">
-            {selectedEntries.length === 0 && <p className="text-sm text-dim text-center py-4">Không có mục nào</p>}
-
-            {selDailies.length > 0 && (
-              <div>
-                <p className="text-xs font-bold text-muted uppercase tracking-wide mb-2">Nội dung ({selDailies.length})</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {selDailies.map(({ daily }) => (
-                    <ItemCard
-                      key={daily.id}
-                      item={daily}
-                      assignee={memberOf(daily.assigneeId)}
-                      canEdit={canEditDaily}
-                      toast={toast}
-                      onEdit={() => openEdit(daily)}
-                      onDelete={() => setConfirmDel(daily)}
-                      onDetail={() => setDetailItem(daily)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {selProjects.length > 0 && (
-              <div>
-                <p className="text-xs font-bold text-muted uppercase tracking-wide mb-2">Deadline dự án ({selProjects.length})</p>
-                <div className="space-y-2">
-                  {selProjects.map(({ project }) => (
-                    <button
-                      key={project.id}
-                      onClick={() => onOpenProject(project.id)}
-                      className="w-full flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-line-2 transition-all text-left cursor-pointer group"
-                    >
-                      <FolderKanban size={15} className="text-indigo-300 shrink-0" />
-                      <span className="flex-1 text-sm font-bold truncate group-hover:text-indigo-300 transition-colors">{project.title}</span>
-                      <Badge color={STATUS_BADGE[project.status]}>{STATUS_LABEL[project.status]}</Badge>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {selTasks.length > 0 && (
-              <div>
-                <p className="text-xs font-bold text-muted uppercase tracking-wide mb-2">Chi phí ({selTasks.length})</p>
-                <div className="space-y-2">
-                  {selTasks.map(({ task, project }) => (
-                    <button
-                      key={task.id}
-                      onClick={() => project && onOpenProject(project.id)}
-                      className="w-full flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-line-2 transition-all text-left cursor-pointer group"
-                    >
-                      <Wallet size={15} className="text-amber-300 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold truncate group-hover:text-indigo-300 transition-colors">{task.title}</p>
-                        {project && <p className="text-[11px] text-dim truncate">{project.title}</p>}
-                      </div>
-                      {(Number(task.amount) || 0) > 0 && <span className="text-xs font-bold text-amber-300 tabular-nums">{formatVND(Number(task.amount) || 0)}</span>}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {selNotes.length > 0 && (
-              <div>
-                <p className="text-xs font-bold text-muted uppercase tracking-wide mb-2">Ghi chú ({selNotes.length})</p>
-                <div className="space-y-2">
-                  {selNotes.map(({ note }) => (
-                    <button
-                      key={note.id}
-                      onClick={() => canEditDaily && setNoteModal({ note, date: note.date })}
-                      className="w-full flex items-start gap-3 p-3 bg-bg border border-line rounded-xl hover:border-line-2 transition-all text-left cursor-pointer"
-                    >
-                      <StickyNote size={15} className="text-violet-300 shrink-0 mt-0.5" />
-                      <p className="flex-1 text-sm text-muted whitespace-pre-wrap break-words"><Linkify text={note.text || '(trống)'} /></p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </Card>
-      )}
 
       {/* Bước chọn loại khi editor nhấn đúp vào lịch */}
       <Modal open={!!pickerDate} onClose={() => setPickerDate(null)} title="Tạo mới">
@@ -1048,7 +946,7 @@ function ContentFormModal({
 
   const set = (k: keyof DailyContent, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const submit = async () => {
-    if (busy || !form.title) return;
+    if (busy || !form.title || !form.tagId) return;
     setBusy(true);
     await onSave(form);
     setBusy(false);
@@ -1090,7 +988,7 @@ function ContentFormModal({
             </Select>
           </Field>
           <Field label="Tag màu">
-            <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} />
+            <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} scope="content" autoSelect />
           </Field>
         </div>
         <Field label="Ghi chú">
@@ -1098,7 +996,7 @@ function ContentFormModal({
         </Field>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Huỷ</Button>
-          <Button type="submit" disabled={busy || !form.title}>
+          <Button type="submit" disabled={busy || !form.title || !form.tagId}>
             {editing?.id ? 'Lưu' : 'Thêm'}
           </Button>
         </div>

@@ -308,7 +308,7 @@ export function ProjectFormModal({
 
   const set = (k: keyof Project, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const submit = async () => {
-    if (busy || !form.title) return;
+    if (busy || !form.title || !form.tagId) return;
     setBusy(true);
     const clean = { ...form };
     if (clean.qualityScore === undefined) delete clean.qualityScore;
@@ -342,7 +342,7 @@ export function ProjectFormModal({
           </Field>
         </div>
         <Field label="Tag màu">
-          <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} />
+          <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} scope={form.projectType === 'outsource' ? 'outsource' : ['inhouse-photo', 'inhouse-video']} autoSelect={form.projectType === 'outsource'} />
         </Field>
         {isProjectFinished(form.status || 'plan') && (
           <Field label="Điểm chất lượng (0–10)">
@@ -351,7 +351,7 @@ export function ProjectFormModal({
         )}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Huỷ</Button>
-          <Button type="submit" disabled={busy || !form.title}>
+          <Button type="submit" disabled={busy || !form.title || !form.tagId}>
             {editing ? 'Lưu' : 'Tạo dự án'}
           </Button>
         </div>

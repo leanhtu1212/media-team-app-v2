@@ -1,10 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { createTag, updateTag, deleteTag } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
 import { Modal, Input, Select, Button, Field } from './ui';
 import type { User } from '../lib/firebase';
+import type { TagScope } from '../types';
+
+/** Các loại tag có thể gán + nhãn hiển thị. Rỗng ('') = dùng chung mọi nơi. */
+export const TAG_SCOPES: { value: TagScope; label: string }[] = [
+  { value: 'inhouse-photo', label: 'Inhouse · Ảnh' },
+  { value: 'inhouse-video', label: 'Inhouse · Video' },
+  { value: 'outsource', label: 'Outsource' },
+  { value: 'note', label: 'Note' },
+  { value: 'content', label: 'Content' },
+];
+export const scopeLabel = (s?: string) => TAG_SCOPES.find((x) => x.value === s)?.label || 'Dùng chung';
 
 /** hex "#rrggbb" → "rgba(r,g,b,a)". Dùng để tô nền chip theo màu tag. */
 export function hexA(hex: string, a: number): string {
@@ -16,16 +27,34 @@ export function hexA(hex: string, a: number): string {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-/** Ô chọn tag (đọc danh sách tag từ context). value = tagId, '' = không tag. */
-export function TagSelect({ value, onChange }: { value?: string; onChange: (id: string) => void }) {
+/**
+ * Ô chọn tag (đọc danh sách tag từ context). value = tagId, '' = không tag.
+ * `scope` lọc theo ngữ cảnh: chỉ hiện tag đúng loại + tag dùng chung (không gán loại).
+ * Có thể truyền mảng loại (vd inhouse gồm cả ảnh & video).
+ * `autoSelect` = tự điền tag mặc định khi chưa chọn (ưu tiên tag đúng loại, không ưu tiên tag dùng chung).
+ */
+export function TagSelect({ value, onChange, scope, autoSelect }: { value?: string; onChange: (id: string) => void; scope?: TagScope | TagScope[]; autoSelect?: boolean }) {
   const { tags } = useAppData();
   const cur = tags.find((t) => t.id === value);
+  const allowed = scope ? (Array.isArray(scope) ? scope : [scope]) : null;
+  let list = allowed ? tags.filter((t) => !t.scope || allowed.includes(t.scope)) : tags;
+  // Giữ tag đang chọn hiển thị dù khác loại (vd đổi loại dự án sau khi đã gán tag)
+  if (cur && !list.some((t) => t.id === cur.id)) list = [cur, ...list];
+
+  // Tự điền tag mặc định: ưu tiên tag gán đúng loại, chỉ dùng tag "dùng chung" khi không có tag loại nào.
+  useEffect(() => {
+    if (!autoSelect || value) return;
+    const pick = list.find((t) => t.scope) || list[0];
+    if (pick) onChange(pick.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSelect, value, tags]);
+
   return (
     <div className="flex items-center gap-2">
       <span className="w-4 h-4 rounded-full shrink-0 border border-line" style={{ backgroundColor: cur?.color || 'transparent' }} />
       <Select value={value || ''} onChange={(e) => onChange(e.target.value)} className="flex-1">
-        <option value="">— Không tag —</option>
-        {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        <option value="" disabled>— Chọn tag —</option>
+        {list.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
       </Select>
     </div>
   );
@@ -37,6 +66,7 @@ export function TagManagerModal({ open, onClose, user }: { open: boolean; onClos
   const toast = useToast();
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState('#f97316');
+  const [newScope, setNewScope] = useState<TagScope | ''>('');
   const [names, setNames] = useState<Record<string, string>>({});
 
   const nameOf = (id: string, fallback: string) => (id in names ? names[id] : fallback);
@@ -51,7 +81,7 @@ export function TagManagerModal({ open, onClose, user }: { open: boolean; onClos
     const name = newName.trim();
     if (!name) return;
     try {
-      await createTag({ name, color: newColor }, user);
+      await createTag({ name, color: newColor, ...(newScope ? { scope: newScope } : {}) }, user);
       setNewName('');
       toast('Đã thêm tag');
     } catch (e: unknown) { toast(`Lỗi: ${(e as Error).message}`, 'error'); }
@@ -79,8 +109,17 @@ export function TagManagerModal({ open, onClose, user }: { open: boolean; onClos
                 value={nameOf(t.id, t.name)}
                 onChange={(e) => setNames((p) => ({ ...p, [t.id]: e.target.value }))}
                 onBlur={() => commitName(t.id, t.name)}
-                className="flex-1"
+                className="flex-1 min-w-0"
               />
+              <Select
+                value={t.scope || ''}
+                onChange={(e) => updateTag(t.id, { scope: (e.target.value || '') as TagScope }).catch(() => {})}
+                className="w-32 shrink-0"
+                title="Loại áp dụng"
+              >
+                <option value="">Dùng chung</option>
+                {TAG_SCOPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </Select>
               <button type="button" onClick={() => del(t.id)} className="p-2 text-dim hover:text-red-400 cursor-pointer shrink-0" title="Xoá tag">
                 <Trash2 size={16} />
               </button>
@@ -98,7 +137,11 @@ export function TagManagerModal({ open, onClose, user }: { open: boolean; onClos
                 className="w-9 h-9 rounded-lg bg-transparent border border-line cursor-pointer shrink-0 p-0.5"
                 title="Chọn màu"
               />
-              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Tên tag (vd: Gấp, Ưu tiên…)" className="flex-1" />
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Tên tag (vd: Gấp, Ưu tiên…)" className="flex-1 min-w-0" />
+              <Select value={newScope} onChange={(e) => setNewScope((e.target.value || '') as TagScope | '')} className="w-32 shrink-0" title="Loại áp dụng">
+                <option value="">Dùng chung</option>
+                {TAG_SCOPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </Select>
               <Button onClick={add} disabled={!newName.trim()}>Thêm</Button>
             </div>
           </Field>
