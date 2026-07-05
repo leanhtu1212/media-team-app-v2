@@ -70,34 +70,77 @@ type SpanProject = { project: Project; start: string; end: string };
 const BAR_UNIT = 24; // chiều cao mỗi lane thanh (px)
 const BAR_TOP = 26;  // chừa chỗ số ngày ở đầu ô
 
-// Xếp các thanh trong 1 tuần vào lane để không đè nhau; clamp theo các ngày thật của tuần.
-function layoutWeek(week: (string | null)[], spans: SpanProject[]) {
+// Hue (0–360) từ mã màu hex, để xếp thứ tự ưu tiên theo màu. null nếu không đọc được.
+function hexHue(hex?: string): number | null {
+  if (!hex) return null;
+  let h = hex.replace('#', '').trim();
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  if (h.length !== 6) return null;
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  if (d === 0) return 0;
+  let hue: number;
+  if (max === r) hue = ((g - b) / d) % 6;
+  else if (max === g) hue = (b - r) / d + 2;
+  else hue = (r - g) / d + 4;
+  hue *= 60;
+  return hue < 0 ? hue + 360 : hue;
+}
+
+// Thứ tự ưu tiên lane theo màu: cam (0) → xanh nước biển (1) → còn lại (2).
+function colorRank(hex?: string): number {
+  const h = hexHue(hex);
+  if (h == null) return 2;
+  if (h >= 15 && h < 55) return 0;   // cam
+  if (h >= 175 && h < 255) return 1; // xanh nước biển
+  return 2;
+}
+
+// Gán lane CỐ ĐỊNH toàn cục cho mỗi dự án (dựa trên toàn bộ [start,end]),
+// để cùng một dự án luôn nằm đúng một lane ở mọi tuần. Ưu tiên: cam trên, xanh dưới.
+function assignGlobalLanes(spans: SpanProject[], colorOf: (p: Project) => string | undefined): Map<string, number> {
+  const ordered = [...spans].sort((a, b) => {
+    const cr = colorRank(colorOf(a.project)) - colorRank(colorOf(b.project));
+    if (cr) return cr;
+    if (a.start !== b.start) return a.start < b.start ? -1 : 1;
+    return a.project.title.localeCompare(b.project.title);
+  });
+  const laneEnd: string[] = []; // ngày end đang bị chiếm của mỗi lane
+  const laneOf = new Map<string, number>();
+  for (const s of ordered) {
+    let lane = laneEnd.findIndex((e) => e < s.start);
+    if (lane === -1) { lane = laneEnd.length; laneEnd.push(''); }
+    laneEnd[lane] = s.end;
+    laneOf.set(s.project.id, lane);
+  }
+  return laneOf;
+}
+
+// Cắt các thanh theo 1 tuần (clamp theo các ngày thật của tuần); lane lấy từ laneOf toàn cục.
+function layoutWeek(week: (string | null)[], spans: SpanProject[], laneOf: Map<string, number>) {
   type Bar = { project: Project; colStart: number; span: number; roundLeft: boolean; roundRight: boolean; lane: number };
   const bars: Bar[] = [];
+  let maxLane = -1;
   for (const s of spans) {
     const cols: number[] = [];
     week.forEach((d, c) => { if (d && d >= s.start && d <= s.end) cols.push(c); });
     if (!cols.length) continue;
     const colStart = Math.min(...cols);
     const colEnd = Math.max(...cols);
+    const lane = laneOf.get(s.project.id) ?? 0;
+    if (lane > maxLane) maxLane = lane;
     bars.push({
       project: s.project,
       colStart,
       span: colEnd - colStart + 1,
       roundLeft: week[colStart] === s.start, // đầu thật của dự án nằm trong tuần này
       roundRight: week[colEnd] === s.end,    // deadline nằm trong tuần này
-      lane: 0,
+      lane,
     });
   }
-  bars.sort((a, b) => a.colStart - b.colStart);
-  const laneEnd: number[] = []; // cột cuối đang bị chiếm của mỗi lane
-  for (const bar of bars) {
-    let lane = laneEnd.findIndex((e) => e < bar.colStart);
-    if (lane === -1) { lane = laneEnd.length; laneEnd.push(-1); }
-    laneEnd[lane] = bar.colStart + bar.span - 1;
-    bar.lane = lane;
-  }
-  return { bars, laneCount: laneEnd.length };
+  return { bars, laneCount: maxLane + 1 };
 }
 
 /* ================================================================
@@ -541,6 +584,12 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
     });
   }, [projects, month]);
   const spanIds = useMemo(() => new Set(spanProjects.map((s) => s.project.id)), [spanProjects]);
+  // Lane cố định toàn cục cho từng dự án (cam trên → xanh dưới), dùng chung mọi tuần
+  const globalLanes = useMemo(
+    () => assignGlobalLanes(spanProjects, (p) => tagColorOf(p.tagId) || ((p.deadline || '') < today ? '#dc2626' : '#0284c7')),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [spanProjects, today],
+  );
 
   // Gom mọi entry của tháng theo ngày (bỏ qua dự án đã vẽ thành thanh nối liền)
   const byDay = useMemo(() => {
@@ -612,7 +661,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
         <div className="space-y-2">
           {weeks.map((week, wi) => {
             // Bố cục thanh dự án nối liền của tuần này
-            const { bars, laneCount } = layoutWeek(week, spanProjects);
+            const { bars, laneCount } = layoutWeek(week, spanProjects, globalLanes);
             return (
               <div key={wi} className="relative">
                 {/* Lớp ô ngày */}
@@ -685,12 +734,19 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                           style={{ gridColumn: `${bar.colStart + 1} / span ${bar.span}`, gridRow: 1, alignSelf: 'start', marginTop: bar.lane * BAR_UNIT, height: BAR_UNIT - 4, ...(tagCol ? { backgroundColor: tagCol } : {}) }}
                           onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
                           title={`${p.title}${p.deadline ? ` · deadline ${formatDate(p.deadline)}` : ''}`}
-                          className={`pointer-events-auto cursor-pointer flex items-center gap-1 px-2 text-[11px] font-semibold overflow-hidden select-none shadow-sm text-white ${
-                            tagCol ? '' : overdue ? 'bg-red-600' : 'bg-sky-600'
-                          } ${bar.roundLeft ? 'rounded-l-md ml-0.5' : ''} ${bar.roundRight ? 'rounded-r-md mr-0.5' : ''}`}
+                          className={`pointer-events-auto cursor-pointer flex items-center gap-1 px-2 overflow-hidden select-none shadow-sm text-white ${
+                            bar.roundLeft ? 'justify-start' : 'justify-end'
+                          } ${tagCol ? '' : overdue ? 'bg-red-600' : 'bg-sky-600'} ${bar.roundLeft ? 'rounded-l-md ml-0.5' : ''} ${bar.roundRight ? 'rounded-r-md mr-0.5' : ''}`}
                         >
-                          {bar.roundLeft && <FolderKanban size={11} className="shrink-0" />}
-                          <span className="truncate">{p.title}</span>
+                          {bar.roundLeft ? (
+                            <>
+                              <FolderKanban size={11} className="shrink-0" />
+                              <span className="truncate text-[11px] font-semibold">{p.title}</span>
+                            </>
+                          ) : (
+                            // Đoạn nối tiếp ở tuần sau → tên nhỏ & mờ ở cuối line, chỉ để nhận biết
+                            <span className="truncate text-[10px] font-medium text-white/55">{p.title}</span>
+                          )}
                         </div>
                       );
                     })}
