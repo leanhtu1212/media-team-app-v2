@@ -1,10 +1,24 @@
-import type { Project } from '../types';
+import type { Project, Tag } from '../types';
 
 /* ================================================================
  * Sinh chuỗi iCalendar (.ics) từ dữ liệu lịch → phục vụ subscription
  * feed cho Apple Calendar / Google Calendar (đồng bộ 1 chiều web→lịch).
  * Mọi sự kiện là "all-day" (VALUE=DATE) nên không dính timezone.
  * ================================================================ */
+
+// Icon tiêu đề sự kiện — đổi ở đây nếu muốn ký hiệu khác.
+const ICON_PHOTO = '📸'; // chụp ảnh (tag loại Inhouse·Ảnh)
+const ICON_VIDEO = '🎥'; // quay video (tag loại Inhouse·Video)
+
+/** Chọn icon theo loại tag; nếu tag không rõ loại thì đoán theo target ảnh/video. */
+function iconFor(p: Project, tag?: Tag): string {
+  if (tag?.scope === 'inhouse-video') return ICON_VIDEO;
+  if (tag?.scope === 'inhouse-photo') return ICON_PHOTO;
+  const hasVideo = (p.videoTarget || 0) > 0;
+  const hasPhoto = (p.photoTarget || 0) > 0;
+  if (hasVideo && !hasPhoto) return ICON_VIDEO;
+  return ICON_PHOTO;
+}
 
 /** Escape text theo RFC 5545 (\, ; , và xuống dòng). */
 function esc(s: string): string {
@@ -49,20 +63,20 @@ function vevent(e: Ev): string {
 /**
  * Build .ics CHỈ gồm dự án Inhouse (loại trừ outsource, nội dung, ghi chú,
  * khoản chi phí). Mỗi dự án là 1 khối all-day từ ngày bắt đầu → deadline.
- * `tagName(id)` (tuỳ chọn) để ghi tên tag vào tiêu đề cho dễ nhận biết.
+ * `tagOf(id)` (tuỳ chọn) trả về tag để chọn icon (chụp/quay) + ghi tên tag.
  */
-export function buildInhouseICS(projects: Project[], tagName?: (id?: string) => string | undefined): string {
+export function buildInhouseICS(projects: Project[], tagOf?: (id?: string) => Tag | undefined): string {
   const events: Ev[] = projects
     .filter((p) => p.projectType !== 'outsource' && (p.deadline || p.startDate))
     .map((p) => {
       const start = p.startDate || p.deadline!;
       const end = p.deadline && p.deadline >= start ? p.deadline : start;
-      const tag = tagName?.(p.tagId);
+      const tag = tagOf?.(p.tagId);
       return {
         uid: `project-${p.id}@media-team`,
         start,
         end,
-        summary: `📸 ${p.title || 'Dự án'}${tag ? ` · ${tag}` : ''}`,
+        summary: `${iconFor(p, tag)} ${p.title || 'Dự án'}${tag?.name ? ` · ${tag.name}` : ''}`,
         desc: `Inhouse${p.productType ? ' · ' + p.productType : ''}`,
       };
     });

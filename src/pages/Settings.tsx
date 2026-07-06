@@ -542,7 +542,7 @@ function SheetsTab() {
     setCalBusy(true);
     setCalResult(null);
     try {
-      const ics = buildInhouseICS(projects, (id) => tags.find((t) => t.id === id)?.name);
+      const ics = buildInhouseICS(projects, (id) => tags.find((t) => t.id === id));
       const res = await pushICS(savedUrl, ics);
       setCalResult(res);
       toast(res.message, res.ok ? 'success' : 'error');
