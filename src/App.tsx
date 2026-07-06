@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react';
 import { auth, onAuthStateChanged, type User } from './lib/firebase';
 import { AppDataProvider, useAppData } from './store/AppDataContext';
 import { ToastProvider } from './hooks/useToast';
+import { useAutoIcsSync } from './hooks/useAutoIcsSync';
 import { Sidebar, type View } from './components/layout/Sidebar';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoginPage } from './pages/Login';
@@ -16,6 +17,7 @@ import { SettingsPage } from './pages/Settings';
 
 function Shell({ user }: { user: User }) {
   const { loading, isAdmin } = useAppData();
+  useAutoIcsSync(); // tự động đẩy feed lịch Inhouse lên Apple khi dữ liệu đổi
   const [view, setView] = useState<View>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   // Lifted so the Inhouse/Outsource/Content tab survives opening a project detail

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Camera, Eye, EyeOff, Loader2, LogOut, Pencil, Plus, RefreshCw, Save, Trash2, UserPlus, Link2, Sheet } from 'lucide-react';
+import { Camera, Eye, EyeOff, Loader2, LogOut, Pencil, Plus, RefreshCw, Save, Trash2, UserPlus, Link2, Sheet, CalendarDays, Copy } from 'lucide-react';
 import { setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { auth, storage, signOut, updatePassword, createNewUser, type User } from '../lib/firebase';
@@ -7,6 +7,7 @@ import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Input, Select, Field, ConfirmDialog, Avatar, Modal } from '../components/ui';
 import { ref as dbRef, deleteOrphans } from '../lib/actions';
 import { buildSheetsPayload, postToWebhook } from '../lib/sheets';
+import { buildInhouseICS, pushICS } from '../lib/ics';
 import { currentMonth, formatVND } from '../lib/utils';
 import { DEFAULT_PRODUCT_TYPES } from '../lib/points';
 import { useToast } from '../hooks/useToast';
@@ -523,12 +524,41 @@ function ProductsTab() {
 /* ---------- Google Sheets sync ---------- */
 
 function SheetsTab() {
-  const { team, members, projects, allTasks, reports } = useAppData();
+  const { team, members, projects, allTasks, reports, tags } = useAppData();
   const toast = useToast();
   const [url, setUrl] = useState(team?.sheetsWebhookUrl || '');
   const [month, setMonth] = useState(currentMonth());
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [calBusy, setCalBusy] = useState(false);
+  const [calResult, setCalResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // URL để subscribe trên Apple Calendar = chính webhook URL nhưng scheme webcal:// (Apple tự fetch qua https)
+  const savedUrl = (team?.sheetsWebhookUrl || '').trim();
+  const webcalUrl = savedUrl.replace(/^https?:\/\//, 'webcal://');
+
+  const syncCal = async () => {
+    if (!savedUrl) return toast('Hãy lưu Webhook URL ở trên trước', 'error');
+    setCalBusy(true);
+    setCalResult(null);
+    try {
+      const ics = buildInhouseICS(projects, (id) => tags.find((t) => t.id === id)?.name);
+      const res = await pushICS(savedUrl, ics);
+      setCalResult(res);
+      toast(res.message, res.ok ? 'success' : 'error');
+    } catch (e: unknown) {
+      const msg = `Lỗi kết nối: ${(e as Error).message}`;
+      setCalResult({ ok: false, message: msg });
+      toast(msg, 'error');
+    } finally {
+      setCalBusy(false);
+    }
+  };
+
+  const copyCal = async () => {
+    try { await navigator.clipboard.writeText(webcalUrl); toast('Đã copy link đăng ký lịch'); }
+    catch { toast('Không copy được, hãy chọn & copy thủ công', 'error'); }
+  };
 
   const saveUrl = async () => {
     try {
@@ -588,6 +618,41 @@ function SheetsTab() {
             </p>
           )}
         </div>
+      </Card>
+
+      <Card className="p-6">
+        <h2 className="font-bold mb-1 flex items-center gap-2"><CalendarDays size={16} className="text-sky-400" /> Lịch Inhouse → Apple Calendar</h2>
+        <p className="text-xs text-muted mb-5">
+          Đồng bộ 1 chiều <b>chỉ dự án Inhouse</b> sang Apple Calendar / Google Calendar (mỗi dự án 1 khối từ ngày bắt đầu → deadline).
+          Dùng chung Webhook URL ở trên — nhớ Deploy lại Apps Script bản mới (file <code className="text-indigo-300">apps-script/sync.gs</code>) để có feed.
+        </p>
+        {!savedUrl ? (
+          <p className="text-sm px-4 py-3 rounded-lg bg-amber-500/10 text-amber-300">Chưa có Webhook URL. Hãy dán & Lưu URL ở phần Google Sheet phía trên.</p>
+        ) : (
+          <div className="space-y-3">
+            <Button disabled={calBusy} onClick={syncCal}>
+              {calBusy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={14} />} Cập nhật feed lịch
+            </Button>
+            {calResult && (
+              <p className={`text-sm px-4 py-3 rounded-lg ${calResult.ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'}`}>
+                {calResult.message}
+              </p>
+            )}
+            <Field label="Link đăng ký (Subscribe URL)">
+              <div className="flex gap-2">
+                <Input value={webcalUrl} readOnly onFocus={(e) => e.currentTarget.select()} />
+                <Button variant="outline" onClick={copyCal}><Copy size={14} /> Copy</Button>
+              </div>
+            </Field>
+            <div className="text-xs text-muted leading-relaxed">
+              <p className="font-bold text-dim mb-1">Cách đăng ký trên máy Mac:</p>
+              <p>Apple Calendar → menu <b>File → New Calendar Subscription…</b> → dán link trên → Subscribe → chọn tần suất tự làm mới (vd mỗi giờ). iPhone sẽ tự có qua iCloud.</p>
+              <p className="mt-1.5 font-bold text-dim mb-1">Trên iPhone trực tiếp:</p>
+              <p>Cài đặt → Calendar → Accounts → Add Account → Other → <b>Add Subscribed Calendar</b> → dán link.</p>
+              <p className="mt-1.5 text-dim">Lưu ý: đây là đồng bộ 1 chiều (web → lịch). Mỗi khi có thay đổi, bấm "Cập nhật feed lịch" để đẩy dữ liệu mới nhất.</p>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );
