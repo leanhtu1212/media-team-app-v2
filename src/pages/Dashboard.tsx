@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Camera, Video, Wallet, Trophy, ArrowRight, Crown, FolderKanban, CheckCircle2, Circle, AlertTriangle, CalendarClock, FileText, CalendarDays } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Avatar, Input } from '../components/ui';
-import { calculateTeamKpi } from '../lib/kpi';
+import { calculateTeamKpi, ecomProjectIdSet } from '../lib/kpi';
 import { toggleDntt } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
 import { currentMonth, monthRange, shiftMonth, formatVND, formatDate, todayStr, isProjectFinished } from '../lib/utils';
@@ -18,25 +18,11 @@ const PLATFORM_COLOR: Record<string, string> = {
 };
 
 export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
-  const { members, projects, allTasks, reports, dailyContent, isAdmin } = useAppData();
+  const { members, projects, allTasks, reports, dailyContent, tags, isAdmin } = useAppData();
+  const ecomIds = useMemo(() => ecomProjectIdSet(projects, tags), [projects, tags]);
   const toast = useToast();
   const [month, setMonth] = useState(currentMonth());
-  const [monthStart, monthEnd] = monthRange(month);
   const today = todayStr();
-
-  const inMonth = (d?: string) => (d || '') >= monthStart && (d || '') <= monthEnd;
-
-  const monthTasks = useMemo(() => allTasks.filter((t) => inMonth(t.reportDate)), [allTasks, monthStart, monthEnd]);
-
-  const photoCount = monthTasks.filter((t) => t.category === 'photo' && (t.status === 'completed' || t.dntt)).reduce((s, t) => s + (Number(t.quantity) || 1), 0);
-  const videoCount = monthTasks.filter((t) => t.category === 'video' && (t.status === 'completed' || t.dntt)).reduce((s, t) => s + (Number(t.quantity) || 1), 0);
-  const monthCost = monthTasks.filter((t) => t.category === 'pre-production').reduce((s, t) => s + (Number(t.amount) || 0), 0);
-
-  // Chi phí tháng trước (để so sánh trên ô "Chi phí tháng")
-  const [prevStart, prevEnd] = monthRange(shiftMonth(month, -1));
-  const prevMonthCost = allTasks
-    .filter((t) => t.category === 'pre-production' && (t.reportDate || '') >= prevStart && (t.reportDate || '') <= prevEnd)
-    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
   // DNTT chưa thanh toán = khoản tiền kỳ có chi phí nhưng CHƯA tick (dntt) — toàn bộ dự án, mọi thời điểm.
   // Tick ở "Tiền kỳ & Chi phí" = đã thanh toán.
@@ -49,8 +35,7 @@ export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProje
   }, [allTasks, projects]);
   const unpaidTotal = unpaidTasks.reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
-  const kpi = useMemo(() => calculateTeamKpi(members, month, allTasks, projects, reports), [members, month, allTasks, projects, reports]);
-  const totalOutput = kpi.reduce((s, m) => s + m.outputCount, 0);
+  const kpi = useMemo(() => calculateTeamKpi(members, month, allTasks, projects, reports, ecomIds), [members, month, allTasks, projects, reports, ecomIds]);
 
   // A project "belongs" to a month by its deadline, falling back to createdAt.
   const projectMonth = (p: Project): string => {
@@ -63,8 +48,6 @@ export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProje
   const monthProjects = useMemo(() => projects.filter((p) => projectMonth(p) === month), [projects, month]);
 
   // Project stats
-  const activeCount = projects.filter((p) => !isProjectFinished(p.status)).length;
-  const doneCount = projects.filter((p) => isProjectFinished(p.status)).length;
   const overdueProjects = projects.filter((p) => !isProjectFinished(p.status) && p.deadline && p.deadline < today);
   const ALL_STATUSES = ['plan', 'pre-production', 'post-production', 'done', 'payment'];
   const statusCounts = {
@@ -74,9 +57,6 @@ export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProje
     done: monthProjects.filter((p) => p.status === 'done').length,
     payment: monthProjects.filter((p) => p.status === 'payment').length,
   };
-
-  const monthReports = reports.filter((r) => inMonth(r.reportDate));
-  const monthDaily = dailyContent.filter((d) => inMonth(d.dueDate));
 
   // Deadline watchlist: active projects with a deadline, soonest first
   const watchlist = projects
@@ -109,26 +89,6 @@ export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProje
           <p className="text-sm text-muted">Hoạt động của team trong {month === currentMonth() ? 'tháng này' : `tháng ${Number(month.slice(5))}/${month.slice(0, 4)}`}</p>
         </div>
         <Input type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} className="!w-auto" />
-      </div>
-
-      {/* Row 1 — production stats */}
-      <div className={`grid grid-cols-2 ${isAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-3`}>
-        <StatCard icon={<Camera size={16} />} tint="text-indigo-300" label="Ảnh hoàn thành" value={photoCount} sub={`${monthTasks.filter((t) => t.category === 'photo').length} task`} />
-        <StatCard icon={<Video size={16} />} tint="text-violet-300" label="Video hoàn thành" value={videoCount} sub={`${monthTasks.filter((t) => t.category === 'video').length} task`} />
-        <StatCard icon={<Trophy size={16} />} tint="text-emerald-400" label="Tổng sản lượng" value={totalOutput} sub="SP toàn team" />
-        {isAdmin && <StatCard icon={<Wallet size={16} />} tint="text-amber-300" label="Chi phí tháng" value={formatVND(monthCost)} sub={`Tháng trước: ${formatVND(prevMonthCost)}`} />}
-      </div>
-
-      {/* Row 2 — project & activity overview */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard icon={<FolderKanban size={16} />} tint="text-blue-300" label="Dự án đang chạy" value={activeCount} sub={`${projects.length} tổng cộng`} />
-        <StatCard icon={<AlertTriangle size={16} />} tint="text-red-400" label="Dự án quá hạn" value={overdueProjects.length} sub={overdueProjects.length > 0 ? 'cần xử lý' : 'không có'} danger={overdueProjects.length > 0} />
-        {isAdmin ? (
-          <StatCard icon={<Wallet size={16} />} tint="text-rose-300" label="DNTT chưa thanh toán" value={formatVND(unpaidTotal)} sub={`${unpaidTasks.length} khoản chưa TT`} danger={unpaidTotal > 0} />
-        ) : (
-          <StatCard icon={<FileText size={16} />} tint="text-emerald-300" label="Báo cáo tháng" value={monthReports.length} sub={`${monthReports.filter((r) => r.reportType !== 'auto' && !r.content?.startsWith('Báo cáo tự động:')).length} thủ công`} />
-        )}
-        <StatCard icon={<CalendarDays size={16} />} tint="text-pink-300" label="Daily content" value={monthDaily.length} sub={`${monthDaily.filter((d) => d.status === 'published').length} đã đăng`} />
       </div>
 
       {/* Project status distribution */}
@@ -322,6 +282,16 @@ export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProje
           </div>
         </Card>
       )}
+    </div>
+  );
+}
+
+function EcomInline({ icon, tint, label, value }: { icon: React.ReactNode; tint: string; label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className={tint}>{icon}</span>
+      <span className="text-[11px] font-bold text-muted uppercase tracking-wide">{label}</span>
+      <span className="text-lg font-extrabold tabular-nums leading-none">{value}</span>
     </div>
   );
 }

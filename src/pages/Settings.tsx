@@ -575,7 +575,7 @@ function SheetsTab() {
     setBusy(true);
     setResult(null);
     try {
-      const payload = buildSheetsPayload(month, members, projects, allTasks, reports);
+      const payload = buildSheetsPayload(month, members, projects, allTasks, reports, tags);
       const res = await postToWebhook(target, payload);
       setResult(res);
       if (res.ok) toast(res.message);

@@ -11,6 +11,7 @@ import type { TagScope } from '../types';
 export const TAG_SCOPES: { value: TagScope; label: string }[] = [
   { value: 'inhouse-photo', label: 'Inhouse · Ảnh' },
   { value: 'inhouse-video', label: 'Inhouse · Video' },
+  { value: 'ecom', label: 'Ecom' },
   { value: 'outsource', label: 'Outsource' },
   { value: 'note', label: 'Note' },
   { value: 'content', label: 'Content' },
@@ -54,7 +55,7 @@ export function TagSelect({ value, onChange, scope, autoSelect }: { value?: stri
       <span className="w-4 h-4 rounded-full shrink-0 border border-line" style={{ backgroundColor: cur?.color || 'transparent' }} />
       <Select value={value || ''} onChange={(e) => onChange(e.target.value)} className="flex-1">
         <option value="" disabled>— Chọn tag —</option>
-        {list.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        {list.map((t) => <option key={t.id} value={t.id}>{t.name}{t.scope ? ` · ${scopeLabel(t.scope)}` : ''}</option>)}
       </Select>
     </div>
   );
@@ -97,52 +98,63 @@ export function TagManagerModal({ open, onClose, user }: { open: boolean; onClos
         <div className="space-y-2">
           {tags.length === 0 && <p className="text-sm text-dim">Chưa có tag nào. Thêm tag đầu tiên bên dưới.</p>}
           {tags.map((t) => (
-            <div key={t.id} className="flex items-center gap-2">
-              <input
-                type="color"
-                value={t.color}
-                onChange={(e) => updateTag(t.id, { color: e.target.value }).catch(() => {})}
-                className="w-9 h-9 rounded-lg bg-transparent border border-line cursor-pointer shrink-0 p-0.5"
-                title="Đổi màu"
-              />
-              <Input
-                value={nameOf(t.id, t.name)}
-                onChange={(e) => setNames((p) => ({ ...p, [t.id]: e.target.value }))}
-                onBlur={() => commitName(t.id, t.name)}
-                className="flex-1 min-w-0"
-              />
+            <div key={t.id} className="rounded-lg border border-line p-2 space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={t.color}
+                  onChange={(e) => updateTag(t.id, { color: e.target.value }).catch(() => {})}
+                  className="w-9 h-9 rounded-lg bg-transparent border border-line cursor-pointer shrink-0 p-0.5"
+                  title="Đổi màu"
+                />
+                <div className="flex-1 min-w-0">
+                  <Input
+                    value={nameOf(t.id, t.name)}
+                    onChange={(e) => setNames((p) => ({ ...p, [t.id]: e.target.value }))}
+                    onBlur={() => commitName(t.id, t.name)}
+                    placeholder="Tên tag"
+                  />
+                </div>
+                <button type="button" onClick={() => del(t.id)} className="p-2 text-dim hover:text-red-400 cursor-pointer shrink-0" title="Xoá tag">
+                  <Trash2 size={16} />
+                </button>
+              </div>
               <Select
                 value={t.scope || ''}
                 onChange={(e) => updateTag(t.id, { scope: (e.target.value || '') as TagScope }).catch(() => {})}
-                className="w-32 shrink-0"
                 title="Loại áp dụng"
               >
                 <option value="">Dùng chung</option>
                 {TAG_SCOPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </Select>
-              <button type="button" onClick={() => del(t.id)} className="p-2 text-dim hover:text-red-400 cursor-pointer shrink-0" title="Xoá tag">
-                <Trash2 size={16} />
-              </button>
             </div>
           ))}
         </div>
 
         <div className="border-t border-line pt-3">
           <Field label="Thêm tag mới">
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={newColor}
-                onChange={(e) => setNewColor(e.target.value)}
-                className="w-9 h-9 rounded-lg bg-transparent border border-line cursor-pointer shrink-0 p-0.5"
-                title="Chọn màu"
-              />
-              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Tên tag (vd: Gấp, Ưu tiên…)" className="flex-1 min-w-0" />
-              <Select value={newScope} onChange={(e) => setNewScope((e.target.value || '') as TagScope | '')} className="w-32 shrink-0" title="Loại áp dụng">
-                <option value="">Dùng chung</option>
-                {TAG_SCOPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </Select>
-              <Button onClick={add} disabled={!newName.trim()}>Thêm</Button>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={newColor}
+                  onChange={(e) => setNewColor(e.target.value)}
+                  className="w-9 h-9 rounded-lg bg-transparent border border-line cursor-pointer shrink-0 p-0.5"
+                  title="Chọn màu"
+                />
+                <div className="flex-1 min-w-0">
+                  <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Tên tag (vd: Gấp, Ưu tiên…)" />
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <Select value={newScope} onChange={(e) => setNewScope((e.target.value || '') as TagScope | '')} title="Loại áp dụng">
+                    <option value="">Dùng chung</option>
+                    {TAG_SCOPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </Select>
+                </div>
+                <Button onClick={add} disabled={!newName.trim()} className="shrink-0">Thêm</Button>
+              </div>
             </div>
           </Field>
         </div>

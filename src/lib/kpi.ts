@@ -1,5 +1,14 @@
-import type { Member, Project, Task, Report } from '../types';
+import type { Member, Project, Task, Report, Tag } from '../types';
 import { isProjectFinished } from './utils';
+
+const NO_ECOM = new Set<string>();
+
+/** Tập id dự án được gắn tag loại Ecom → dùng để loại khỏi KPI & thống kê riêng. */
+export function ecomProjectIdSet(projects: Project[], tags: Tag[]): Set<string> {
+  const ecomTagIds = new Set(tags.filter((t) => t.scope === 'ecom').map((t) => t.id));
+  if (ecomTagIds.size === 0) return NO_ECOM;
+  return new Set(projects.filter((p) => p.tagId && ecomTagIds.has(p.tagId)).map((p) => p.id));
+}
 
 export interface MemberKpi {
   uid: string;
@@ -34,8 +43,10 @@ export function calculateMemberKpi(
   allTasks: Task[],
   projects: Project[],
   reports: Report[],
+  ecomIds: Set<string> = NO_ECOM,
 ): MemberKpi {
   const uid = member.uid || member.id;
+  const isEcom = (pid?: string) => !!pid && ecomIds.has(pid); // dự án ecom → không tính KPI
 
   const userTasks = allTasks.filter(
     (t) => t.createdBy === uid && (t.reportDate || '').startsWith(month),
@@ -57,8 +68,8 @@ export function calculateMemberKpi(
   const isOutsource = (p?: Project) => (p?.projectType || 'inhouse') === 'outsource';
 
   // Task inhouse vs outsource của thành viên trong tháng
-  const inhousePhotoTasks = userTasks.filter((t) => t.category === 'photo' && !isOutsource(projOf(t.projectId)));
-  const inhouseVideoTasks = userTasks.filter((t) => t.category === 'video' && !isOutsource(projOf(t.projectId)));
+  const inhousePhotoTasks = userTasks.filter((t) => t.category === 'photo' && !isOutsource(projOf(t.projectId)) && !isEcom(t.projectId));
+  const inhouseVideoTasks = userTasks.filter((t) => t.category === 'video' && !isOutsource(projOf(t.projectId)) && !isEcom(t.projectId));
 
   const photoCount = inhousePhotoTasks.reduce((s, t) => s + (Number(t.quantity) || 1), 0);
 
@@ -80,7 +91,7 @@ export function calculateMemberKpi(
 
   // ── Outsource: số project OUTSOURCE hoàn thành (không kể số lượng ảnh/video) ──
   const outsourceProjectIds = Array.from(new Set(
-    userTasks.filter((t) => (t.category === 'photo' || t.category === 'video') && isOutsource(projOf(t.projectId))).map((t) => t.projectId).filter(Boolean),
+    userTasks.filter((t) => (t.category === 'photo' || t.category === 'video') && isOutsource(projOf(t.projectId)) && !isEcom(t.projectId)).map((t) => t.projectId).filter(Boolean),
   )) as string[];
   const outsourceProjectCount = outsourceProjectIds.reduce((count, pid) => {
     const proj = projOf(pid);
@@ -136,10 +147,11 @@ export function calculateTeamKpi(
   allTasks: Task[],
   projects: Project[],
   reports: Report[],
+  ecomIds: Set<string> = NO_ECOM,
 ): MemberKpi[] {
   return members
     .filter((m) => m.role === 'admin' || m.role === 'editor')
-    .map((m) => calculateMemberKpi(m, month, allTasks, projects, reports))
+    .map((m) => calculateMemberKpi(m, month, allTasks, projects, reports, ecomIds))
     .sort((a, b) => b.finalKPI - a.finalKPI);
 }
 
