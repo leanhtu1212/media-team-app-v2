@@ -121,7 +121,7 @@ export interface Note {
 }
 
 /** Loại mục mà tag áp dụng. Rỗng = dùng chung (hiện ở mọi form). */
-export type TagScope = 'inhouse-photo' | 'inhouse-video' | 'outsource' | 'note' | 'content';
+export type TagScope = 'inhouse-photo' | 'inhouse-video' | 'ecom' | 'outsource' | 'note' | 'content';
 
 /** Tag màu tuỳ chỉnh gán cho mục trên lịch (collection teams/{id}/tags). */
 export interface Tag {

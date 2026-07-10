@@ -1,11 +1,12 @@
-import type { Member, Project, Task, Report } from '../types';
-import { calculateTeamKpi } from './kpi';
+import type { Member, Project, Task, Report, Tag } from '../types';
+import { calculateTeamKpi, ecomProjectIdSet } from './kpi';
 import { monthRange } from './utils';
 
 const PROJECT_STATUS_LABEL: Record<string, string> = {
   plan: 'Kế hoạch',
   'pre-production': 'Tiền kỳ',
   'post-production': 'Hậu kỳ',
+  payment: 'Thanh toán',
   done: 'Hoàn thành',
 };
 
@@ -21,8 +22,10 @@ export function buildSheetsPayload(
   projects: Project[],
   allTasks: Task[],
   reports: Report[],
+  tags: Tag[] = [],
 ): SheetsPayload {
-  const kpi = calculateTeamKpi(members, month, allTasks, projects, reports);
+  const ecomIds = ecomProjectIdSet(projects, tags);
+  const kpi = calculateTeamKpi(members, month, allTasks, projects, reports, ecomIds);
   const [monthStart, monthEnd] = monthRange(month);
 
   const kpiRows = kpi.map((m) => [
@@ -62,6 +65,27 @@ export function buildSheetsPayload(
     ];
   });
 
+  // Ecom (tách riêng, không tính KPI) — tổng hợp theo dự án Ecom có hoạt động trong tháng
+  const ecomByProject = new Map<string, Task[]>();
+  monthTasks
+    .filter((t) => ecomIds.has(t.projectId))
+    .forEach((t) => {
+      const list = ecomByProject.get(t.projectId) || [];
+      list.push(t);
+      ecomByProject.set(t.projectId, list);
+    });
+  const ecomRows = Array.from(ecomByProject.entries()).map(([pid, list]) => {
+    const p = projects.find((x) => x.id === pid);
+    const photo = list.filter((t) => t.category === 'photo' && (t.status === 'completed' || t.dntt)).reduce((s, t) => s + (Number(t.quantity) || 1), 0);
+    const video = list.filter((t) => t.category === 'video' && (t.status === 'completed' || t.dntt)).reduce((s, t) => s + (Number(t.quantity) || 1), 0);
+    const cost = list.filter((t) => t.category === 'pre-production').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    return [
+      p?.title || '', p?.productType || p?.projectType || '',
+      PROJECT_STATUS_LABEL[p?.status || ''] || p?.status || '', p?.deadline || '',
+      photo, video, cost, list.length,
+    ];
+  });
+
   return {
     syncedAt: new Date().toLocaleString('vi-VN'),
     month,
@@ -69,6 +93,10 @@ export function buildSheetsPayload(
       [`KPI ${month}`]: {
         headers: ['Thành viên', 'Vai trò', 'Project ảnh', 'Video', 'Project outsource', 'DNTT', 'Tổng SL', 'Chỉ tiêu', 'KPI (%)', 'Số project'],
         rows: kpiRows,
+      },
+      [`Ecom ${month}`]: {
+        headers: ['Dự án', 'Loại SP', 'Trạng thái', 'Deadline', 'Ảnh', 'Video', 'Chi phí (VND)', 'Số task'],
+        rows: ecomRows,
       },
       Projects: {
         headers: ['Tên project', 'Loại SP', 'Trạng thái', 'Deadline', 'Target ảnh', 'Target video', 'Ảnh xong', 'Video xong', 'Điểm chất lượng'],

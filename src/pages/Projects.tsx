@@ -342,7 +342,7 @@ export function ProjectFormModal({
           </Field>
         </div>
         <Field label="Tag màu">
-          <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} scope={form.projectType === 'outsource' ? 'outsource' : ['inhouse-photo', 'inhouse-video']} autoSelect={form.projectType === 'outsource'} />
+          <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} scope={form.projectType === 'outsource' ? 'outsource' : ['inhouse-photo', 'inhouse-video', 'ecom']} autoSelect={form.projectType === 'outsource'} />
         </Field>
         {isProjectFinished(form.status || 'plan') && (
           <Field label="Điểm chất lượng (0–10)">
