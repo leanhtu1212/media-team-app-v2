@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Crown, X, Camera, Video, Wallet, FolderKanban, TrendingUp, ArrowUp, ArrowDown, Minus, ShoppingBag, Clock, Gauge, PieChart, CalendarDays, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Crown, X, Camera, Video, Wallet, FolderKanban, TrendingUp, ArrowUp, ArrowDown, Minus, ShoppingBag, CalendarDays, AlertTriangle } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, Avatar, Input, EmptyState } from '../components/ui';
 import { calculateTeamKpi, calculateMemberKpi, ecomProjectIdSet, type MemberKpi } from '../lib/kpi';
@@ -75,7 +75,6 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
   const ecomProjectCount = new Set(ecomTasks.map((t) => t.projectId)).size;
 
   // ── Hoạt động tháng (chuyển từ Tổng quan) — production loại Ecom ──
-  const isOut = (pid?: string) => (projects.find((p) => p.id === pid)?.projectType || 'inhouse') === 'outsource';
   const photoQty = monthTasks.filter((t) => t.category === 'photo' && !ecomIds.has(t.projectId) && (t.status === 'completed' || t.dntt)).reduce((s, t) => s + (Number(t.quantity) || 1), 0);
   const videoQty = monthTasks.filter((t) => t.category === 'video' && !ecomIds.has(t.projectId) && (t.status === 'completed' || t.dntt)).reduce((s, t) => s + (Number(t.quantity) || 1), 0);
   const today = todayStr();
@@ -85,37 +84,6 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
   const liveIds = new Set(projects.map((p) => p.id));
   const unpaidTasks = allTasks.filter((t) => t.category === 'pre-production' && (Number(t.amount) || 0) > 0 && !t.dntt && !ecomIds.has(t.projectId) && liveIds.has(t.projectId));
   const unpaidTotal = unpaidTasks.reduce((s, t) => s + (Number(t.amount) || 0), 0);
-
-  // ── Đúng hạn & tốc độ (dự án hoàn thành trong tháng) ──
-  const projectMonthOf = (p: Project) => (p.deadline ? p.deadline.slice(0, 7) : (tsToDateStr(p.createdAt) || '').slice(0, 7));
-  const monthProjects = projects.filter((p) => projectMonthOf(p) === month);
-  const lastReportOf = (pid: string) => {
-    const ds = allTasks.filter((t) => t.projectId === pid && t.reportDate).map((t) => t.reportDate as string).sort();
-    return ds.length ? ds[ds.length - 1] : null;
-  };
-  const finishedInMonth = monthProjects.filter((p) => isProjectFinished(p.status));
-  const withDeadline = finishedInMonth.filter((p) => p.deadline);
-  const onTimeCount = withDeadline.filter((p) => (lastReportOf(p.id) || p.deadline!) <= p.deadline!).length;
-  const onTimeRate = withDeadline.length ? Math.round((onTimeCount / withDeadline.length) * 100) : 0;
-  const leadDays = finishedInMonth
-    .map((p) => {
-      const created = tsToDateStr(p.createdAt);
-      const done = lastReportOf(p.id) || p.deadline || null;
-      if (!created || !done) return null;
-      return Math.max(0, Math.round((new Date(done).getTime() - new Date(created).getTime()) / 86400000));
-    })
-    .filter((x): x is number => x !== null);
-  const avgLead = leadDays.length ? Math.round(leadDays.reduce((a, b) => a + b, 0) / leadDays.length) : 0;
-
-  // ── Cơ cấu & phân bổ ──
-  const inhouseCount = monthProjects.filter((p) => !isOut(p.id)).length;
-  const outsourceCount = monthProjects.filter((p) => isOut(p.id)).length;
-  const ecomCount = monthProjects.filter((p) => ecomIds.has(p.id)).length;
-  const nonEcomCount = monthProjects.length - ecomCount;
-  const PLATFORMS: [string, string][] = [['Instagram', '#ec4899'], ['TikTok', '#94a3b8'], ['Facebook', '#3b82f6'], ['YouTube', '#ef4444'], ['Đa kênh', '#8b5cf6']];
-  const platformSegs = PLATFORMS
-    .map(([name, color]) => ({ label: name, value: monthDaily.filter((d) => d.platform === name).length, color }))
-    .filter((s) => s.value > 0);
 
   return (
     <div className="fade-up space-y-6">
@@ -149,17 +117,6 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
         </div>
       </Card>
 
-      {/* Đúng hạn & tốc độ */}
-      <Card className="p-5">
-        <SectionTitle icon={<Gauge size={16} />} tint="text-cyan-300" title="Đúng hạn & tốc độ" note="dự án hoàn thành trong tháng" />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatTile icon={<CheckCircle2 size={15} />} tint="text-emerald-300" label="Tỷ lệ đúng hạn" value={`${onTimeRate}%`} sub={`${onTimeCount}/${withDeadline.length} có deadline`} />
-          <StatTile icon={<Clock size={15} />} tint="text-sky-300" label="Lead time TB" value={`${avgLead}d`} sub="tạo → xong (ước tính)" />
-          <StatTile icon={<CheckCircle2 size={15} />} tint="text-indigo-300" label="Hoàn thành trong tháng" value={finishedInMonth.length} sub={`${monthProjects.length} dự án tháng`} />
-          <StatTile icon={<AlertTriangle size={15} />} tint="text-red-400" label="Đang quá hạn" value={overdueCount} danger={overdueCount > 0} />
-        </div>
-      </Card>
-
       {/* Ecom — tách riêng, KHÔNG tính vào KPI team */}
       <Card className="p-5">
         <div className="flex items-center gap-2 mb-4">
@@ -171,29 +128,6 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
           <EcomStat icon={<Video size={15} />} tint="text-violet-300" label="Video ecom" value={ecomVideos} />
           <EcomStat icon={<Wallet size={15} />} tint="text-amber-300" label="Chi phí ecom" value={formatVND(ecomCost)} />
           <EcomStat icon={<FolderKanban size={15} />} tint="text-teal-300" label="Dự án ecom" value={ecomProjectCount} />
-        </div>
-      </Card>
-
-      {/* Cơ cấu & phân bổ */}
-      <Card className="p-5">
-        <SectionTitle icon={<PieChart size={16} />} tint="text-fuchsia-300" title="Cơ cấu & phân bổ" note={`tháng ${Number(month.slice(5))}`} />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
-          <div>
-            <p className="text-xs font-bold text-muted mb-2">Inhouse vs Outsource (dự án)</p>
-            <ProportionBar segments={[{ label: 'Inhouse', value: inhouseCount, color: '#38bdf8' }, { label: 'Outsource', value: outsourceCount, color: '#e879f9' }]} />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-muted mb-2">Ecom vs Thường (dự án)</p>
-            <ProportionBar segments={[{ label: 'Ecom', value: ecomCount, color: '#2dd4bf' }, { label: 'Thường', value: nonEcomCount, color: '#818cf8' }]} />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-muted mb-2">Ảnh vs Video (số lượng)</p>
-            <ProportionBar segments={[{ label: 'Ảnh', value: photoQty, color: '#818cf8' }, { label: 'Video', value: videoQty, color: '#fb923c' }]} />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-muted mb-2">Daily content theo nền tảng</p>
-            {platformSegs.length > 0 ? <ProportionBar segments={platformSegs} /> : <p className="text-xs text-dim">Không có content trong tháng</p>}
-          </div>
         </div>
       </Card>
 
@@ -245,64 +179,103 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
         <CostBarChart data={trend.map((t) => ({ label: t.label, cost: t.cost }))} />
       </Card>
 
-      <Card className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[760px]">
-          <thead>
-            <tr className="border-b border-line text-[11px] uppercase tracking-wide text-muted">
-              <th className="text-left px-4 py-3 font-bold">Thành viên</th>
-              <th className="text-center px-2 py-3 font-bold">Project ảnh</th>
-              <th className="text-center px-2 py-3 font-bold">Video</th>
-              <th className="text-center px-2 py-3 font-bold">Outsource</th>
-              <th className="text-center px-2 py-3 font-bold">DNTT</th>
-              <th className="text-center px-2 py-3 font-bold">Sản lượng</th>
-              <th className="text-center px-4 py-3 font-bold">KPI</th>
-              <th className="text-center px-3 py-3 font-bold">So T.trước</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {kpi.map((m, i) => {
-              const prevMember = members.find((mm) => (mm.uid || mm.id) === m.uid);
-              const prevKpi = prevMember
-                ? calculateMemberKpi(prevMember, shiftMonth(month, -1), allTasks, projects, reports, ecomIds)
-                : null;
-              const delta = prevKpi ? Math.round((m.finalKPI - prevKpi.finalKPI) * 10) / 10 : 0;
-              return (
-              <tr key={m.uid} onClick={() => setSelected(m)} className="hover:bg-surface-2 cursor-pointer transition-colors">
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="relative">
-                      <Avatar name={m.username} url={m.avatarUrl} size={30} />
-                      {i === 0 && m.finalKPI > 0 && <Crown size={12} className="absolute -top-1.5 -right-1 text-amber-400 rotate-12" />}
-                    </div>
-                    <div>
-                      <p className="font-bold">{m.username}</p>
-                      <p className="text-[11px] text-dim">{m.title || m.role}</p>
-                    </div>
-                  </div>
-                </td>
-                <td className="text-center tabular-nums font-bold" title={`${m.photoCount} ảnh`}>{m.photoProjectCount}</td>
-                <td className="text-center tabular-nums text-muted">{m.videoCount}</td>
-                <td className="text-center tabular-nums text-muted">{m.outsourceProjectCount}</td>
-                <td className="text-center tabular-nums text-muted">{m.dnttCount}</td>
-                <td className="text-center tabular-nums font-bold">{m.outputCount}<span className="text-dim font-normal">/{m.kpiOutputTarget}</span></td>
-                <td className="text-center px-4">
-                  <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-extrabold tabular-nums ${
-                    m.finalKPI >= 100 ? 'bg-emerald-500/15 text-emerald-400' : m.finalKPI >= 60 ? 'bg-indigo-500/15 text-indigo-300' : 'bg-slate-500/15 text-slate-300'
-                  }`}>{m.finalKPI}%</span>
-                </td>
-                <td className="text-center px-3">
-                  <span className={`inline-flex items-center gap-0.5 text-xs font-bold tabular-nums ${
-                    delta > 0 ? 'text-emerald-400' : delta < 0 ? 'text-red-400' : 'text-dim'
-                  }`}>
-                    {delta > 0 ? <ArrowUp size={12} /> : delta < 0 ? <ArrowDown size={12} /> : <Minus size={12} />}
-                    {delta !== 0 ? Math.abs(delta) : ''}
-                  </span>
-                </td>
+      <Card>
+        <div className="px-4 py-3 border-b border-line flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 font-bold text-sm"><Crown size={15} className="text-amber-300" /> Bảng KPI thành viên</div>
+          <span className="text-xs text-muted">KPI = Sản lượng / Chỉ tiêu · nhấp vào dòng để xem chi tiết</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[860px]">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-dim border-b border-line">
+                <th className="text-center w-10 py-2.5 font-bold">#</th>
+                <th className="text-left px-2 py-2.5 font-bold">Thành viên</th>
+                <th className="text-center px-2 py-2.5 font-bold">Ảnh</th>
+                <th className="text-center px-2 py-2.5 font-bold">Video</th>
+                <th className="text-center px-2 py-2.5 font-bold">Outsrc</th>
+                <th className="text-center px-2 py-2.5 font-bold text-dim">DNTT</th>
+                <th className="text-left px-3 py-2.5 font-bold w-36">Sản lượng</th>
+                <th className="text-left px-3 py-2.5 font-bold w-52">KPI</th>
+                <th className="text-center pr-4 pl-2 py-2.5 font-bold">T.trước</th>
               </tr>
-              );
-            })}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {kpi.map((m, i) => {
+                const prevMember = members.find((mm) => (mm.uid || mm.id) === m.uid);
+                const prevKpi = prevMember
+                  ? calculateMemberKpi(prevMember, shiftMonth(month, -1), allTasks, projects, reports, ecomIds)
+                  : null;
+                const delta = prevKpi ? Math.round((m.finalKPI - prevKpi.finalKPI) * 10) / 10 : 0;
+                const kpiBar = m.finalKPI >= 100 ? 'bg-emerald-400' : m.finalKPI >= 60 ? 'bg-indigo-400' : 'bg-slate-400';
+                const kpiText = m.finalKPI >= 100 ? 'text-emerald-400' : m.finalKPI >= 60 ? 'text-indigo-300' : 'text-slate-300';
+                const outPct = m.kpiOutputTarget > 0 ? Math.min(100, (m.outputCount / m.kpiOutputTarget) * 100) : 0;
+                const rankTint = ['text-amber-400', 'text-slate-300', 'text-orange-400'][i] || 'text-dim';
+                return (
+                <tr key={m.uid} onClick={() => setSelected(m)} className="hover:bg-surface-2 cursor-pointer transition-colors">
+                  <td className="text-center"><span className={`text-sm font-extrabold tabular-nums ${rankTint}`}>{i + 1}</span></td>
+                  <td className="px-2 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="relative shrink-0">
+                        <Avatar name={m.username} url={m.avatarUrl} size={30} />
+                        {i === 0 && m.finalKPI > 0 && <Crown size={12} className="absolute -top-1.5 -right-1 text-amber-400 rotate-12" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold truncate">{m.username}</p>
+                        <p className="text-[11px] text-dim truncate">{m.title || m.role}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="text-center tabular-nums font-semibold" title={`${m.photoCount} ảnh hoàn thành`}>{m.photoProjectCount}</td>
+                  <td className="text-center tabular-nums font-semibold">{m.videoCount}</td>
+                  <td className="text-center tabular-nums font-semibold">{m.outsourceProjectCount}</td>
+                  <td className="text-center tabular-nums text-dim">{m.dnttCount}</td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-baseline justify-between text-[11px] mb-1">
+                      <span className="font-bold tabular-nums">{m.outputCount}</span>
+                      <span className="text-dim tabular-nums">/ {m.kpiOutputTarget}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-line overflow-hidden"><div className="h-full rounded-full bg-indigo-400/80" style={{ width: `${outPct}%` }} /></div>
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2 rounded-full bg-line overflow-hidden">
+                        <div className={`h-full rounded-full ${kpiBar}`} style={{ width: `${Math.min(100, m.finalKPI)}%` }} />
+                      </div>
+                      <span className={`text-xs font-extrabold tabular-nums w-11 text-right ${kpiText}`}>{m.finalKPI}%</span>
+                    </div>
+                  </td>
+                  <td className="text-center pr-4 pl-2">
+                    <span className={`inline-flex items-center gap-0.5 text-xs font-bold tabular-nums px-1.5 py-0.5 rounded-md ${
+                      delta > 0 ? 'bg-emerald-500/10 text-emerald-400' : delta < 0 ? 'bg-red-500/10 text-red-400' : 'text-dim'
+                    }`}>
+                      {delta > 0 ? <ArrowUp size={12} /> : delta < 0 ? <ArrowDown size={12} /> : <Minus size={12} />}
+                      {delta !== 0 ? Math.abs(delta) : ''}
+                    </span>
+                  </td>
+                </tr>
+                );
+              })}
+            </tbody>
+            {kpi.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-line text-[12px]">
+                  <td />
+                  <td className="px-2 py-2.5 font-bold text-muted uppercase tracking-wide text-[11px]">Tổng team</td>
+                  <td className="text-center tabular-nums font-bold">{kpi.reduce((s, m) => s + m.photoProjectCount, 0)}</td>
+                  <td className="text-center tabular-nums font-bold">{kpi.reduce((s, m) => s + m.videoCount, 0)}</td>
+                  <td className="text-center tabular-nums font-bold">{kpi.reduce((s, m) => s + m.outsourceProjectCount, 0)}</td>
+                  <td className="text-center tabular-nums text-dim">{kpi.reduce((s, m) => s + m.dnttCount, 0)}</td>
+                  <td className="px-3 py-2.5 tabular-nums font-bold">{kpi.reduce((s, m) => s + m.outputCount, 0)}<span className="text-dim font-normal">/{kpi.reduce((s, m) => s + m.kpiOutputTarget, 0)}</span></td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-xs text-muted">TB </span>
+                    <span className="text-xs font-extrabold tabular-nums text-amber-300">{cur.avgKpi}%</span>
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
       </Card>
 
       {/* Cost analysis */}
@@ -403,26 +376,6 @@ function StatTile({ icon, tint, label, value, sub, danger }: { icon: React.React
       </div>
       <p className="text-xl font-extrabold tabular-nums leading-none">{value}</p>
       {sub && <p className="text-[10px] text-dim mt-1">{sub}</p>}
-    </div>
-  );
-}
-
-function ProportionBar({ segments }: { segments: { label: string; value: number; color: string }[] }) {
-  const total = segments.reduce((s, x) => s + x.value, 0) || 1;
-  return (
-    <div>
-      <div className="flex h-2.5 rounded-full overflow-hidden bg-line">
-        {segments.map((s) => (s.value > 0 ? <div key={s.label} style={{ width: `${(s.value / total) * 100}%`, background: s.color }} title={`${s.label}: ${s.value}`} /> : null))}
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-        {segments.map((s) => (
-          <span key={s.label} className="flex items-center gap-1.5 text-[11px] text-muted">
-            <span className="w-2.5 h-2.5 rounded-sm" style={{ background: s.color }} />
-            {s.label} <span className="font-bold text-ink tabular-nums">{s.value}</span>
-            <span className="text-dim">({Math.round((s.value / total) * 100)}%)</span>
-          </span>
-        ))}
-      </div>
     </div>
   );
 }
