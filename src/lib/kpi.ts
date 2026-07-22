@@ -1,13 +1,104 @@
 import type { Member, Project, Task, Report, Tag } from '../types';
-import { isProjectFinished } from './utils';
 
 const NO_ECOM = new Set<string>();
 
-/** Tập id dự án được gắn tag loại Ecom → dùng để loại khỏi KPI & thống kê riêng. */
+/** Task ảnh/video được coi là đã xong (đã hoàn thành hoặc đã duyệt DNTT). */
+const isDone = (t: Task) => t.status === 'completed' || !!t.dntt;
+
+/** Người đóng góp nhiều số lượng nhất trong danh sách task (tie-break theo uid cho ổn định). */
+function topContributor(tasks: Task[]): string | undefined {
+  if (tasks.length === 0) return undefined;
+  const byMember = new Map<string, number>();
+  tasks.forEach((t) => {
+    const uid = t.createdBy || '';
+    byMember.set(uid, (byMember.get(uid) || 0) + (Number(t.quantity) || 1));
+  });
+  return [...byMember.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+}
+
+/**
+ * Ảnh — tỉ lệ hoàn thành 1 project TRONG THÁNG (dạng phân số 0..1):
+ *  - Có ≥1 ảnh (đã chụp) = 50% project; 50% còn lại theo số lượng (ảnh xong / target).
+ *  - target = 0 (dữ liệu cũ): có ảnh = tính đủ 1 project.
+ * topUid = người đóng góp nhiều nhất → mỗi project chỉ tính cho 1 người, không trùng.
+ */
+export function photoProjectFraction(
+  proj: Project,
+  allTasks: Task[],
+  month: string,
+): { fraction: number; topUid?: string; done: number } {
+  const monthTasks = allTasks.filter(
+    (t) => t.projectId === proj.id && t.category === 'photo' && (t.reportDate || '').startsWith(month) && isDone(t),
+  );
+  const done = monthTasks.reduce((s, t) => s + (Number(t.quantity) || 1), 0);
+  const target = proj.photoTarget || 0;
+  let fraction: number;
+  if (target > 0) fraction = done >= 1 ? Math.min(1, 0.5 + 0.5 * Math.min(1, done / target)) : 0;
+  else fraction = done > 0 ? 1 : 0;
+  return { fraction, topUid: topContributor(monthTasks), done };
+}
+
+/** Tập id dự án được gắn tag loại Ecom. */
 export function ecomProjectIdSet(projects: Project[], tags: Tag[]): Set<string> {
   const ecomTagIds = new Set(tags.filter((t) => t.scope === 'ecom').map((t) => t.id));
   if (ecomTagIds.size === 0) return NO_ECOM;
   return new Set(projects.filter((p) => p.tagId && ecomTagIds.has(p.tagId)).map((p) => p.id));
+}
+
+export type ProjectClass = 'inhouse' | 'outsource' | 'ecom';
+
+/** Phân loại 1 project vào đúng 1 nhóm: Ecom > Outsource > Inhouse. */
+export function projectClass(proj: Project | undefined, ecomIds: Set<string>): ProjectClass {
+  if (!proj) return 'inhouse';
+  if (ecomIds.has(proj.id)) return 'ecom';
+  if ((proj.projectType || 'inhouse') === 'outsource') return 'outsource';
+  return 'inhouse';
+}
+
+export interface TypeTotals {
+  photos: number;
+  videos: number;
+  cost: number;
+  photoTasks: Task[];
+  videoTasks: Task[];
+  costTasks: Task[];
+}
+
+/** Tổng sản lượng team trong tháng, tách theo loại dự án (inhouse/outsource/ecom). */
+export function teamTypeTotals(
+  allTasks: Task[],
+  projects: Project[],
+  ecomIds: Set<string>,
+  month: string,
+): Record<ProjectClass, TypeTotals> {
+  const projById = new Map(projects.map((p) => [p.id, p]));
+  const blank = (): TypeTotals => ({ photos: 0, videos: 0, cost: 0, photoTasks: [], videoTasks: [], costTasks: [] });
+  const res: Record<ProjectClass, TypeTotals> = { inhouse: blank(), outsource: blank(), ecom: blank() };
+  for (const t of allTasks) {
+    if (!(t.reportDate || '').startsWith(month)) continue;
+    const proj = projById.get(t.projectId);
+    if (!proj) continue; // bỏ task mồ côi (project đã xoá)
+    const bucket = res[projectClass(proj, ecomIds)];
+    if (t.category === 'photo' && isDone(t)) {
+      bucket.photos += Number(t.quantity) || 1;
+      bucket.photoTasks.push(t);
+    } else if (t.category === 'video' && isDone(t)) {
+      bucket.videos += Number(t.quantity) || 1;
+      bucket.videoTasks.push(t);
+    } else if (t.category === 'pre-production') {
+      bucket.cost += Number(t.amount) || 0;
+      bucket.costTasks.push(t);
+    }
+  }
+  return res;
+}
+
+export interface PhotoProjectBreakdown {
+  projectId: string;
+  title: string;
+  done: number;
+  target: number;
+  fraction: number;
 }
 
 export interface MemberKpi {
@@ -17,12 +108,12 @@ export interface MemberKpi {
   role: string;
   title?: string;
   avatarUrl?: string;
-  photoCount: number; // tổng số lượng ảnh inhouse (để hiển thị)
-  photoProjectCount: number; // Ảnh KPI: số project inhouse đạt đủ target ảnh
-  videoCount: number; // Video KPI: số lượng video inhouse
-  outsourceProjectCount: number; // Outsource KPI: số project outsource hoàn thành
+  photoCount: number; // tổng số ảnh hoàn thành trong tháng (mọi loại) — hiển thị/tooltip
+  photoScore: number; // Ảnh KPI: tổng project hoàn thành (phân số)
+  photoProjects: PhotoProjectBreakdown[]; // bóc tách từng project cho drawer
+  videoCount: number; // Video KPI: số lượng video
   dnttCount: number; // thông tin: số DNTT đã duyệt
-  outputCount: number; // sản lượng KPI = project ảnh + video + project outsource
+  outputCount: number; // sản lượng = photoScore + videoCount
   kpiOutputTarget: number;
   outputKPI: number;
   finalKPI: number;
@@ -31,11 +122,10 @@ export interface MemberKpi {
 }
 
 /**
- * KPI theo sản lượng, tách 3 mục:
- * - Ảnh: số project INHOUSE đạt đủ target ảnh
- * - Video: số lượng video INHOUSE
- * - Outsource: số project OUTSOURCE hoàn thành (không kể số lượng ảnh/video)
- * Sản lượng = tổng 3 mục; KPI = sản lượng / chỉ tiêu chung.
+ * KPI theo sản lượng, KHÔNG phân loại dự án (inhouse/outsource/ecom gộp chung):
+ *  - Ảnh = tổng project hoàn thành (phân số, xem photoProjectFraction)
+ *  - Video = tổng số lượng video hoàn thành trong tháng
+ * Sản lượng = Ảnh + Video; KPI = sản lượng / chỉ tiêu (kpiOutput).
  */
 export function calculateMemberKpi(
   member: Member,
@@ -43,10 +133,9 @@ export function calculateMemberKpi(
   allTasks: Task[],
   projects: Project[],
   reports: Report[],
-  ecomIds: Set<string> = NO_ECOM,
 ): MemberKpi {
   const uid = member.uid || member.id;
-  const isEcom = (pid?: string) => !!pid && ecomIds.has(pid); // dự án ecom → không tính KPI
+  const projOf = (id?: string) => (id ? projects.find((p) => p.id === id) : undefined);
 
   const userTasks = allTasks.filter(
     (t) => t.createdBy === uid && (t.reportDate || '').startsWith(month),
@@ -64,49 +153,31 @@ export function calculateMemberKpi(
     return !allTasks.some((t) => t.sourceReportId === r.id);
   });
 
-  const projOf = (id?: string) => (id ? projects.find((p) => p.id === id) : undefined);
-  const isOutsource = (p?: Project) => (p?.projectType || 'inhouse') === 'outsource';
-
-  // Task inhouse vs outsource của thành viên trong tháng
-  const inhousePhotoTasks = userTasks.filter((t) => t.category === 'photo' && !isOutsource(projOf(t.projectId)) && !isEcom(t.projectId));
-  const inhouseVideoTasks = userTasks.filter((t) => t.category === 'video' && !isOutsource(projOf(t.projectId)) && !isEcom(t.projectId));
-
-  const photoCount = inhousePhotoTasks.reduce((s, t) => s + (Number(t.quantity) || 1), 0);
-
-  // ── Ảnh: số project INHOUSE đạt đủ target ảnh ──
-  const photoProjectIds = Array.from(new Set(inhousePhotoTasks.map((t) => t.projectId).filter(Boolean))) as string[];
-  const photoProjectCount = photoProjectIds.reduce((count, pid) => {
+  // ── Ảnh: tổng project hoàn thành (phân số), tính cho người đóng góp nhiều nhất ──
+  const photoTasks = userTasks.filter((t) => t.category === 'photo' && isDone(t));
+  const photoCount = photoTasks.reduce((s, t) => s + (Number(t.quantity) || 1), 0);
+  const photoProjectIds = Array.from(new Set(photoTasks.map((t) => t.projectId).filter(Boolean))) as string[];
+  const photoProjects: PhotoProjectBreakdown[] = [];
+  let photoScoreRaw = 0;
+  for (const pid of photoProjectIds) {
     const proj = projOf(pid);
-    if (!proj) return count;
-    const photoDone = allTasks
-      .filter((t) => t.projectId === pid && t.category === 'photo' && (t.status === 'completed' || t.dntt))
-      .reduce((s, t) => s + (Number(t.quantity) || 1), 0);
-    const target = proj.photoTarget || 0;
-    const reached = target > 0 ? photoDone >= target : photoDone > 0;
-    return reached ? count + 1 : count;
-  }, 0);
+    if (!proj) continue;
+    const { fraction, topUid, done } = photoProjectFraction(proj, allTasks, month);
+    if (fraction > 0 && topUid === uid) {
+      photoScoreRaw += fraction;
+      photoProjects.push({ projectId: pid, title: proj.title, done, target: proj.photoTarget || 0, fraction: round2(fraction) });
+    }
+  }
+  const photoScore = round2(photoScoreRaw);
 
-  // ── Video: số lượng video INHOUSE ──
-  const videoCount = inhouseVideoTasks.reduce((s, t) => s + (Number(t.quantity) || 1), 0);
-
-  // ── Outsource: số project OUTSOURCE hoàn thành (không kể số lượng ảnh/video) ──
-  const outsourceProjectIds = Array.from(new Set(
-    userTasks.filter((t) => (t.category === 'photo' || t.category === 'video') && isOutsource(projOf(t.projectId)) && !isEcom(t.projectId)).map((t) => t.projectId).filter(Boolean),
-  )) as string[];
-  const outsourceProjectCount = outsourceProjectIds.reduce((count, pid) => {
-    const proj = projOf(pid);
-    if (!proj) return count;
-    const done = allTasks
-      .filter((t) => t.projectId === pid && (t.category === 'photo' || t.category === 'video') && (t.status === 'completed' || t.dntt))
-      .reduce((s, t) => s + (Number(t.quantity) || 1), 0);
-    const target = (proj.photoTarget || 0) + (proj.videoTarget || 0);
-    const reached = isProjectFinished(proj.status) || (target > 0 ? done >= target : done > 0);
-    return reached ? count + 1 : count;
-  }, 0);
+  // ── Video: tổng số lượng video hoàn thành trong tháng (mọi loại dự án) ──
+  const videoCount = userTasks
+    .filter((t) => t.category === 'video' && isDone(t))
+    .reduce((s, t) => s + (Number(t.quantity) || 1), 0);
 
   const dnttCount = userTasks.filter((t) => t.category === 'pre-production' && t.dntt).length;
 
-  const outputCount = photoProjectCount + videoCount + outsourceProjectCount;
+  const outputCount = round2(photoScore + videoCount);
   const kpiOutputTarget = member.kpiOutput || 100;
   const outputKPI = (outputCount / kpiOutputTarget) * 100;
 
@@ -118,8 +189,6 @@ export function calculateMemberKpi(
   ) as string[];
   const userProjects = projects.filter((p) => projectIds.includes(p.id));
 
-  const finalKPI = outputKPI;
-
   return {
     uid,
     username: member.username || member.email,
@@ -128,14 +197,14 @@ export function calculateMemberKpi(
     title: member.title,
     avatarUrl: member.avatarUrl,
     photoCount,
-    photoProjectCount,
+    photoScore,
+    photoProjects,
     videoCount,
-    outsourceProjectCount,
     dnttCount,
     outputCount,
     kpiOutputTarget,
     outputKPI: round1(outputKPI),
-    finalKPI: round1(finalKPI),
+    finalKPI: round1(outputKPI),
     projectCount: userProjects.length,
     projectIds,
   };
@@ -147,14 +216,16 @@ export function calculateTeamKpi(
   allTasks: Task[],
   projects: Project[],
   reports: Report[],
-  ecomIds: Set<string> = NO_ECOM,
 ): MemberKpi[] {
   return members
     .filter((m) => m.role === 'admin' || m.role === 'editor')
-    .map((m) => calculateMemberKpi(m, month, allTasks, projects, reports, ecomIds))
+    .map((m) => calculateMemberKpi(m, month, allTasks, projects, reports))
     .sort((a, b) => b.finalKPI - a.finalKPI);
 }
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
+}
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }

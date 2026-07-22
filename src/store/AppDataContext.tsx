@@ -4,6 +4,7 @@ import {
 } from 'firebase/firestore';
 import { db, type User } from '../lib/firebase';
 import { MAIN_TEAM_ID, ADMIN_EMAILS } from '../lib/utils';
+import { setNotifyWebhook } from '../lib/notify';
 import type { Member, Project, Task, Report, ProductType, DailyContent, Note, Tag, TeamDoc } from '../types';
 
 interface AppData {
@@ -41,7 +42,11 @@ export function AppDataProvider({ user, children }: { user: User; children: Reac
   useEffect(() => {
     const teamRef = doc(db, 'teams', MAIN_TEAM_ID);
     const unsubs = [
-      onSnapshot(teamRef, (snap) => setTeam(snap.exists() ? ({ id: snap.id, ...snap.data() } as TeamDoc) : null)),
+      onSnapshot(teamRef, (snap) => {
+        const t = snap.exists() ? ({ id: snap.id, ...snap.data() } as TeamDoc) : null;
+        setTeam(t);
+        setNotifyWebhook(t?.notifyWebhookUrl); // actions.ts đọc qua module notify, không cần context
+      }),
 
       onSnapshot(collection(db, 'teams', MAIN_TEAM_ID, 'members'), (snap) => {
         setMembers(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Member)));

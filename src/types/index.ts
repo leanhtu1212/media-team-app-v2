@@ -103,6 +103,7 @@ export interface DailyContent {
   dueDate?: string;
   notes?: string;
   points?: number;
+  quantity?: number; // số lượng nội dung (mặc định 1)
   status: DailyStatus;
   projectId?: string;
   tagId?: string;
@@ -137,5 +138,6 @@ export interface TeamDoc {
   id: string;
   name?: string;
   sheetsWebhookUrl?: string;
+  notifyWebhookUrl?: string; // webhook Apps Script gửi thông báo Telegram (apps-script/notify.gs)
   createdBy?: string;
 }

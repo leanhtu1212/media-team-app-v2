@@ -5,6 +5,7 @@ import { AppDataProvider, useAppData } from './store/AppDataContext';
 import { ToastProvider } from './hooks/useToast';
 import { useAutoIcsSync } from './hooks/useAutoIcsSync';
 import { Sidebar, type View } from './components/layout/Sidebar';
+import { currentMonth } from './lib/utils';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoginPage } from './pages/Login';
 import { DashboardPage } from './pages/Dashboard';
@@ -22,6 +23,8 @@ function Shell({ user }: { user: User }) {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   // Lifted so the Inhouse/Outsource/Content tab survives opening a project detail
   const [projectsTypeFilter, setProjectsTypeFilter] = useState<ProjectsTab>('inhouse');
+  // Lifted so Lịch tháng giữ nguyên tháng đang xem khi mở project detail rồi quay lại
+  const [calendarMonth, setCalendarMonth] = useState(currentMonth());
 
   if (loading) {
     return (
@@ -48,7 +51,7 @@ function Shell({ user }: { user: User }) {
             <>
               {view === 'dashboard' && <DashboardPage user={user} onOpenProject={openProject} />}
               {view === 'projects' && <ProjectsPage user={user} onOpenProject={openProject} typeFilter={projectsTypeFilter} onTypeFilterChange={setProjectsTypeFilter} />}
-              {view === 'daily' && <DailyContentPage user={user} onOpenProject={openProject} />}
+              {view === 'daily' && <DailyContentPage user={user} onOpenProject={openProject} month={calendarMonth} onMonthChange={setCalendarMonth} />}
               {view === 'reports' && <ReportsPage user={user} />}
               {view === 'performance' && isAdmin && <PerformancePage onOpenProject={openProject} />}
               {view === 'settings' && <SettingsPage user={user} />}

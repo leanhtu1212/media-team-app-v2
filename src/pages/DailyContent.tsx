@@ -51,6 +51,7 @@ function stripeFor(entry: CalEntry, today: string): string {
   if (entry.kind === 'note') return 'border-violet-400';
   if (entry.kind === 'project') {
     const p = entry.project;
+    if (isProjectFinished(p.status)) return 'border-emerald-500';
     if ((p.deadline || '') < today) return 'border-red-500';
     if (p.status === 'post-production') return 'border-amber-400';
     if (p.status === 'pre-production') return 'border-sky-400';
@@ -118,29 +119,41 @@ function assignGlobalLanes(spans: SpanProject[], colorOf: (p: Project) => string
   return laneOf;
 }
 
-// Cắt các thanh theo 1 tuần (clamp theo các ngày thật của tuần); lane lấy từ laneOf toàn cục.
+// Cắt các thanh theo 1 tuần (clamp theo các ngày thật của tuần).
+// Thanh DÀI (qua nhiều tuần, có lane trong laneOf) giữ nguyên lane toàn cục → các tuần thẳng hàng.
+// Thanh NGẮN (gói trong 1 tuần) lấp vào lane trống thấp nhất của tuần đó → không lãng phí chỗ.
 function layoutWeek(week: (string | null)[], spans: SpanProject[], laneOf: Map<string, number>) {
   type Bar = { project: Project; colStart: number; span: number; roundLeft: boolean; roundRight: boolean; lane: number };
   const bars: Bar[] = [];
-  let maxLane = -1;
   for (const s of spans) {
     const cols: number[] = [];
     week.forEach((d, c) => { if (d && d >= s.start && d <= s.end) cols.push(c); });
     if (!cols.length) continue;
     const colStart = Math.min(...cols);
     const colEnd = Math.max(...cols);
-    const lane = laneOf.get(s.project.id) ?? 0;
-    if (lane > maxLane) maxLane = lane;
     bars.push({
       project: s.project,
       colStart,
       span: colEnd - colStart + 1,
       roundLeft: week[colStart] === s.start, // đầu thật của dự án nằm trong tuần này
       roundRight: week[colEnd] === s.end,    // deadline nằm trong tuần này
-      lane,
+      lane: laneOf.get(s.project.id) ?? -1, // -1 = thanh ngắn, xếp lấp chỗ trống sau
     });
   }
-  return { bars, laneCount: maxLane + 1 };
+  // Thanh ngắn: đặt vào lane thấp nhất không đụng thanh nào khác trong tuần
+  const overlap = (a: Bar, b: Bar) => a.colStart < b.colStart + b.span && b.colStart < a.colStart + a.span;
+  for (const b of bars.filter((x) => x.lane < 0).sort((a, x) => a.colStart - x.colStart)) {
+    let lane = 0;
+    while (bars.some((o) => o !== b && o.lane === lane && overlap(o, b))) lane++;
+    b.lane = lane;
+  }
+  // Số lane chiếm chỗ ở TỪNG cột — ô không có thanh đi qua thì chip nằm sát trên
+  const colLanes = week.map((_, c) => {
+    let m = 0;
+    for (const b of bars) if (c >= b.colStart && c < b.colStart + b.span) m = Math.max(m, b.lane + 1);
+    return m;
+  });
+  return { bars, colLanes };
 }
 
 /* ================================================================
@@ -348,9 +361,9 @@ export function ContentKanban({ user, newRef }: { user: User; newRef?: React.Mut
 }
 
 /* ================================================================
- * Trang "Lịch tháng" — lịch hiển thị mọi thứ đang chạy:
+ * Trang "Lịch tháng" — lịch hiển thị:
  *   - Daily Content theo ngày đăng
- *   - Deadline dự án chưa hoàn thành
+ *   - Deadline MỌI dự án (kể cả đã xong/thanh toán — vạch xanh lá)
  *   - Task tiền kỳ chưa xong (theo deadline)
  * ================================================================ */
 type CalEntry =
@@ -508,10 +521,10 @@ function NoteFormModal({
   );
 }
 
-export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
+export function DailyContentPage({ user, onOpenProject, month, onMonthChange }: { user: User; onOpenProject: (id: string) => void; month: string; onMonthChange: (m: string) => void }) {
   const { dailyContent, projects, allTasks, notes, tags, isEditor, isAdmin } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
-  const [month, setMonth] = useState(currentMonth());
+  const setMonth = onMonthChange;
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
 
@@ -568,13 +581,13 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
     }
   };
 
-  // Dự án inhouse đang chạy → vẽ thanh nối liền từ NGÀY BẮT ĐẦU (startDate) → deadline.
+  // Dự án inhouse (kể cả đã xong) → vẽ thanh nối liền từ NGÀY BẮT ĐẦU (startDate) → deadline.
   // startDate là ngày người dùng chọn khi tạo (double-tap trên lịch), không phải ngày tạo bản ghi.
   // Dự án cũ chưa có startDate → tạm lấy createdAt để vẫn hiển thị. Thiếu deadline → thanh 1 ngày ở start.
   const spanProjects = useMemo<SpanProject[]>(() => {
     const [mStart, mEnd] = monthRange(month);
     return projects.flatMap((p) => {
-      if (isProjectFinished(p.status) || p.projectType === 'outsource') return [];
+      if (p.projectType === 'outsource') return [];
       const start = p.startDate || tsToDateStr(p.createdAt);
       if (!start) return [];
       const end = p.deadline && p.deadline >= start ? p.deadline : start;
@@ -583,12 +596,21 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
     });
   }, [projects, month]);
   const spanIds = useMemo(() => new Set(spanProjects.map((s) => s.project.id)), [spanProjects]);
-  // Lane cố định toàn cục cho từng dự án (cam trên → xanh dưới), dùng chung mọi tuần
-  const globalLanes = useMemo(
-    () => assignGlobalLanes(spanProjects, (p) => tagColorOf(p.tagId) || ((p.deadline || '') < today ? '#dc2626' : '#0284c7')),
+  // Lane cố định toàn cục CHỈ cho dự án DÀI (qua ≥2 tuần) — các tuần thẳng hàng nhau.
+  // Dự án ngắn (gói trong 1 tuần) không vào map này → layoutWeek tự lấp lane trống của tuần.
+  const globalLanes = useMemo(() => {
+    const [y, m] = month.split('-').map(Number);
+    const off = (new Date(y, m - 1, 1).getDay() + 6) % 7;
+    const [mStart, mEnd] = monthRange(month);
+    const weekIdx = (d: string) => Math.floor((off + Number(d.slice(8)) - 1) / 7);
+    const longSpans = spanProjects.filter((s) => {
+      const a = s.start < mStart ? mStart : s.start;
+      const b = s.end > mEnd ? mEnd : s.end;
+      return weekIdx(a) !== weekIdx(b);
+    });
+    return assignGlobalLanes(longSpans, (p) => tagColorOf(p.tagId) || ((p.deadline || '') < today ? '#dc2626' : '#0284c7'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [spanProjects, today],
-  );
+  }, [spanProjects, month, today]);
 
   // Gom mọi entry của tháng theo ngày (bỏ qua dự án đã vẽ thành thanh nối liền)
   const byDay = useMemo(() => {
@@ -598,10 +620,10 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
     dailyContent.forEach((d) => {
       if ((d.dueDate || '').startsWith(month)) push(d.dueDate!, { kind: 'daily', daily: d });
     });
-    // Dự án đang chạy, deadline trong tháng (trừ dự án đã thành thanh)
+    // Mọi dự án có deadline trong tháng — kể cả đã xong/thanh toán (trừ dự án đã thành thanh)
     projects.forEach((p) => {
       if (spanIds.has(p.id)) return;
-      if (!isProjectFinished(p.status) && (p.deadline || '').startsWith(month)) push(p.deadline!, { kind: 'project', project: p });
+      if ((p.deadline || '').startsWith(month)) push(p.deadline!, { kind: 'project', project: p });
     });
     // Khoản chi phí tiền kỳ chưa xong, deadline trong tháng — CHỈ admin thấy (dữ liệu chi phí)
     if (isAdmin) {
@@ -654,7 +676,7 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
         <div className="space-y-2">
           {weeks.map((week, wi) => {
             // Bố cục thanh dự án nối liền của tuần này
-            const { bars, laneCount } = layoutWeek(week, spanProjects, globalLanes);
+            const { bars, colLanes } = layoutWeek(week, spanProjects, globalLanes);
             return (
               <div key={wi} className="relative">
                 {/* Lớp ô ngày */}
@@ -689,8 +711,8 @@ export function DailyContentPage({ user, onOpenProject }: { user: User; onOpenPr
                           <span className={`text-sm font-bold ${isToday ? 'text-indigo-300' : 'text-muted'}`}>{Number(date.slice(8))}</span>
                           {list.length > 0 && <span className="text-[10px] font-bold text-dim">{list.length}</span>}
                         </div>
-                        {/* Chừa chỗ phía trên cho các thanh dự án nối liền của tuần */}
-                        <div className="space-y-1 flex-1" style={laneCount ? { marginTop: laneCount * BAR_UNIT } : undefined}>
+                        {/* Chừa chỗ phía trên đúng bằng số thanh đi qua Ô NÀY */}
+                        <div className="space-y-1 flex-1" style={colLanes[c] ? { marginTop: colLanes[c] * BAR_UNIT } : undefined}>
                           {list.slice(0, 4).map((entry, j) => (
                             <CalChip
                               key={j}
@@ -907,6 +929,7 @@ function ContentDetailDrawer({
       <div className="space-y-0.5">
         <Row label="Nền tảng"><Badge color={PLATFORM_COLOR[item.platform] || PLATFORM_COLOR['Đa kênh']}>{item.platform}</Badge></Row>
         <Row label="Trạng thái"><Badge color={STATUS_BADGE[item.status]}>{STATUS_LABEL[item.status]}</Badge></Row>
+        <Row label="Số lượng"><span className="tabular-nums font-bold">{Number(item.quantity) || 1}</span></Row>
         <Row label="Ngày đăng"><span className={overdue ? 'text-red-400 font-bold' : ''}>{formatDate(item.dueDate)}{overdue ? ' · quá hạn' : ''}</span></Row>
         <Row label="Người phụ trách">
           {assignee ? (
@@ -938,7 +961,7 @@ function ContentFormModal({
 
   const [lastOpen, setLastOpen] = useState(false);
   if (open && !lastOpen) {
-    setForm(editing ? { ...editing } : { type: 'Reels', platform: 'Đa kênh', status: 'planned', dueDate: todayStr(), points: 3 });
+    setForm(editing ? { ...editing } : { type: 'Reels', platform: 'Đa kênh', status: 'planned', dueDate: todayStr(), points: 3, quantity: 1 });
     setLastOpen(true);
   } else if (!open && lastOpen) {
     setLastOpen(false);
@@ -982,10 +1005,8 @@ function ContentFormModal({
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Trạng thái">
-            <Select value={form.status || 'planned'} onChange={(e) => set('status', e.target.value)}>
-              {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-            </Select>
+          <Field label="Số lượng">
+            <Input type="number" min={1} value={form.quantity ?? 1} onChange={(e) => set('quantity', Math.max(1, Number(e.target.value)))} onFocus={(e) => e.target.select()} />
           </Field>
           <Field label="Tag màu">
             <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} scope="content" autoSelect />
