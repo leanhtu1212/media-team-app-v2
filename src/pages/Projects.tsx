@@ -94,7 +94,7 @@ export function ProjectsPage({
     if (!p || p.status === status) return;
     try {
       // Status change drives itemStatus the same way ProjectDetail does
-      await updateProject(projectId, { status, itemStatus: itemStatusFromProjectStatus(status) });
+      await updateProject(projectId, { status, itemStatus: itemStatusFromProjectStatus(status) }, { title: p.title, prevStatus: p.status });
       toast(`"${p.title}" → ${STATUS_LABEL[status]}`);
     } catch (e: unknown) {
       toast(`Lỗi: ${(e as Error).message}`, 'error');
@@ -296,6 +296,7 @@ export function ProjectFormModal({
 }) {
   const [form, setForm] = useState<Partial<Project>>({});
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
 
   // Reset form when opening
   const [lastOpen, setLastOpen] = useState(false);
@@ -309,6 +310,14 @@ export function ProjectFormModal({
   const set = (k: keyof Project, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const submit = async () => {
     if (busy || !form.title || !form.tagId) return;
+    if ((Number(form.photoTarget) || 0) < 1 && (Number(form.videoTarget) || 0) < 1) {
+      toast('Cần nhập khối lượng: target ảnh hoặc target video ≥ 1', 'error');
+      return;
+    }
+    if (form.startDate && form.deadline && form.deadline < form.startDate) {
+      toast('Deadline phải sau hoặc bằng ngày bắt đầu (kiểm tra lại tháng)', 'error');
+      return;
+    }
     setBusy(true);
     const clean = { ...form };
     if (clean.qualityScore === undefined) delete clean.qualityScore;
@@ -330,16 +339,19 @@ export function ProjectFormModal({
             <Input type="date" value={form.startDate || ''} onChange={(e) => set('startDate', e.target.value)} />
           </Field>
           <Field label="Deadline">
-            <Input type="date" value={form.deadline || ''} onChange={(e) => set('deadline', e.target.value)} />
+            <Input type="date" min={form.startDate || undefined} value={form.deadline || ''} onChange={(e) => set('deadline', e.target.value)} />
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Target ảnh">
-            <Input type="number" min={0} value={form.photoTarget ?? 0} onChange={(e) => set('photoTarget', Number(e.target.value))} />
-          </Field>
-          <Field label="Target video">
-            <Input type="number" min={0} value={form.videoTarget ?? 0} onChange={(e) => set('videoTarget', Number(e.target.value))} />
-          </Field>
+        <div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Target ảnh">
+              <Input type="number" min={0} value={form.photoTarget ?? 0} onChange={(e) => set('photoTarget', Number(e.target.value))} />
+            </Field>
+            <Field label="Target video">
+              <Input type="number" min={0} value={form.videoTarget ?? 0} onChange={(e) => set('videoTarget', Number(e.target.value))} />
+            </Field>
+          </div>
+          <p className="text-[11px] text-dim mt-1.5">* Cần khối lượng ở ít nhất 1 loại (ảnh hoặc video ≥ 1)</p>
         </div>
         <Field label="Tag màu">
           <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} scope={form.projectType === 'outsource' ? 'outsource' : ['inhouse-photo', 'inhouse-video', 'ecom']} autoSelect={form.projectType === 'outsource'} />

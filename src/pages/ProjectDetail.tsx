@@ -406,7 +406,7 @@ function InfoPanel({ project, isEditor, toast }: { project: Project; isEditor: b
   const outOfSync = itemStatus !== recommended;
 
   const setField = async (data: Partial<Project>, ok: string) => {
-    try { await updateProject(project.id, data); toast(ok); }
+    try { await updateProject(project.id, data, { title: project.title, prevStatus: project.status }); toast(ok); }
     catch (e: unknown) { toast(`Lỗi: ${(e as Error).message}`, 'error'); }
   };
 
@@ -580,7 +580,13 @@ function TaskFormModal({
           </Field>
           {isPre ? (
             <Field label="Chi phí (VND)">
-              <Input type="number" min={0} step={1000} value={form.amount ?? 0} onChange={(e) => set('amount', Math.max(0, Number(e.target.value)))} />
+              {/* Text + inputMode numeric: nhận số lẻ bất kỳ (19.852.341), tự format dấu chấm nghìn */}
+              <Input
+                inputMode="numeric"
+                value={(Number(form.amount) || 0).toLocaleString('vi-VN')}
+                onChange={(e) => set('amount', Number(e.target.value.replace(/\D/g, '')) || 0)}
+                onFocus={(e) => e.target.select()}
+              />
             </Field>
           ) : (
             <Field label="Số lượng">

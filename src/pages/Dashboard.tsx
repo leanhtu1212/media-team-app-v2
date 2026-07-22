@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Camera, Video, Wallet, Trophy, ArrowRight, Crown, FolderKanban, CheckCircle2, Circle, AlertTriangle, CalendarClock, FileText, CalendarDays } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Avatar, Input } from '../components/ui';
-import { calculateTeamKpi, ecomProjectIdSet } from '../lib/kpi';
+import { calculateTeamKpi } from '../lib/kpi';
 import { toggleDntt } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
 import { currentMonth, monthRange, shiftMonth, formatVND, formatDate, todayStr, isProjectFinished } from '../lib/utils';
@@ -18,8 +18,7 @@ const PLATFORM_COLOR: Record<string, string> = {
 };
 
 export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
-  const { members, projects, allTasks, reports, dailyContent, tags, isAdmin } = useAppData();
-  const ecomIds = useMemo(() => ecomProjectIdSet(projects, tags), [projects, tags]);
+  const { members, projects, allTasks, reports, dailyContent, isAdmin } = useAppData();
   const toast = useToast();
   const [month, setMonth] = useState(currentMonth());
   const today = todayStr();
@@ -35,7 +34,18 @@ export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProje
   }, [allTasks, projects]);
   const unpaidTotal = unpaidTasks.reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
-  const kpi = useMemo(() => calculateTeamKpi(members, month, allTasks, projects, reports, ecomIds), [members, month, allTasks, projects, reports, ecomIds]);
+  // Gom theo project (giữ thứ tự deadline sớm nhất trước), mỗi project list các khoản bên dưới
+  const unpaidGroups = useMemo(() => {
+    const map = new Map<string, typeof unpaidTasks>();
+    for (const t of unpaidTasks) {
+      const list = map.get(t.projectId);
+      if (list) list.push(t);
+      else map.set(t.projectId, [t]);
+    }
+    return [...map.entries()];
+  }, [unpaidTasks]);
+
+  const kpi = useMemo(() => calculateTeamKpi(members, month, allTasks, projects, reports), [members, month, allTasks, projects, reports]);
 
   // A project "belongs" to a month by its deadline, falling back to createdAt.
   const projectMonth = (p: Project): string => {
@@ -233,9 +243,9 @@ export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProje
         </Card>
       </div>
 
-      {/* DNTT chưa thanh toán — danh sách gọn, đặt cuối trang (admin) */}
+      {/* DNTT chưa thanh toán — gom theo project, chiều ngang 1 nửa cho dễ nhìn (admin) */}
       {isAdmin && (
-        <Card>
+        <Card className="lg:w-1/2">
           <div className="px-3 py-2 border-b border-line flex items-center justify-between">
             <h2 className="font-bold text-[13px] flex items-center gap-1.5"><Wallet size={13} className="text-rose-300" /> DNTT chưa thanh toán</h2>
             <span className="text-[11px] font-bold text-rose-300 tabular-nums">{formatVND(unpaidTotal)} · {unpaidTasks.length} khoản</span>
@@ -244,36 +254,46 @@ export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProje
             {unpaidTasks.length === 0 ? (
               <p className="text-xs text-dim text-center py-4">Không có khoản nào chưa thanh toán 🎉</p>
             ) : (
-              <div className="space-y-1">
-                {unpaidTasks.map((t) => {
-                  const p = projects.find((x) => x.id === t.projectId);
+              <div className="space-y-2">
+                {unpaidGroups.map(([projectId, tasks]) => {
+                  const p = projects.find((x) => x.id === projectId);
                   if (!p) return null;
-                  const overdue = t.deadline && t.deadline < today;
+                  const subtotal = tasks.reduce((s, t) => s + (Number(t.amount) || 0), 0);
                   return (
-                    <div
-                      key={t.id}
-                      className="w-full flex items-center gap-2 px-2.5 py-1.5 bg-bg border border-line rounded-lg hover:border-line-2 transition-all group"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => toggleDntt(t).then(() => toast('Đã đánh dấu thanh toán')).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
-                        title="Đánh dấu đã thanh toán"
-                        className="shrink-0 text-dim hover:text-emerald-400 cursor-pointer"
-                      >
-                        <Circle size={16} />
-                      </button>
+                    <div key={projectId} className="bg-bg border border-line rounded-lg overflow-hidden">
                       <button
                         type="button"
                         onClick={() => onOpenProject(p.id)}
-                        className="flex-1 min-w-0 flex items-center gap-2 text-left cursor-pointer"
+                        className="w-full flex items-center gap-2 px-2.5 py-1.5 border-b border-line bg-surface-2/50 text-left cursor-pointer group"
                       >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-semibold truncate group-hover:text-indigo-300 transition-colors">{t.title}</p>
-                          <p className="text-[10px] text-dim truncate">{p.title}{t.deadline ? ` · hạn ${formatDate(t.deadline)}` : ''}</p>
-                        </div>
-                        {overdue && <span className="text-[9px] font-bold text-red-400 uppercase shrink-0">Quá hạn</span>}
-                        <span className="text-[13px] font-bold text-amber-300 tabular-nums shrink-0">{formatVND(Number(t.amount) || 0)}</span>
+                        <FolderKanban size={13} className="text-indigo-300 shrink-0" />
+                        <span className="flex-1 min-w-0 text-[13px] font-bold truncate group-hover:text-indigo-300 transition-colors">{p.title}</span>
+                        <span className="text-[11px] text-dim tabular-nums shrink-0">{tasks.length} khoản</span>
+                        <span className="text-[13px] font-bold text-rose-300 tabular-nums shrink-0">{formatVND(subtotal)}</span>
                       </button>
+                      <div className="divide-y divide-line">
+                        {tasks.map((t) => {
+                          const overdue = t.deadline && t.deadline < today;
+                          return (
+                            <div key={t.id} className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-surface-2 transition-colors">
+                              <button
+                                type="button"
+                                onClick={() => toggleDntt(t).then(() => toast('Đã đánh dấu thanh toán')).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
+                                title="Đánh dấu đã thanh toán"
+                                className="shrink-0 text-dim hover:text-emerald-400 cursor-pointer"
+                              >
+                                <Circle size={15} />
+                              </button>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[13px] truncate">{t.title}</p>
+                                {t.deadline && <p className="text-[10px] text-dim">hạn {formatDate(t.deadline)}</p>}
+                              </div>
+                              {overdue && <span className="text-[9px] font-bold text-red-400 uppercase shrink-0">Quá hạn</span>}
+                              <span className="text-[13px] font-bold text-amber-300 tabular-nums shrink-0">{formatVND(Number(t.amount) || 0)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })}

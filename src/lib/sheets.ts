@@ -25,11 +25,11 @@ export function buildSheetsPayload(
   tags: Tag[] = [],
 ): SheetsPayload {
   const ecomIds = ecomProjectIdSet(projects, tags);
-  const kpi = calculateTeamKpi(members, month, allTasks, projects, reports, ecomIds);
+  const kpi = calculateTeamKpi(members, month, allTasks, projects, reports);
   const [monthStart, monthEnd] = monthRange(month);
 
   const kpiRows = kpi.map((m) => [
-    m.username, m.role, m.photoProjectCount, m.videoCount, m.outsourceProjectCount, m.dnttCount,
+    m.username, m.role, m.photoScore, m.videoCount, m.dnttCount,
     m.outputCount, m.kpiOutputTarget, m.finalKPI, m.projectCount,
   ]);
 
@@ -91,7 +91,7 @@ export function buildSheetsPayload(
     month,
     sheets: {
       [`KPI ${month}`]: {
-        headers: ['Thành viên', 'Vai trò', 'Project ảnh', 'Video', 'Project outsource', 'DNTT', 'Tổng SL', 'Chỉ tiêu', 'KPI (%)', 'Số project'],
+        headers: ['Thành viên', 'Vai trò', 'Project ảnh', 'Video', 'DNTT', 'Tổng SL', 'Chỉ tiêu', 'KPI (%)', 'Số project'],
         rows: kpiRows,
       },
       [`Ecom ${month}`]: {

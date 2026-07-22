@@ -2,7 +2,8 @@ import {
   addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where,
 } from 'firebase/firestore';
 import { db, type User } from './firebase';
-import { MAIN_TEAM_ID, genId, todayStr } from './utils';
+import { MAIN_TEAM_ID, genId, todayStr, formatVND } from './utils';
+import { notify, displayName } from './notify';
 import type { Project, Task, Report, DailyContent, Note, Tag, TaskCategory } from '../types';
 
 const teamPath = ['teams', MAIN_TEAM_ID] as const;
@@ -49,8 +50,18 @@ export async function createProject(data: Partial<Project>, user: User): Promise
   return id;
 }
 
-export async function updateProject(id: string, data: Partial<Project>): Promise<void> {
+/** info (tuỳ chọn): truyền title + prevStatus để bắn thông báo Telegram khi dự án
+ *  chuyển sang Thanh toán/Hoàn thành. Không truyền → chỉ ghi dữ liệu như cũ. */
+export async function updateProject(
+  id: string,
+  data: Partial<Project>,
+  info?: { title?: string; prevStatus?: Project['status'] },
+): Promise<void> {
   await updateDoc(ref.project(id), { ...data, updatedAt: serverTimestamp() });
+  if (data.status && info?.title && data.status !== info.prevStatus) {
+    if (data.status === 'payment') notify(`💵 Dự án "${info.title}" xong sản xuất → THANH TOÁN`);
+    else if (data.status === 'done') notify(`🎉 Dự án "${info.title}" đã HOÀN THÀNH`);
+  }
 }
 
 /** Dọn dữ liệu mồ côi: xoá task + report của các project đã bị xoá trước đây
@@ -133,6 +144,16 @@ export async function createTask(input: NewTaskInput, user: User, projectTitle: 
     ...(isCompleted ? { completedAt: serverTimestamp() } : {}),
     ...(sourceReportId ? { sourceReportId } : {}),
   });
+
+  const who = displayName(user);
+  if (input.category === 'pre-production') {
+    const amount = Number(input.amount) || 0;
+    notify(`💰 ${who} thêm khoản chi "${input.title}"${amount ? ` ${formatVND(amount)}` : ''} — ${projectTitle}`);
+  } else {
+    const label = input.category === 'photo' ? 'ảnh' : 'video';
+    const icon = input.category === 'photo' ? '📸' : '🎬';
+    notify(`${icon} ${who} vừa thêm ${Number(input.quantity) || 1} ${label} — ${projectTitle}`);
+  }
   return id;
 }
 
@@ -161,6 +182,8 @@ export async function completeTask(task: Task, user: User, projectTitle: string)
     sourceReportId: reportId,
     updatedAt: serverTimestamp(),
   });
+  const label = task.category === 'photo' ? 'ảnh' : task.category === 'video' ? 'video' : 'task';
+  notify(`✅ ${displayName(user)} hoàn thành ${task.quantity || 1} ${label} — ${projectTitle}`);
 }
 
 /** DNTT toggle trên khoản chi phí tiền kỳ. KHÔNG tạo báo cáo tự động (báo cáo tự động
@@ -221,6 +244,7 @@ export async function createManualReport(data: Partial<Report>, user: User): Pro
     createdBy: user.uid,
     userEmail: user.email || '',
   });
+  notify(`📝 Báo cáo mới từ ${displayName(user)}: ${data.content || ''}`);
   return id;
 }
 
@@ -243,6 +267,7 @@ export async function createDailyContent(data: Partial<DailyContent>, user: User
     dueDate: data.dueDate || todayStr(),
     notes: data.notes || '',
     points: Number(data.points) || 3,
+    quantity: Math.max(1, Number(data.quantity) || 1),
     status: data.status || 'planned',
     projectId: data.projectId || '',
     tagId: data.tagId || '',

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Camera, Eye, EyeOff, Loader2, LogOut, Pencil, Plus, RefreshCw, Save, Trash2, UserPlus, Link2, Sheet, CalendarDays, Copy } from 'lucide-react';
+import { Bell, Camera, Eye, EyeOff, Loader2, LogOut, Pencil, Plus, RefreshCw, Save, Trash2, UserPlus, Link2, Sheet, CalendarDays, Copy } from 'lucide-react';
 import { setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { auth, storage, signOut, updatePassword, createNewUser, type User } from '../lib/firebase';
@@ -7,6 +7,7 @@ import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Input, Select, Field, ConfirmDialog, Avatar, Modal } from '../components/ui';
 import { ref as dbRef, deleteOrphans } from '../lib/actions';
 import { buildSheetsPayload, postToWebhook } from '../lib/sheets';
+import { sendTestNotify } from '../lib/notify';
 import { buildInhouseICS, pushICS } from '../lib/ics';
 import { currentMonth, formatVND } from '../lib/utils';
 import { DEFAULT_PRODUCT_TYPES } from '../lib/points';
@@ -521,6 +522,70 @@ function ProductsTab() {
   );
 }
 
+/* ---------- Thông báo Telegram ---------- */
+
+function NotifyCard() {
+  const { team } = useAppData();
+  const toast = useToast();
+  const [url, setUrl] = useState(team?.notifyWebhookUrl || '');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const save = async () => {
+    try {
+      await updateDoc(dbRef.team(), { notifyWebhookUrl: url.trim() });
+      toast(url.trim() ? 'Đã lưu — thông báo Telegram BẬT' : 'Đã xoá URL — thông báo TẮT');
+    } catch (e: unknown) {
+      toast(`Lỗi: ${(e as Error).message}`, 'error');
+    }
+  };
+
+  const test = async () => {
+    const target = (url || team?.notifyWebhookUrl || '').trim();
+    if (!target) return toast('Chưa có URL webhook', 'error');
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await sendTestNotify(target);
+      setResult(res);
+      toast(res.message, res.ok ? 'success' : 'error');
+    } catch (e: unknown) {
+      const msg = `Lỗi kết nối: ${(e as Error).message}`;
+      setResult({ ok: false, message: msg });
+      toast(msg, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="p-6">
+      <h2 className="font-bold mb-1 flex items-center gap-2"><Bell size={16} className="text-amber-300" /> Thông báo Telegram</h2>
+      <p className="text-xs text-muted mb-5">
+        Gửi thông báo vào group Telegram khi có task mới, báo cáo mới, dự án xong — và nhắc dự án quá hạn mỗi sáng.
+        Cần cài Apps Script webhook một lần (xem file <code className="text-indigo-300">apps-script/notify.gs</code> trong source code — có hướng dẫn từng bước, riêng biệt với webhook Google Sheet).
+      </p>
+      <div className="space-y-3">
+        <Field label="Webhook URL (Apps Script Web App — notify.gs)">
+          <div className="flex gap-2">
+            <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/..../exec" />
+            <Button variant="outline" onClick={save}><Link2 size={14} /> Lưu</Button>
+          </div>
+        </Field>
+        <Button disabled={busy} onClick={test}>
+          {busy ? <Loader2 size={15} className="animate-spin" /> : <Bell size={14} />} Gửi tin thử
+        </Button>
+        {result && (
+          <p className={`text-sm px-4 py-3 rounded-lg ${result.ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'}`}>
+            {result.message}
+          </p>
+        )}
+        <p className="text-xs text-dim">Xoá URL rồi bấm Lưu = tắt thông báo. Thông báo gửi cho cả team qua group Telegram có bot.</p>
+      </div>
+    </Card>
+  );
+}
+
 /* ---------- Google Sheets sync ---------- */
 
 function SheetsTab() {
@@ -619,6 +684,8 @@ function SheetsTab() {
           )}
         </div>
       </Card>
+
+      <NotifyCard />
 
       <Card className="p-6">
         <h2 className="font-bold mb-1 flex items-center gap-2"><CalendarDays size={16} className="text-sky-400" /> Lịch Inhouse → Apple Calendar</h2>
