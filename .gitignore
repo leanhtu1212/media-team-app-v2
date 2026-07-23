@@ -4,4 +4,4 @@ dist
 .DS_Store
 ._*
 .vite
-.claude/settings.local.json
+.claude/

@@ -1,5 +1,5 @@
 import {
-  addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where,
+  addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore';
 import { db, type User } from './firebase';
 import { MAIN_TEAM_ID, genId, todayStr, formatVND } from './utils';
@@ -44,9 +44,12 @@ export async function createProject(data: Partial<Project>, user: User): Promise
     videoTarget: Number(data.videoTarget) || 0,
     photoPoint: Number(data.photoPoint) || 1,
     videoPoint: Number(data.videoPoint) || 3,
+    assigneeIds: Array.isArray(data.assigneeIds) ? data.assigneeIds : [],
     createdAt: serverTimestamp(),
     createdBy: user.uid,
   });
+  const type = (data.projectType || 'inhouse') === 'outsource' ? 'Outsource' : 'Inhouse';
+  notify(`🆕 ${displayName(user)} tạo dự án ${type} "${data.title || 'Không tên'}"${data.deadline ? ` — deadline ${data.deadline}` : ''}`);
   return id;
 }
 
@@ -76,7 +79,7 @@ export async function deleteOrphans(
   ]);
 }
 
-export async function deleteProject(id: string): Promise<void> {
+export async function deleteProject(id: string, title?: string): Promise<void> {
   // Xoá cascade: Firestore không tự xoá subcollection → phải xoá tay tất cả
   // task (gồm DNTT/chi phí tiền kỳ) và report liên quan, rồi mới xoá project.
   const taskSnap = await getDocs(col.tasks(id));
@@ -86,6 +89,7 @@ export async function deleteProject(id: string): Promise<void> {
   await Promise.all(reportSnap.docs.map((d) => deleteDoc(d.ref)));
 
   await deleteDoc(ref.project(id));
+  notify(`🗑️ Đã xoá dự án "${title || id}"`);
 }
 
 /* ---------- Tasks (+ auto-report pipeline) ---------- */
@@ -107,22 +111,27 @@ interface NewTaskInput {
   tagId?: string;
 }
 
-/** Create task; if created as completed → also create the linked auto-report. */
+/** Create task; if created as completed → also create the linked auto-report.
+ *  Ghi atomic bằng batch: task + auto-report cùng thành công hoặc cùng huỷ,
+ *  không để lại report mồ côi khi bước ghi task lỗi. */
 export async function createTask(input: NewTaskInput, user: User, projectTitle: string): Promise<string> {
   const id = genId();
   const isCompleted = input.status === 'completed' || !!input.dntt;
   const reportDate = input.reportDate || todayStr();
+  const batch = writeBatch(db);
 
   // Báo cáo tự động CHỈ cho ảnh & video — không tạo cho chi phí tiền kỳ.
   let sourceReportId: string | undefined;
   if (isCompleted && input.category !== 'pre-production') {
-    sourceReportId = await createAutoReport(
+    const report = buildAutoReport(
       { taskId: id, projectId: input.projectId, projectTitle, title: input.title, category: input.category, quantity: input.quantity || 1, hasKB: !!input.hasKB, reportDate },
       user,
     );
+    sourceReportId = report.id;
+    batch.set(ref.report(report.id), report.data);
   }
 
-  await setDoc(ref.task(input.projectId, id), {
+  batch.set(ref.task(input.projectId, id), {
     id,
     projectId: input.projectId,
     teamId: MAIN_TEAM_ID,
@@ -144,6 +153,7 @@ export async function createTask(input: NewTaskInput, user: User, projectTitle: 
     ...(isCompleted ? { completedAt: serverTimestamp() } : {}),
     ...(sourceReportId ? { sourceReportId } : {}),
   });
+  await batch.commit();
 
   const who = displayName(user);
   if (input.category === 'pre-production') {
@@ -206,26 +216,37 @@ export async function toggleDntt(task: Task): Promise<void> {
 
 /* ---------- Reports ---------- */
 
-async function createAutoReport(
-  info: { taskId: string; projectId: string; projectTitle: string; title: string; category: string; quantity: number; hasKB: boolean; reportDate: string },
-  user: User,
-): Promise<string> {
+interface AutoReportInfo {
+  taskId: string; projectId: string; projectTitle: string; title: string;
+  category: string; quantity: number; hasKB: boolean; reportDate: string;
+}
+
+/** Dựng dữ liệu report tự động (thuần — không ghi Firestore) để dùng trong batch. */
+function buildAutoReport(info: AutoReportInfo, user: User): { id: string; data: Record<string, unknown> } {
   const id = genId();
   const outLabel = info.category === 'photo' ? 'ảnh' : info.category === 'video' ? 'video' : info.category;
-  await setDoc(ref.report(id), {
+  return {
     id,
-    content: `Hoàn thành ${info.quantity} ${outLabel} - ${info.projectTitle}`,
-    reportDate: info.reportDate,
-    projectId: info.projectId,
-    quantity: info.quantity,
-    outputType: info.category,
-    hasKB: info.hasKB,
-    reportType: 'auto',
-    relatedTaskId: info.taskId,
-    createdAt: serverTimestamp(),
-    createdBy: user.uid,
-    userEmail: user.email || '',
-  });
+    data: {
+      id,
+      content: `Hoàn thành ${info.quantity} ${outLabel} - ${info.projectTitle}`,
+      reportDate: info.reportDate,
+      projectId: info.projectId,
+      quantity: info.quantity,
+      outputType: info.category,
+      hasKB: info.hasKB,
+      reportType: 'auto',
+      relatedTaskId: info.taskId,
+      createdAt: serverTimestamp(),
+      createdBy: user.uid,
+      userEmail: user.email || '',
+    },
+  };
+}
+
+async function createAutoReport(info: AutoReportInfo, user: User): Promise<string> {
+  const { id, data } = buildAutoReport(info, user);
+  await setDoc(ref.report(id), data);
   return id;
 }
 
@@ -274,14 +295,24 @@ export async function createDailyContent(data: Partial<DailyContent>, user: User
     createdAt: serverTimestamp(),
     createdBy: user.uid,
   });
+  notify(`📅 ${displayName(user)} thêm nội dung "${data.title || 'Không tên'}"${data.platform ? ` · ${data.platform}` : ''}`);
 }
 
-export async function updateDailyContent(id: string, data: Partial<DailyContent>): Promise<void> {
+/** info (tuỳ chọn): truyền title/platform để bắn thông báo khi nội dung chuyển sang "Đã đăng". */
+export async function updateDailyContent(
+  id: string,
+  data: Partial<DailyContent>,
+  info?: { title?: string; platform?: string },
+): Promise<void> {
   await updateDoc(ref.daily(id), { ...data, updatedAt: serverTimestamp() });
+  if (data.status === 'published' && info?.title) {
+    notify(`✅ Nội dung "${info.title}" đã ĐĂNG${info.platform ? ` (${info.platform})` : ''}`);
+  }
 }
 
-export async function deleteDailyContent(id: string): Promise<void> {
+export async function deleteDailyContent(id: string, title?: string): Promise<void> {
   await deleteDoc(ref.daily(id));
+  notify(`🗑️ Đã xoá nội dung "${title || id}"`);
 }
 
 /* ---------- Notes (ghi chú ghim vào ngày trên lịch) ---------- */

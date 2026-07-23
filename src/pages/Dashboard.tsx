@@ -5,7 +5,7 @@ import { Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Avatar, Input } f
 import { calculateTeamKpi } from '../lib/kpi';
 import { toggleDntt } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
-import { currentMonth, monthRange, shiftMonth, formatVND, formatDate, todayStr, isProjectFinished } from '../lib/utils';
+import { currentMonth, monthRange, shiftMonth, formatVND, formatDate, todayStr, isProjectFinished, tsToDateStr } from '../lib/utils';
 import type { Project } from '../types';
 import type { User } from '../lib/firebase';
 
@@ -48,13 +48,9 @@ export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProje
   const kpi = useMemo(() => calculateTeamKpi(members, month, allTasks, projects, reports), [members, month, allTasks, projects, reports]);
 
   // A project "belongs" to a month by its deadline, falling back to createdAt.
-  const projectMonth = (p: Project): string => {
-    if (p.deadline) return p.deadline.slice(0, 7);
-    const c = p.createdAt as { seconds?: number } | string | undefined;
-    if (typeof c === 'string') return c.slice(0, 7);
-    if (c && typeof c.seconds === 'number') return new Date(c.seconds * 1000).toISOString().slice(0, 7);
-    return '';
-  };
+  // Dùng tsToDateStr (giờ local) để tránh lệch tháng ở mốc cuối/đầu tháng theo UTC.
+  const projectMonth = (p: Project): string =>
+    p.deadline ? p.deadline.slice(0, 7) : (tsToDateStr(p.createdAt)?.slice(0, 7) || '');
   const monthProjects = useMemo(() => projects.filter((p) => projectMonth(p) === month), [projects, month]);
 
   // Project stats
@@ -224,7 +220,7 @@ export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProje
             {upcomingDaily.length === 0 && <p className="text-sm text-dim py-8 text-center">Không có nội dung sắp đăng</p>}
             {upcomingDaily.map((d) => {
               const assignee = memberOf(d.assigneeId);
-              const overdue = (d.dueDate || '') < today && d.status !== 'done';
+              const overdue = !!d.dueDate && d.dueDate < today && d.status !== 'done';
               return (
                 <div key={d.id} className="flex items-center gap-3 px-4 py-2.5">
                   <Badge color={PLATFORM_COLOR[d.platform] || PLATFORM_COLOR['Đa kênh']}>{d.platform}</Badge>

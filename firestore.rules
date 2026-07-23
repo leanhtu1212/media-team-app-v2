@@ -48,28 +48,28 @@ service cloud.firestore {
       );
     }
 
-    // Collection Group for Tasks
+    // Collection Group for Tasks — chỉ thành viên team đọc (team id cố định, hard-code
+    // được vì match collection-group không có teamId trong path).
     match /{path=**}/tasks/{taskId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() &&
+        exists(/databases/$(database)/documents/teams/MEDIA_TEAM_01/members/$(request.auth.uid));
     }
 
     // Teams Collection
     match /teams/{teamId} {
-      allow read: if isAuthenticated();
+      allow read: if isTeamMember(teamId);
       allow create: if isAuthenticated();
-      allow update: if isTeamMember(teamId);
+      allow update: if isAdmin(teamId);
 
       // Members Subcollection
       match /members/{userId} {
-        allow read: if isAuthenticated();
-        // Admin tạo member doc cho user mới (flow "Thêm thành viên" của SPA),
-        // hoặc user tự tạo doc của mình với role thường (flow tự đăng ký cũ).
+        allow read: if isTeamMember(teamId);
+        // Admin tạo member doc cho user mới (flow "Thêm thành viên" của SPA). User chỉ
+        // được tự tạo doc của chính mình với role 'viewer' (không tự cấp editor/content
+        // — repo public + config lộ nên phải chặn tự nâng quyền).
         allow create: if isAdmin(teamId) || (
-          isAuthenticated() && request.auth.uid == userId && (
-            request.resource.data.role == 'viewer' ||
-            request.resource.data.role == 'editor' ||
-            request.resource.data.role == 'content'
-          )
+          isAuthenticated() && request.auth.uid == userId &&
+          request.resource.data.role == 'viewer'
         );
         allow update: if isAdmin(teamId) || (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'uid', 'email', 'joinedAt']));
         allow delete: if isAdmin(teamId) && userId != request.auth.uid;
@@ -90,16 +90,18 @@ service cloud.firestore {
         }
       }
 
-      // Reports Subcollection
+      // Reports Subcollection — chỉ tạo/sửa báo cáo của chính mình (admin sửa được mọi báo cáo).
       match /reports/{reportId} {
         allow read: if isTeamMember(teamId);
-        allow create, update: if isTeamMember(teamId);
+        allow create: if isTeamMember(teamId) && request.resource.data.createdBy == request.auth.uid;
+        allow update: if isTeamMember(teamId) &&
+          (resource.data.createdBy == request.auth.uid || isAdmin(teamId));
         allow delete: if isAdmin(teamId);
       }
 
       // ProductTypes Subcollection
       match /productTypes/{typeId} {
-        allow read: if isAuthenticated();
+        allow read: if isTeamMember(teamId);
         allow create, update, delete: if isAdmin(teamId);
       }
 

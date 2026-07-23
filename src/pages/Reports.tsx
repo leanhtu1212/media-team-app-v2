@@ -87,6 +87,8 @@ export function ReportsPage({ user }: { user: User }) {
   }, [monthReports, members]);
 
   const exportCsv = () => {
+    // Quote MỌI cell để tên chứa dấu phẩy / xuống dòng / dấu nháy không làm lệch cột.
+    const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = [
       ['Ngày', 'Thành viên', 'Nội dung', 'Project', 'Loại', 'Số lượng', 'Loại báo cáo'],
       ...monthReports
@@ -94,12 +96,12 @@ export function ReportsPage({ user }: { user: User }) {
         .map((r) => {
           const proj = projects.find((p) => p.id === r.projectId);
           return [
-            r.reportDate, memberOf(r)?.username || r.userEmail || '', `"${(r.content || '').replace(/"/g, '""')}"`,
+            r.reportDate, memberOf(r)?.username || r.userEmail || '', r.content || '',
             proj?.title || '', r.outputType || '', r.quantity || 1, r.reportType || 'manual',
           ];
         }),
     ];
-    const csv = '﻿' + rows.map((r) => r.join(',')).join('\n');
+    const csv = '﻿' + rows.map((r) => r.map(q).join(',')).join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     a.download = `bao-cao-${month}.csv`;

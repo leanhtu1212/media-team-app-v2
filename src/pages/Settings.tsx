@@ -1,8 +1,7 @@
 import { useRef, useState } from 'react';
-import { Bell, Camera, Eye, EyeOff, Loader2, LogOut, Pencil, Plus, RefreshCw, Save, Trash2, UserPlus, Link2, Sheet, CalendarDays, Copy } from 'lucide-react';
+import { Bell, Camera, Loader2, LogOut, Pencil, Plus, RefreshCw, Save, Trash2, UserPlus, Link2, Sheet, CalendarDays, Copy } from 'lucide-react';
 import { setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { auth, storage, signOut, updatePassword, createNewUser, type User } from '../lib/firebase';
+import { auth, signOut, updatePassword, createNewUser, type User } from '../lib/firebase';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Input, Select, Field, ConfirmDialog, Avatar, Modal } from '../components/ui';
 import { ref as dbRef, deleteOrphans } from '../lib/actions';
@@ -15,6 +14,31 @@ import { useToast } from '../hooks/useToast';
 import type { Member, Role } from '../types';
 
 type Tab = 'general' | 'members' | 'kpi' | 'products' | 'sheets' | 'data';
+
+/** Đọc file ảnh → crop vuông giữa → resize về `size`px → data URL JPEG nén.
+ *  Dùng thay Firebase Storage (gói miễn phí đã bị khoá Storage). */
+function fileToAvatarDataUrl(file: File, size = 128, quality = 0.82): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Không đọc được file ảnh'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Ảnh không hợp lệ'));
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Trình duyệt không hỗ trợ canvas'));
+        const min = Math.min(img.width, img.height); // crop vuông giữa
+        ctx.drawImage(img, (img.width - min) / 2, (img.height - min) / 2, min, min, 0, 0, size, size);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 export function SettingsPage({ user }: { user: User }) {
   const { isAdmin } = useAppData();
@@ -154,17 +178,19 @@ function GeneralTab({ user }: { user: User }) {
   const handleAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !currentMember) return;
+    if (!file.type.startsWith('image/')) { toast('Vui lòng chọn file ảnh', 'error'); return; }
     setUploading(true);
     try {
-      const sref = storageRef(storage, `avatars/${user.uid}_${Date.now()}`);
-      await uploadBytes(sref, file);
-      const url = await getDownloadURL(sref);
-      await updateDoc(dbRef.member(currentMember.id), { avatarUrl: url });
+      // Gói Firebase miễn phí không dùng được Cloud Storage → nén ảnh về 128px
+      // trên trình duyệt rồi lưu thẳng data URL vào member doc (nhỏ, dưới giới hạn 1MB).
+      const dataUrl = await fileToAvatarDataUrl(file);
+      await updateDoc(dbRef.member(currentMember.id), { avatarUrl: dataUrl });
       toast('Đã cập nhật ảnh đại diện');
     } catch (err: unknown) {
-      toast(`Lỗi upload: ${(err as Error).message}`, 'error');
+      toast(`Lỗi: ${(err as Error).message}`, 'error');
     } finally {
       setUploading(false);
+      e.target.value = ''; // cho phép chọn lại đúng file vừa rồi
     }
   };
 
@@ -174,9 +200,6 @@ function GeneralTab({ user }: { user: User }) {
     setBusy(true);
     try {
       await updatePassword(auth.currentUser!, pw.next);
-      if (currentMember) {
-        try { await updateDoc(dbRef.member(currentMember.id), { password: pw.next }); } catch { /* legacy field */ }
-      }
       setPw({ next: '', confirm: '' });
       toast('Đã đổi mật khẩu');
     } catch (err: unknown) {
@@ -235,7 +258,6 @@ function GeneralTab({ user }: { user: User }) {
 function MembersTab({ user }: { user: User }) {
   const { members, isAdmin } = useAppData();
   const toast = useToast();
-  const [showPw, setShowPw] = useState<Record<string, boolean>>({});
   const [addOpen, setAddOpen] = useState(false);
   const [editMember, setEditMember] = useState<Member | null>(null);
   const [confirmDel, setConfirmDel] = useState<Member | null>(null);
@@ -253,7 +275,6 @@ function MembersTab({ user }: { user: User }) {
         uid: newUser.uid,
         email,
         username: form.username.trim(),
-        password: form.password,
         role: form.role,
         title: form.title || '',
         kpiOutput: 100, kpiQuality: 10, kpiDeadline: 10,
@@ -284,14 +305,6 @@ function MembersTab({ user }: { user: User }) {
               <p className="font-bold text-sm">{m.username}</p>
               <p className="text-[11px] text-muted">{m.email} · <span className="uppercase font-bold">{m.role}</span>{m.title ? ` · ${m.title}` : ''}</p>
             </div>
-            {isAdmin && m.password && (
-              <div className="flex items-center gap-1.5 text-xs text-dim font-mono">
-                {showPw[m.id] ? m.password : '••••••'}
-                <button onClick={() => setShowPw((s) => ({ ...s, [m.id]: !s[m.id] }))} className="text-muted hover:text-ink cursor-pointer">
-                  {showPw[m.id] ? <EyeOff size={13} /> : <Eye size={13} />}
-                </button>
-              </div>
-            )}
             {isAdmin && (
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button onClick={() => setEditMember(m)} className="text-muted hover:text-ink cursor-pointer p-1"><Pencil size={14} /></button>

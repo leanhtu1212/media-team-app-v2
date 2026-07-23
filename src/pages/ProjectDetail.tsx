@@ -203,7 +203,13 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
 
         {/* Sidebar — thông tin dự án + tiến độ + chi phí */}
         <div className="space-y-4">
-          <InfoPanel project={project} isEditor={isEditor} toast={toast} />
+          <InfoPanel
+            project={project}
+            isEditor={isEditor}
+            toast={toast}
+            creator={memberOf(project.createdBy)}
+            assignees={(project.assigneeIds || []).map((id) => memberOf(id)).filter((m): m is NonNullable<typeof m> => !!m)}
+          />
 
           <Card className="p-4">
             <h2 className="font-bold text-sm mb-3 flex items-center gap-2"><TrendingUp size={15} className="text-emerald-400" /> Tiến độ</h2>
@@ -267,7 +273,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
           editing={project}
           onSave={async (data) => {
             try {
-              await updateProject(project.id, data);
+              await updateProject(project.id, data, { title: project.title, prevStatus: project.status });
               toast('Đã cập nhật dự án');
               setEditProject(false);
             } catch (e: unknown) {
@@ -287,7 +293,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
         onConfirm={async () => {
           try {
             if (confirmDelete?.type === 'project') {
-              await deleteProject(project.id);
+              await deleteProject(project.id, project.title);
               toast('Đã xoá dự án');
               onBack();
             } else if (confirmDelete?.task) {
@@ -396,7 +402,7 @@ function TaskDetailDrawer({
 }
 
 /* ---------- Info panel (thông tin dự án) ---------- */
-function InfoPanel({ project, isEditor, toast }: { project: Project; isEditor: boolean; toast: (m: string, t?: 'success' | 'error') => void }) {
+function InfoPanel({ project, isEditor, toast, creator, assignees }: { project: Project; isEditor: boolean; toast: (m: string, t?: 'success' | 'error') => void; creator?: { username?: string; avatarUrl?: string }; assignees?: { username?: string; avatarUrl?: string }[] }) {
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState(project.description || '');
   const [savingDesc, setSavingDesc] = useState(false);
@@ -484,6 +490,32 @@ function InfoPanel({ project, isEditor, toast }: { project: Project; isEditor: b
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Loại dự án</p>
           <Badge color="bg-violet-500/15 text-violet-300">{(project.projectType || 'inhouse').toUpperCase()}</Badge>
+        </div>
+      </div>
+
+      {/* Người phụ trách (1 hoặc nhiều) */}
+      <div className="mb-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Người phụ trách</p>
+        {assignees && assignees.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {assignees.map((a, i) => (
+              <span key={i} className="inline-flex items-center gap-1.5 bg-bg border border-line rounded-full pl-1 pr-2.5 py-0.5">
+                <Avatar name={a.username} url={a.avatarUrl} size={20} />
+                <span className="text-xs font-bold">{a.username || '—'}</span>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-dim">Chưa gán</p>
+        )}
+      </div>
+
+      {/* Người tạo dự án */}
+      <div className="mb-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Người tạo</p>
+        <div className="flex items-center gap-2">
+          <Avatar name={creator?.username} url={creator?.avatarUrl} size={22} />
+          <span className="text-sm font-bold">{creator?.username || 'Không rõ'}</span>
         </div>
       </div>
 

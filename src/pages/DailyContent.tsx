@@ -3,6 +3,7 @@ import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, 
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
 import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject, createNote, updateNote, deleteNote } from '../lib/actions';
+import { notify, displayName } from '../lib/notify';
 import { ProjectFormModal } from './Projects';
 import { Linkify } from './ProjectDetail';
 import { TagManagerModal, TagSelect, hexA } from '../components/tags';
@@ -28,7 +29,7 @@ const PLATFORM_COLOR: Record<string, string> = {
 };
 
 const isDailyOverdue = (d: DailyContent) =>
-  d.status !== 'published' && d.status !== 'done' && (d.dueDate || '') < todayStr();
+  !!d.dueDate && d.status !== 'published' && d.status !== 'done' && d.dueDate < todayStr();
 
 // Nền chip theo LOẠI mục (phân biệt content / dự án inhouse / dự án outsource / task tiền kỳ)
 const TYPE_TINT = {
@@ -186,6 +187,7 @@ function useContentModals(user: User) {
           try {
             if (editing?.id) {
               await updateDailyContent(editing.id, data);
+              notify(`✏️ ${displayName(user)} sửa nội dung "${data.title || editing.title || ''}"`);
               toast('Đã cập nhật');
             } else {
               await createDailyContent(data, user);
@@ -202,11 +204,12 @@ function useContentModals(user: User) {
         onClose={() => setConfirmDel(null)}
         title="Xoá nội dung?"
         message={`Xoá "${confirmDel?.title}"?`}
-        onConfirm={() => confirmDel && deleteDailyContent(confirmDel.id).then(() => toast('Đã xoá')).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
+        onConfirm={() => confirmDel && deleteDailyContent(confirmDel.id, confirmDel.title).then(() => toast('Đã xoá')).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
       />
       <ContentDetailDrawer
         item={detailItem}
         assignee={detailItem ? memberOf(detailItem.assigneeId) : undefined}
+        creator={detailItem ? memberOf(detailItem.createdBy) : undefined}
         canEdit={canEditDaily}
         onClose={() => setDetailItem(null)}
         onEdit={(it) => { setDetailItem(null); openEdit(it); }}
@@ -271,7 +274,7 @@ function ItemCard({
         </div>
         {canEdit && next && (
           <button
-            onClick={() => updateDailyContent(item.id, { status: next }).then(() => toast(`→ ${STATUS_LABEL[next]}`)).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
+            onClick={() => updateDailyContent(item.id, { status: next }, { title: item.title, platform: item.platform }).then(() => toast(`→ ${STATUS_LABEL[next]}`)).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
             className="flex items-center gap-0.5 text-[11px] font-bold text-indigo-300 hover:text-indigo-200 cursor-pointer"
           >
             {STATUS_LABEL[next]} <ChevronRight size={11} />
@@ -304,7 +307,7 @@ export function ContentKanban({ user, newRef }: { user: User; newRef?: React.Mut
     const item = dailyContent.find((d) => d.id === id);
     if (!item || item.status === status) return;
     try {
-      await updateDailyContent(id, { status });
+      await updateDailyContent(id, { status }, { title: item.title, platform: item.platform });
       toast(`"${item.title}" → ${STATUS_LABEL[status]}`);
     } catch (e: unknown) {
       toast(`Lỗi: ${(e as Error).message}`, 'error');
@@ -478,12 +481,13 @@ function CalChip({
 
 /** Modal tạo/sửa ghi chú (ghim vào 1 ngày). Component cấp module để input không remount. */
 function NoteFormModal({
-  state, onClose, onSave, onDelete,
+  state, onClose, onSave, onDelete, creator,
 }: {
   state: { note: Note | null; date: string } | null;
   onClose: () => void;
   onSave: (text: string, tagId: string) => Promise<void>;
   onDelete?: () => Promise<void>;
+  creator?: { username?: string; avatarUrl?: string };
 }) {
   const [text, setText] = useState('');
   const [tagId, setTagId] = useState('');
@@ -509,6 +513,14 @@ function NoteFormModal({
         <Field label="Tag màu">
           <TagSelect value={tagId} onChange={setTagId} scope="note" autoSelect />
         </Field>
+        {state?.note && (
+          <div className="flex items-center gap-2 text-[11px] text-dim">
+            <span className="font-bold uppercase tracking-wide">Người tạo:</span>
+            {creator ? (
+              <span className="inline-flex items-center gap-1.5 text-muted"><Avatar name={creator.username} url={creator.avatarUrl} size={18} />{creator.username}</span>
+            ) : <span>Không rõ</span>}
+          </div>
+        )}
         <div className="flex justify-between items-center gap-2 pt-1">
           {onDelete ? <Button variant="danger" onClick={onDelete}>Xoá</Button> : <span />}
           <div className="flex gap-2">
@@ -562,12 +574,14 @@ export function DailyContentPage({ user, onOpenProject, month, onMonthChange }: 
         const p = projects.find((x) => x.id === a);
         if (!p || p.deadline === date) return;
         await updateProject(a, { deadline: date });
+        notify(`📆 ${displayName(user)} đổi deadline dự án "${p.title}" → ${formatDate(date)}`);
         toast(`Deadline "${p.title}" → ${formatDate(date)}`);
       } else if (kind === 'task') {
         if (!isEditor) return;
         const t = allTasks.find((x) => x.id === b && x.projectId === a);
         if (!t || t.deadline === date) return;
         await updateTask(a, b, { deadline: date });
+        notify(`📆 ${displayName(user)} đổi deadline "${t.title}" → ${formatDate(date)}`);
         toast(`Deadline task → ${formatDate(date)}`);
       } else if (kind === 'note') {
         if (!canEditDaily) return;
@@ -841,6 +855,7 @@ export function DailyContentPage({ user, onOpenProject, month, onMonthChange }: 
 
       <NoteFormModal
         state={noteModal}
+        creator={noteModal?.note ? memberOf(noteModal.note.createdBy) : undefined}
         onClose={() => setNoteModal(null)}
         onSave={async (text, tagId) => {
           try {
@@ -893,10 +908,11 @@ export function DailyContentPage({ user, onOpenProject, month, onMonthChange }: 
 
 /* ---------- Content detail drawer (trượt từ trái) ---------- */
 function ContentDetailDrawer({
-  item, assignee, canEdit, onClose, onEdit, onDelete,
+  item, assignee, creator, canEdit, onClose, onEdit, onDelete,
 }: {
   item: DailyContent | null;
   assignee?: { username?: string; avatarUrl?: string };
+  creator?: { username?: string; avatarUrl?: string };
   canEdit: boolean;
   onClose: () => void;
   onEdit: (it: DailyContent) => void;
@@ -935,6 +951,11 @@ function ContentDetailDrawer({
           {assignee ? (
             <span className="inline-flex items-center gap-1.5"><Avatar name={assignee.username} url={assignee.avatarUrl} size={20} />{assignee.username}</span>
           ) : <span className="text-dim">Chưa gán</span>}
+        </Row>
+        <Row label="Người tạo">
+          {creator ? (
+            <span className="inline-flex items-center gap-1.5"><Avatar name={creator.username} url={creator.avatarUrl} size={20} />{creator.username}</span>
+          ) : <span className="text-dim">Không rõ</span>}
         </Row>
       </div>
       {item.notes && (

@@ -51,10 +51,18 @@ export function AppDataProvider({ user, children }: { user: User; children: Reac
       onSnapshot(collection(db, 'teams', MAIN_TEAM_ID, 'members'), (snap) => {
         setMembers(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Member)));
         setLoaded((s) => ({ ...s, members: true }));
+      }, (err) => {
+        // Non-member (đã bị siết quyền đọc) → permission-denied. Vẫn set loaded để
+        // thoát màn hình loading, app render read-only trống thay vì kẹt spinner.
+        console.warn('members listener error:', err.message);
+        setLoaded((s) => ({ ...s, members: true }));
       }),
 
       onSnapshot(collection(db, 'teams', MAIN_TEAM_ID, 'projects'), (snap) => {
         setProjects(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Project)));
+        setLoaded((s) => ({ ...s, projects: true }));
+      }, (err) => {
+        console.warn('projects listener error:', err.message);
         setLoaded((s) => ({ ...s, projects: true }));
       }),
 

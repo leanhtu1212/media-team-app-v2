@@ -7,7 +7,7 @@ export interface Member {
   uid: string;
   email: string;
   username: string;
-  password?: string; // legacy: stored for admin visibility
+  password?: string; // DEPRECATED — không ghi mới (bảo mật). Doc cũ có thể còn field này.
   role: Role;
   title?: string;
   avatarUrl?: string;
@@ -37,6 +37,7 @@ export interface Project {
   videoPoint?: number; // default 3
   qualityScore?: number; // 0-10 when done
   tagId?: string;
+  assigneeIds?: string[]; // người phụ trách (1 hoặc nhiều) — lưu uid/member id
   createdAt?: unknown;
   createdBy?: string;
 }

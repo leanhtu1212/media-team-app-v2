@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Plus, FolderKanban, Calendar, Camera, Video, Search, X, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
-import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, EmptyState, Modal, Input, Textarea, Field } from '../components/ui';
+import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, EmptyState, Modal, Input, Textarea, Field, Avatar } from '../components/ui';
 import { createProject, updateProject } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
 import { formatDate, todayStr, normalize, itemStatusFromProjectStatus, isProjectFinished } from '../lib/utils';
@@ -22,13 +22,14 @@ interface Prog { photoDone: number; videoDone: number; pct: number }
 
 /** Card dự án dùng chung cho cột kanban và ô Done. */
 function ProjectCard({
-  p, prog, draggable, onOpen, onDragStart,
+  p, prog, draggable, onOpen, onDragStart, assignees = [],
 }: {
   p: Project;
   prog: Prog;
   draggable: boolean;
   onOpen: () => void;
   onDragStart: (e: React.DragEvent) => void;
+  assignees?: { username?: string; avatarUrl?: string }[];
 }) {
   return (
     <Card
@@ -37,7 +38,17 @@ function ProjectCard({
       className="p-4 hover:border-line-2 transition-all cursor-pointer group"
     >
       <div onClick={onOpen}>
-        <h3 className="font-bold text-sm mb-1 group-hover:text-indigo-300 transition-colors">{p.title}</h3>
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <h3 className="font-bold text-sm group-hover:text-indigo-300 transition-colors">{p.title}</h3>
+          {assignees.length > 0 && (
+            <div className="flex -space-x-1.5 shrink-0" title={`Phụ trách: ${assignees.map((a) => a.username).join(', ')}`}>
+              {assignees.slice(0, 3).map((a, i) => (
+                <span key={i} className="ring-2 ring-surface rounded-full"><Avatar name={a.username} url={a.avatarUrl} size={20} /></span>
+              ))}
+              {assignees.length > 3 && <span className="w-5 h-5 rounded-full bg-bg border border-line flex items-center justify-center text-[9px] font-bold text-muted ring-2 ring-surface">+{assignees.length - 3}</span>}
+            </div>
+          )}
+        </div>
         {p.productType && <p className="text-[11px] text-muted mb-2">{p.productType}</p>}
         <div className="flex items-center gap-3 text-[11px] text-muted mb-3">
           <span className="flex items-center gap-1"><Camera size={11} /> {prog.photoDone}/{p.photoTarget || 0}</span>
@@ -62,8 +73,12 @@ export function ProjectsPage({
   typeFilter: ProjectsTab;
   onTypeFilterChange: (t: ProjectsTab) => void;
 }) {
-  const { projects, allTasks, isEditor, canEditDaily } = useAppData();
+  const { projects, allTasks, members, isEditor, canEditDaily } = useAppData();
   const toast = useToast();
+  const assigneesOf = (p: Project) =>
+    (p.assigneeIds || [])
+      .map((id) => members.find((m) => m.uid === id || m.id === id))
+      .filter((m): m is NonNullable<typeof m> => !!m);
   const contentNewRef = useRef<(() => void) | null>(null);
   const [showAllDone, setShowAllDone] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -197,6 +212,7 @@ export function ProjectsPage({
                     p={p}
                     prog={progressOf(p)}
                     draggable={isEditor}
+                    assignees={assigneesOf(p)}
                     onOpen={() => onOpenProject(p.id)}
                     onDragStart={(e) => e.dataTransfer.setData('text/plain', p.id)}
                   />
@@ -246,6 +262,7 @@ export function ProjectsPage({
                   p={p}
                   prog={progressOf(p)}
                   draggable={isEditor}
+                  assignees={assigneesOf(p)}
                   onOpen={() => onOpenProject(p.id)}
                   onDragStart={(e) => e.dataTransfer.setData('text/plain', p.id)}
                 />
@@ -268,7 +285,7 @@ export function ProjectsPage({
         onSave={async (data) => {
           try {
             if (editing) {
-              await updateProject(editing.id, data);
+              await updateProject(editing.id, data, { title: editing.title, prevStatus: editing.status });
               toast('Đã cập nhật dự án');
             } else {
               await createProject(data, user);
@@ -294,9 +311,18 @@ export function ProjectFormModal({
   // Giá trị điền sẵn khi tạo MỚI (vd từ lịch tháng: projectType + deadline)
   preset?: Partial<Project>;
 }) {
+  const { members } = useAppData();
   const [form, setForm] = useState<Partial<Project>>({});
   const [busy, setBusy] = useState(false);
   const toast = useToast();
+
+  // Thành viên có thể gán làm người phụ trách: chỉ admin/editor (bỏ viewer & content)
+  const assignable = members.filter((m) => m.role === 'admin' || m.role === 'editor');
+  const toggleAssignee = (id: string) =>
+    setForm((f) => {
+      const cur = f.assigneeIds || [];
+      return { ...f, assigneeIds: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] };
+    });
 
   // Reset form when opening
   const [lastOpen, setLastOpen] = useState(false);
@@ -355,6 +381,31 @@ export function ProjectFormModal({
         </div>
         <Field label="Tag màu">
           <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} scope={form.projectType === 'outsource' ? 'outsource' : ['inhouse-photo', 'inhouse-video', 'ecom']} autoSelect={form.projectType === 'outsource'} />
+        </Field>
+        <Field label="Người phụ trách (chọn 1 hoặc nhiều)">
+          {assignable.length === 0 ? (
+            <p className="text-xs text-dim">Chưa có thành viên để gán</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {assignable.map((m) => {
+                const id = m.uid || m.id;
+                const on = (form.assigneeIds || []).includes(id);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => toggleAssignee(id)}
+                    className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-sm font-medium transition-all cursor-pointer ${
+                      on ? 'border-accent bg-accent/15 text-ink' : 'border-line text-muted hover:border-line-2'
+                    }`}
+                  >
+                    <Avatar name={m.username} url={m.avatarUrl} size={20} />
+                    {m.username}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </Field>
         {isProjectFinished(form.status || 'plan') && (
           <Field label="Điểm chất lượng (0–10)">
