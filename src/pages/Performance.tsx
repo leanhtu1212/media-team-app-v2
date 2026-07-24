@@ -149,7 +149,7 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
           <h3 className="font-bold text-sm">Tổng sản lượng team <span className="text-xs text-muted font-normal">· gộp Inhouse + Outsource + Ecom</span></h3>
         </div>
         <div className="grid grid-cols-3 gap-2 md:gap-3">
-          <StatCell icon={<Camera size={14} />} tint="text-indigo-300" label="Tổng ảnh" value={totalTotals.photos} onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'photos')} />
+          <StatCell icon={<Camera size={14} />} tint="text-indigo-300" label="Tổng ảnh" value={totalTotals.photoTasks.length} sub={`${totalTotals.photos} ảnh`} onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'photos')} />
           <StatCell icon={<Video size={14} />} tint="text-violet-300" label="Tổng video" value={totalTotals.videos} onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'videos')} />
           <StatCell icon={<Wallet size={14} />} tint="text-amber-300" label="Tổng chi phí" value={formatVND(totalTotals.cost)} small onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'cost')} />
         </div>
@@ -349,7 +349,7 @@ function TypePanel({ cls, totals, onMetric }: { cls: ProjectClass; totals: TypeT
         <h3 className="font-bold text-sm">{meta.label}</h3>
       </div>
       <div className="grid grid-cols-3 gap-2">
-        <StatCell icon={<Camera size={14} />} tint="text-indigo-300" label="Ảnh" value={totals.photos} onDoubleClick={() => onMetric('photos')} />
+        <StatCell icon={<Camera size={14} />} tint="text-indigo-300" label="Ảnh" value={totals.photoTasks.length} sub={`${totals.photos} ảnh`} onDoubleClick={() => onMetric('photos')} />
         <StatCell icon={<Video size={14} />} tint="text-violet-300" label="Video" value={totals.videos} onDoubleClick={() => onMetric('videos')} />
         <StatCell icon={<Wallet size={14} />} tint="text-amber-300" label="Chi phí" value={formatVND(totals.cost)} small onDoubleClick={() => onMetric('cost')} />
       </div>
@@ -357,7 +357,7 @@ function TypePanel({ cls, totals, onMetric }: { cls: ProjectClass; totals: TypeT
   );
 }
 
-function StatCell({ icon, tint, label, value, small, onDoubleClick }: { icon: React.ReactNode; tint: string; label: string; value: React.ReactNode; small?: boolean; onDoubleClick: () => void }) {
+function StatCell({ icon, tint, label, value, sub, small, onDoubleClick }: { icon: React.ReactNode; tint: string; label: string; value: React.ReactNode; sub?: React.ReactNode; small?: boolean; onDoubleClick: () => void }) {
   return (
     <div onDoubleClick={onDoubleClick} title="Nhấp đúp để xem chi tiết" className="rounded-xl bg-bg border border-line p-3 cursor-pointer hover:border-line-2 transition-colors select-none">
       <div className="flex items-center justify-between mb-1.5">
@@ -365,6 +365,7 @@ function StatCell({ icon, tint, label, value, small, onDoubleClick }: { icon: Re
         <span className={tint}>{icon}</span>
       </div>
       <p className={`${small ? 'text-sm' : 'text-xl'} font-extrabold tabular-nums leading-none`}>{value}</p>
+      {sub && <p className="text-[10px] text-dim tabular-nums mt-1 leading-none">{sub}</p>}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { currentMonth } from './lib/utils';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoginPage } from './pages/Login';
 import { DashboardPage } from './pages/Dashboard';
+import { MePage } from './pages/Me';
 import { ProjectsPage, type ProjectsTab } from './pages/Projects';
 import { ProjectDetailPage } from './pages/ProjectDetail';
 import { DailyContentPage } from './pages/DailyContent';
@@ -50,6 +51,7 @@ function Shell({ user }: { user: User }) {
           ) : (
             <>
               {view === 'dashboard' && <DashboardPage user={user} onOpenProject={openProject} />}
+              {view === 'me' && <MePage user={user} onOpenProject={openProject} />}
               {view === 'projects' && <ProjectsPage user={user} onOpenProject={openProject} typeFilter={projectsTypeFilter} onTypeFilterChange={setProjectsTypeFilter} />}
               {view === 'daily' && <DailyContentPage user={user} onOpenProject={openProject} month={calendarMonth} onMonthChange={setCalendarMonth} />}
               {view === 'reports' && <ReportsPage user={user} />}

@@ -7,7 +7,7 @@ import { notify, displayName } from '../lib/notify';
 import { ProjectFormModal } from './Projects';
 import { Linkify } from './ProjectDetail';
 import { TagManagerModal, TagSelect, hexA } from '../components/tags';
-import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr } from '../lib/utils';
+import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr, isDayOff } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import type { DailyContent, DailyStatus, Project, Task, Note } from '../types';
 import type { User } from '../lib/firebase';
@@ -161,7 +161,7 @@ function layoutWeek(week: (string | null)[], spans: SpanProject[], laneOf: Map<s
  * Shared modal/drawer wiring — dùng cho cả kanban (tab Content ở
  * trang Dự án) lẫn trang Lịch tháng, tránh lặp state 2 nơi.
  * ================================================================ */
-function useContentModals(user: User) {
+export function useContentModals(user: User) {
   const { members, canEditDaily } = useAppData();
   const toast = useToast();
   const [modalOpen, setModalOpen] = useState(false);
@@ -700,6 +700,7 @@ export function DailyContentPage({ user, onOpenProject, month, onMonthChange }: 
                     const list = byDay[date] || [];
                     const isToday = date === today;
                     const isDragOver = date === dragOverDay;
+                    const off = isDayOff(date);
                     return (
                       // Ô ngày là <div> (không phải <button>) để các chip lồng bên trong nhận
                       // được sự kiện double-click riêng — button không giao event cho con.
@@ -716,9 +717,9 @@ export function DailyContentPage({ user, onOpenProject, month, onMonthChange }: 
                           const payload = e.dataTransfer.getData('text/plain');
                           if (payload) handleDropOnDay(date, payload);
                         }}
-                        title={canEditDaily ? (isEditor ? 'Nhấn đúp để tạo mới (dự án / nội dung)' : 'Nhấn đúp vào chỗ trống để tạo nội dung') : undefined}
+                        title={canEditDaily ? (isEditor ? `Nhấn đúp để tạo mới (dự án / nội dung)${off ? ' · Ngày nghỉ' : ''}` : `Nhấn đúp vào chỗ trống để tạo nội dung${off ? ' · Ngày nghỉ' : ''}`) : (off ? 'Ngày nghỉ' : undefined)}
                         className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col select-none ${
-                          isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40' : isToday ? 'border-indigo-500/40 bg-surface-2' : 'border-line hover:border-line-2'
+                          isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40' : isToday ? 'border-indigo-500/40 bg-surface-2' : off ? 'border-line/60 bg-black/40 hover:border-line-2' : 'border-line hover:border-line-2'
                         }`}
                       >
                         <div className="flex items-center justify-between mb-1.5">
@@ -946,6 +947,7 @@ function ContentDetailDrawer({
         <Row label="Nền tảng"><Badge color={PLATFORM_COLOR[item.platform] || PLATFORM_COLOR['Đa kênh']}>{item.platform}</Badge></Row>
         <Row label="Trạng thái"><Badge color={STATUS_BADGE[item.status]}>{STATUS_LABEL[item.status]}</Badge></Row>
         <Row label="Số lượng"><span className="tabular-nums font-bold">{Number(item.quantity) || 1}</span></Row>
+        <Row label="Ngày order"><span>{formatDate(item.orderDate || tsToDateStr(item.createdAt) || undefined)}</span></Row>
         <Row label="Ngày đăng"><span className={overdue ? 'text-red-400 font-bold' : ''}>{formatDate(item.dueDate)}{overdue ? ' · quá hạn' : ''}</span></Row>
         <Row label="Người phụ trách">
           {assignee ? (
@@ -982,7 +984,7 @@ function ContentFormModal({
 
   const [lastOpen, setLastOpen] = useState(false);
   if (open && !lastOpen) {
-    setForm(editing ? { ...editing } : { type: 'Reels', platform: 'Đa kênh', status: 'planned', dueDate: todayStr(), points: 3, quantity: 1 });
+    setForm(editing ? { ...editing } : { type: 'Reels', platform: 'Đa kênh', status: 'planned', orderDate: todayStr(), dueDate: todayStr(), points: 3, quantity: 1 });
     setLastOpen(true);
   } else if (!open && lastOpen) {
     setLastOpen(false);
@@ -1021,18 +1023,21 @@ function ContentFormModal({
               {members.map((m) => <option key={m.uid || m.id} value={m.uid || m.id}>{m.username}</option>)}
             </Select>
           </Field>
-          <Field label="Ngày đăng">
-            <Input type="date" value={form.dueDate || ''} onChange={(e) => set('dueDate', e.target.value)} />
+          <Field label="Ngày order">
+            <Input type="date" value={form.orderDate || ''} onChange={(e) => set('orderDate', e.target.value)} />
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
+          <Field label="Ngày đăng">
+            <Input type="date" value={form.dueDate || ''} onChange={(e) => set('dueDate', e.target.value)} />
+          </Field>
           <Field label="Số lượng">
             <Input type="number" min={1} value={form.quantity ?? 1} onChange={(e) => set('quantity', Math.max(1, Number(e.target.value)))} onFocus={(e) => e.target.select()} />
           </Field>
-          <Field label="Tag màu">
-            <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} scope="content" autoSelect />
-          </Field>
         </div>
+        <Field label="Tag màu">
+          <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} scope="content" autoSelect />
+        </Field>
         <Field label="Ghi chú">
           <Textarea rows={2} value={form.notes || ''} onChange={(e) => set('notes', e.target.value)} />
         </Field>

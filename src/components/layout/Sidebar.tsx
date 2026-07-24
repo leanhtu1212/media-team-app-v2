@@ -1,12 +1,13 @@
-import { LayoutDashboard, FolderKanban, CalendarDays, FileText, TrendingUp, Settings, LogOut, Clapperboard } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, CalendarDays, FileText, TrendingUp, Settings, LogOut, Clapperboard, CircleUser } from 'lucide-react';
 import { auth, signOut } from '../../lib/firebase';
 import { Avatar } from '../ui';
 import { useAppData } from '../../store/AppDataContext';
 
-export type View = 'dashboard' | 'projects' | 'daily' | 'reports' | 'performance' | 'settings';
+export type View = 'dashboard' | 'me' | 'projects' | 'daily' | 'reports' | 'performance' | 'settings';
 
 const NAV: { view: View; label: string; icon: typeof LayoutDashboard; adminOnly?: boolean }[] = [
   { view: 'dashboard', label: 'Tổng quan', icon: LayoutDashboard },
+  { view: 'me', label: 'Của tôi', icon: CircleUser },
   { view: 'projects', label: 'Dự án', icon: FolderKanban },
   { view: 'daily', label: 'Lịch tháng', icon: CalendarDays },
   { view: 'reports', label: 'Báo cáo', icon: FileText },

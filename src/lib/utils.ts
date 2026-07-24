@@ -94,3 +94,18 @@ export function shiftMonth(month: string, delta: number): string {
   const d = new Date(y, m - 1 + delta, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
+
+/**
+ * Ngày nghỉ của công ty: Chủ nhật hàng tuần + thứ 7 nghỉ cách tuần.
+ * Mốc chuẩn: thứ 7 của tuần 2026-07-25 là ngày ĐI LÀM (lấy "tuần này" làm chuẩn).
+ * Các thứ 7 xen kẽ: lệch số tuần lẻ so với mốc → nghỉ, chẵn → đi làm.
+ */
+const WORKING_SATURDAY_ANCHOR = '2026-07-25';
+export function isDayOff(dateStr: string): boolean {
+  const wd = new Date(`${dateStr}T00:00:00`).getDay(); // 0=CN … 6=T7
+  if (wd === 0) return true; // Chủ nhật luôn nghỉ
+  if (wd !== 6) return false; // chỉ còn xét thứ 7
+  const anchor = new Date(`${WORKING_SATURDAY_ANCHOR}T00:00:00`).getTime();
+  const weeks = Math.round((new Date(`${dateStr}T00:00:00`).getTime() - anchor) / (7 * 86400000));
+  return ((weeks % 2) + 2) % 2 === 1; // lệch lẻ tuần với thứ 7 đi làm → nghỉ
+}

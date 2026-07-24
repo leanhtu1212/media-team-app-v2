@@ -101,6 +101,7 @@ export interface DailyContent {
   type: string; // Reels | Short | Viral / Trending | Brand Content | Lịch đăng
   platform: string; // Instagram | TikTok | Facebook | YouTube | Đa kênh
   assigneeId?: string;
+  orderDate?: string; // ngày order/đặt nội dung — mặc định là ngày thêm content
   dueDate?: string;
   notes?: string;
   points?: number;

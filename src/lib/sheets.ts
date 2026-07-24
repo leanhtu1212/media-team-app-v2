@@ -1,6 +1,6 @@
 import type { Member, Project, Task, Report, Tag } from '../types';
 import { calculateTeamKpi, ecomProjectIdSet } from './kpi';
-import { monthRange } from './utils';
+import { monthRange, formatDateTime } from './utils';
 
 const PROJECT_STATUS_LABEL: Record<string, string> = {
   plan: 'Kế hoạch',
@@ -86,10 +86,55 @@ export function buildSheetsPayload(
     ];
   });
 
+  // ── Tab báo cáo theo tháng (định dạng app cũ) — nguồn cho dashboard "Data Media" ──
+  const projById = new Map(projects.map((p) => [p.id, p]));
+  const memberByUid = new Map(members.map((m) => [m.uid || m.id, m]));
+  const reporterEmail = (createdBy?: string, fallback?: string) =>
+    fallback || memberByUid.get(createdBy || '')?.email || '';
+  const inMonth = (d?: string) => { const s = d || ''; return s >= monthStart && s <= monthEnd; };
+
+  // (1) Báo cáo ảnh/video/thủ công trong tháng
+  const reportRecords = reports
+    .filter((r) => inMonth(r.reportDate))
+    .map((r) => {
+      const qty = Number(r.quantity) || 0;
+      return {
+        date: r.reportDate || '',
+        row: [
+          r.id || '', r.reportDate || '', reporterEmail(r.createdBy, r.userEmail),
+          r.content || '', projById.get(r.projectId || '')?.title || '', formatDateTime(r.createdAt),
+          r.outputType === 'photo' ? qty : 0, r.outputType === 'video' ? qty : 0, 0,
+          r.reportType === 'manual' ? 'Thủ công' : 'Tự động',
+        ] as (string | number)[],
+      };
+    });
+
+  // (2) Khoản chi tiền kỳ đã duyệt DNTT trong tháng → cột Tiền DNTT
+  const dnttRecords = allTasks
+    .filter((t) => t.category === 'pre-production' && t.dntt && inMonth(t.reportDate) && projById.has(t.projectId))
+    .map((t) => ({
+      date: t.reportDate || '',
+      row: [
+        t.id || '', t.reportDate || '', reporterEmail(t.createdBy),
+        t.title || '', projById.get(t.projectId)?.title || '', formatDateTime(t.createdAt),
+        0, 0, Number(t.amount) || 0, 'Tự động',
+      ] as (string | number)[],
+    }));
+
+  const baoCaoRows = [...reportRecords, ...dnttRecords]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((x) => x.row);
+  const [yyyy, mm] = month.split('-');
+  const baoCaoTabName = `Bao_cao_thang_${Number(mm)}_${yyyy} web`;
+
   return {
     syncedAt: new Date().toLocaleString('vi-VN'),
     month,
     sheets: {
+      [baoCaoTabName]: {
+        headers: ['ID', 'Ngày', 'Người báo cáo', 'Nội dung', 'Dự án', 'Thời gian tạo', 'Số Ảnh', 'Số Video', 'Tiền DNTT', 'Loại báo cáo'],
+        rows: baoCaoRows,
+      },
       [`KPI ${month}`]: {
         headers: ['Thành viên', 'Vai trò', 'Project ảnh', 'Video', 'DNTT', 'Tổng SL', 'Chỉ tiêu', 'KPI (%)', 'Số project'],
         rows: kpiRows,
