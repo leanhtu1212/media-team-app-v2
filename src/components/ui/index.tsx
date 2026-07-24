@@ -1,5 +1,15 @@
-import { type ReactNode, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { useEffect, type ReactNode, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
+
+/** Đóng overlay (Modal/Drawer/ConfirmDialog) khi nhấn phím ESC. */
+function useEscClose(open: boolean, onClose: () => void) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+}
 
 /* ---------- Button ---------- */
 type BtnVariant = 'primary' | 'ghost' | 'danger' | 'outline';
@@ -41,6 +51,7 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 export function Modal({
   open, onClose, title, children, wide = false, onSubmit,
 }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean; onSubmit?: () => void }) {
+  useEscClose(open, onClose);
   if (!open) return null;
   // Khi có onSubmit: bọc nội dung trong <form> để Enter trong input tự submit.
   // Textarea không submit khi Enter (xuống dòng bình thường) — đúng ý.
@@ -48,10 +59,10 @@ export function Modal({
   // phím parent re-render, reference component mới → React remount cả subtree →
   // input mất focus sau 1 ký tự. Render thẳng <form>/<div> ngay tại chỗ.
   return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    // KHÔNG đóng khi bấm ra nền ngoài (tránh lỡ tay mất form đang nhập) — đóng qua nút X / Huỷ.
+    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
       <div
         className={`fade-up bg-surface border border-line rounded-2xl w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} max-h-[90vh] flex flex-col`}
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <h3 className="font-bold text-base">{title}</h3>
@@ -71,6 +82,7 @@ export function Modal({
 export function Drawer({
   open, onClose, title, children, side = 'right', headerExtra,
 }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; side?: 'left' | 'right'; headerExtra?: ReactNode }) {
+  useEscClose(open, onClose);
   if (!open) return null;
   const isLeft = side === 'left';
   return (
@@ -94,6 +106,7 @@ export function Drawer({
 export function ConfirmDialog({
   open, onClose, onConfirm, title, message,
 }: { open: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string }) {
+  useEscClose(open, onClose);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>

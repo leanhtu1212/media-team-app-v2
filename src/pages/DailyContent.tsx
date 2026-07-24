@@ -634,10 +634,12 @@ export function DailyContentPage({ user, onOpenProject, month, onMonthChange }: 
     dailyContent.forEach((d) => {
       if ((d.dueDate || '').startsWith(month)) push(d.dueDate!, { kind: 'daily', daily: d });
     });
-    // Mọi dự án có deadline trong tháng — kể cả đã xong/thanh toán (trừ dự án đã thành thanh)
+    // Mọi dự án chưa vẽ thành thanh (chủ yếu là outsource) — hiện chip theo deadline,
+    // nếu chưa có deadline thì dùng startDate để không bị vô hình trên lịch.
     projects.forEach((p) => {
       if (spanIds.has(p.id)) return;
-      if ((p.deadline || '').startsWith(month)) push(p.deadline!, { kind: 'project', project: p });
+      const day = p.deadline || p.startDate;
+      if ((day || '').startsWith(month)) push(day!, { kind: 'project', project: p });
     });
     // Khoản chi phí tiền kỳ chưa xong, deadline trong tháng — CHỈ admin thấy (dữ liệu chi phí)
     if (isAdmin) {

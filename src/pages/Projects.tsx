@@ -51,8 +51,12 @@ function ProjectCard({
         </div>
         {p.productType && <p className="text-[11px] text-muted mb-2">{p.productType}</p>}
         <div className="flex items-center gap-3 text-[11px] text-muted mb-3">
-          <span className="flex items-center gap-1"><Camera size={11} /> {prog.photoDone}/{p.photoTarget || 0}</span>
-          <span className="flex items-center gap-1"><Video size={11} /> {prog.videoDone}/{p.videoTarget || 0}</span>
+          {((p.photoTarget || 0) > 0 || prog.photoDone > 0) && (
+            <span className="flex items-center gap-1"><Camera size={11} /> {prog.photoDone}/{p.photoTarget || 0}</span>
+          )}
+          {((p.videoTarget || 0) > 0 || prog.videoDone > 0) && (
+            <span className="flex items-center gap-1"><Video size={11} /> {prog.videoDone}/{p.videoTarget || 0}</span>
+          )}
           {p.deadline && (
             <span className={`flex items-center gap-1 ml-auto ${!isProjectFinished(p.status) && p.deadline < todayStr() ? 'text-red-400 font-bold' : ''}`}>
               <Calendar size={11} /> {formatDate(p.deadline)}
@@ -336,7 +340,9 @@ export function ProjectFormModal({
   const set = (k: keyof Project, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const submit = async () => {
     if (busy || !form.title || !form.tagId) return;
-    if ((Number(form.photoTarget) || 0) < 1 && (Number(form.videoTarget) || 0) < 1) {
+    // Outsource hoàn thành theo status (không tính sản lượng in-house) → cho phép target = 0.
+    // Chỉ bắt buộc khối lượng với dự án inhouse.
+    if (form.projectType !== 'outsource' && (Number(form.photoTarget) || 0) < 1 && (Number(form.videoTarget) || 0) < 1) {
       toast('Cần nhập khối lượng: target ảnh hoặc target video ≥ 1', 'error');
       return;
     }

@@ -211,25 +211,37 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
             assignees={(project.assigneeIds || []).map((id) => memberOf(id)).filter((m): m is NonNullable<typeof m> => !!m)}
           />
 
-          <Card className="p-4">
-            <h2 className="font-bold text-sm mb-3 flex items-center gap-2"><TrendingUp size={15} className="text-emerald-400" /> Tiến độ</h2>
-            <div className="space-y-3">
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-bold text-muted flex items-center gap-1.5"><Camera size={12} /> Ảnh</span>
-                  <span className="text-xs font-bold tabular-nums">{photoDone}/{project.photoTarget || 0}</span>
+          {(() => {
+            // Chỉ hiện loại có mục tiêu (hoặc đã có sản lượng): dự án chỉ-ảnh không hiện video & ngược lại.
+            const showPhoto = (project.photoTarget || 0) > 0 || photoDone > 0;
+            const showVideo = (project.videoTarget || 0) > 0 || videoDone > 0;
+            if (!showPhoto && !showVideo) return null;
+            return (
+              <Card className="p-4">
+                <h2 className="font-bold text-sm mb-3 flex items-center gap-2"><TrendingUp size={15} className="text-emerald-400" /> Tiến độ</h2>
+                <div className="space-y-3">
+                  {showPhoto && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-muted flex items-center gap-1.5"><Camera size={12} /> Ảnh</span>
+                        <span className="text-xs font-bold tabular-nums">{photoDone}/{project.photoTarget || 0}</span>
+                      </div>
+                      <ProgressBar value={(project.photoTarget || 0) > 0 ? (photoDone / (project.photoTarget || 1)) * 100 : 0} />
+                    </div>
+                  )}
+                  {showVideo && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-muted flex items-center gap-1.5"><Video size={12} /> Video</span>
+                        <span className="text-xs font-bold tabular-nums">{videoDone}/{project.videoTarget || 0}</span>
+                      </div>
+                      <ProgressBar value={(project.videoTarget || 0) > 0 ? (videoDone / (project.videoTarget || 1)) * 100 : 0} />
+                    </div>
+                  )}
                 </div>
-                <ProgressBar value={(project.photoTarget || 0) > 0 ? (photoDone / (project.photoTarget || 1)) * 100 : 0} />
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-bold text-muted flex items-center gap-1.5"><Video size={12} /> Video</span>
-                  <span className="text-xs font-bold tabular-nums">{videoDone}/{project.videoTarget || 0}</span>
-                </div>
-                <ProgressBar value={(project.videoTarget || 0) > 0 ? (videoDone / (project.videoTarget || 1)) * 100 : 0} />
-              </div>
-            </div>
-          </Card>
+              </Card>
+            );
+          })()}
 
           {isAdmin && (
             <Card className="p-4">
