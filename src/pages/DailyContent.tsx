@@ -66,8 +66,18 @@ function stripeFor(entry: CalEntry, today: string): string {
   if (entry.kind === 'daily') {
     const d = entry.daily;
     if (isDailyOverdue(d)) return 'border-red-500';
-    if (d.status === 'done') return 'border-emerald-500';
-    if (d.status === 'in-progress') return 'border-amber-400';
+    // Có video con → tính vạch trực tiếp theo số video trả (giống contentProgress) thay vì
+    // đọc qua status: status được 1 effect khác tự đồng bộ theo items, có độ trễ 1 nhịp render
+    // (vd server chưa kịp ghi lại) — tính thẳng từ items để vạch luôn khớp UI ngay lập tức.
+    const items = d.items || [];
+    if (items.length > 0) {
+      const doneN = itemsDone(d);
+      if (doneN >= contentTarget(d)) return 'border-emerald-500';
+      if (doneN > 0) return 'border-amber-400';
+    } else {
+      if (d.status === 'done') return 'border-emerald-500';
+      if (d.status === 'in-progress') return 'border-amber-400';
+    }
     return 'border-slate-500';
   }
   if (entry.kind === 'note') return 'border-violet-400';
@@ -441,7 +451,7 @@ function CalChip({
         onDoubleClick={(e) => { e.stopPropagation(); onNote(n); }}
         title={`Ghi chú — nhấn đúp để sửa${canDrag ? ', kéo để đổi ngày' : ''}`}
         style={tagStyle}
-        className={`rounded-md px-1.5 py-1 border-l-2 ${dragCls} ${stripe} ${TYPE_TINT.note}`}
+        className={`rounded-md px-1.5 py-1 border-l-4 ${dragCls} ${stripe} ${TYPE_TINT.note}`}
       >
         <p className="text-[11px] font-semibold leading-tight line-clamp-3 flex items-start gap-1"><StickyNote size={10} className="mt-0.5 shrink-0" />{n.text || '(trống)'}</p>
       </div>
@@ -457,7 +467,7 @@ function CalChip({
         onDoubleClick={(e) => { e.stopPropagation(); onDetail(d); }}
         title={`Nội dung — nhấn đúp để xem chi tiết${canDrag ? ', kéo để đổi ngày' : ''}`}
         style={tagStyle}
-        className={`rounded-md px-1.5 py-1 border-l-2 ${dragCls} ${stripe} ${TYPE_TINT.content}`}
+        className={`rounded-md px-1.5 py-1 border-l-4 ${dragCls} ${stripe} ${TYPE_TINT.content}`}
       >
         <p className="text-[11px] font-bold leading-tight line-clamp-2">{d.title}</p>
         <div className="flex items-center gap-1 mt-0.5">
@@ -477,7 +487,7 @@ function CalChip({
         onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
         title={`Dự án ${isOut ? 'outsource' : 'inhouse'} — nhấn đúp để mở${canDrag ? ', kéo để đổi deadline' : ''}`}
         style={tagStyle}
-        className={`rounded-md px-1.5 py-1 border-l-2 ${dragCls} ${stripe} ${isOut ? TYPE_TINT.outsource : TYPE_TINT.inhouse}`}
+        className={`rounded-md px-1.5 py-1 border-l-4 ${dragCls} ${stripe} ${isOut ? TYPE_TINT.outsource : TYPE_TINT.inhouse}`}
       >
         <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><FolderKanban size={10} className="mt-0.5 shrink-0" />{p.title}</p>
         <span className="text-[9px] font-bold uppercase opacity-80">{isOut ? 'Outsource' : 'Inhouse'} · {STATUS_LABEL[p.status]}</span>
@@ -492,7 +502,7 @@ function CalChip({
       onDoubleClick={(e) => { e.stopPropagation(); if (project) onOpenProject(project.id); }}
       title={`Task tiền kỳ — nhấn đúp để mở dự án${canDrag ? ', kéo để đổi deadline' : ''}`}
       style={tagStyle}
-      className={`rounded-md px-1.5 py-1 border-l-2 ${dragCls} ${stripe} ${TYPE_TINT.task}`}
+      className={`rounded-md px-1.5 py-1 border-l-4 ${dragCls} ${stripe} ${TYPE_TINT.task}`}
     >
       <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><Wallet size={10} className="mt-0.5 shrink-0" />{task.title}</p>
       {project && <span className="text-[9px] text-dim truncate block">{project.title}</span>}
@@ -779,6 +789,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
                       const p = bar.project;
                       const overdue = (p.deadline || '') < today;
                       const tagCol = tagColorOf(p.tagId);
+                      const stripe = stripeFor({ kind: 'project', project: p }, today);
                       return (
                         <div
                           key={p.id}
@@ -787,7 +798,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
                           title={`${p.title}${p.deadline ? ` · deadline ${formatDate(p.deadline)}` : ''}`}
                           className={`pointer-events-auto cursor-pointer flex items-center gap-1 px-2 overflow-hidden select-none shadow-sm text-white ${
                             bar.roundLeft ? 'justify-start' : 'justify-end'
-                          } ${tagCol ? '' : overdue ? 'bg-red-600' : 'bg-sky-600'} ${bar.roundLeft ? 'rounded-l-md ml-0.5' : ''} ${bar.roundRight ? 'rounded-r-md mr-0.5' : ''}`}
+                          } ${tagCol ? '' : overdue ? 'bg-red-600' : 'bg-sky-600'} ${bar.roundLeft ? `border-l-4 ${stripe} rounded-l-md ml-0.5` : ''} ${bar.roundRight ? 'rounded-r-md mr-0.5' : ''}`}
                         >
                           {bar.roundLeft ? (
                             <>
@@ -955,19 +966,17 @@ export function ContentDetailPage({
   const [newName, setNewName] = useState('');
   const [editItem, setEditItem] = useState<{ id: string; title: string; link: string } | null>(null);
 
-  // Đồng bộ trạng thái với số video đã trả — HAI CHIỀU, nếu không content bị kẹt ở
-  // "Hoàn thành" khi sau đó tăng số lượng hoặc xoá/bỏ tick video (vd 2/5 mà vẫn Hoàn thành).
-  // Chỉ can thiệp ranh giới xong/chưa xong; việc chọn Kế hoạch hay Đang làm để người dùng tự quyết.
+  // Đồng bộ trạng thái theo số video đã trả — HOÀN TOÀN TỰ ĐỘNG khi content đã dùng danh sách video:
+  // trả video đầu tiên → "Đang làm"; đủ số lượng → "Hoàn thành"; bỏ hết video → về lại "Kế hoạch".
+  // Chỉ khi content chưa dùng danh sách video mới để trạng thái do người dùng tự chọn tay.
   useEffect(() => {
     if (!item || !canEditDaily) return;
     const list = item.items || [];
     if (list.length === 0) return; // chưa dùng danh sách video → không tự đụng trạng thái
     const done = list.filter((i) => i.done).length;
     const target = Math.max(1, Number(item.quantity) || 1);
-    const desired: DailyStatus | null =
-      done >= target ? (item.status === 'done' ? null : 'done')
-        : (item.status === 'done' ? 'in-progress' : null);
-    if (!desired) return;
+    const desired: DailyStatus = done >= target ? 'done' : done > 0 ? 'in-progress' : 'planned';
+    if (desired === item.status) return;
     updateDailyContent(item.id, { status: desired }, { title: item.title, platform: item.platform }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.id, item?.items, item?.quantity, item?.status, canEditDaily]);
