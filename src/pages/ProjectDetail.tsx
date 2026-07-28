@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, Pencil, Camera, Video, Wallet, Star, CheckCircle2, Circle, Calendar, Package, FileText, Check, TrendingUp, ExternalLink } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
@@ -6,7 +6,7 @@ import { updateProject, deleteProject, createTask, updateTask, deleteTask, toggl
 import { formatVND, formatDate, todayStr, isProjectFinished } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { ProjectFormModal } from './Projects';
-import type { Task, TaskCategory, Project } from '../types';
+import type { Task, TaskCategory, Project, ProjectStatus } from '../types';
 import type { User } from '../lib/firebase';
 
 export function ProjectDetailPage({ projectId, user, onBack }: { projectId: string; user: User; onBack: () => void }) {
@@ -20,6 +20,24 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
   const [detailTask, setDetailTask] = useState<Task | null>(null);
 
   const tasks = useMemo(() => allTasks.filter((t) => t.projectId === projectId), [allTasks, projectId]);
+
+  // Tự chuyển trạng thái theo tiến độ + thanh toán chi phí (editor mới có quyền ghi):
+  //  - Tiến độ 100% + còn chi phí CHƯA thanh toán → "Thanh toán"
+  //  - Tiến độ 100% + đã thanh toán hết (hoặc không có chi phí nào) → "Hoàn thành"
+  //  - "Done" là terminal, không tự đổi nữa.
+  useEffect(() => {
+    if (!isEditor || !project || project.status === 'done') return;
+    const target = (project.photoTarget || 0) + (project.videoTarget || 0);
+    if (target <= 0) return; // chưa đặt chỉ tiêu → không tự đổi
+    const doneQty = (cat: string) =>
+      tasks.filter((t) => t.category === cat && (t.status === 'completed' || t.dntt)).reduce((s, t) => s + (Number(t.quantity) || 1), 0);
+    if (doneQty('photo') + doneQty('video') < target) return; // chưa đạt 100%
+    const costs = tasks.filter((t) => t.category === 'pre-production');
+    const desired: ProjectStatus = (costs.length === 0 || costs.every((t) => t.dntt)) ? 'done' : 'payment';
+    if (desired === project.status) return;
+    updateProject(project.id, { status: desired }, { title: project.title, prevStatus: project.status }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, project?.id, project?.status, project?.photoTarget, project?.videoTarget, isEditor]);
 
   if (!project) {
     return (

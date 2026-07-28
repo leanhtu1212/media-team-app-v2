@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Camera, Video, Gauge, FolderKanban, ArrowRight, CalendarClock, ListTodo, CalendarDays, ClipboardList } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Avatar, EmptyState } from '../components/ui';
-import { calculateMemberKpi } from '../lib/kpi';
+import { calculateMemberKpi, calculateTeamKpi } from '../lib/kpi';
 import { currentMonth, formatDate, todayStr, isProjectFinished } from '../lib/utils';
 import { useContentModals } from './DailyContent';
 import type { Project } from '../types';
@@ -17,7 +17,7 @@ const PLATFORM_COLOR: Record<string, string> = {
 };
 
 export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onOpenProject: (id: string) => void; onOpenContent: (id: string) => void }) {
-  const { currentMember, projects, allTasks, dailyContent, reports } = useAppData();
+  const { currentMember, members, projects, allTasks, dailyContent, reports } = useAppData();
   const { modals } = useContentModals(user);
   const today = todayStr();
   const month = currentMonth();
@@ -28,10 +28,15 @@ export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onO
     return (id?: string) => !!id && ids.has(id);
   }, [currentMember]);
 
-  const kpi = useMemo(
-    () => (currentMember ? calculateMemberKpi(currentMember, month, allTasks, projects, reports) : null),
-    [currentMember, month, allTasks, projects, reports],
-  );
+  const kpi = useMemo(() => {
+    if (!currentMember) return null;
+    // Admin: KPI = tổng sản lượng cả team (dùng calculateTeamKpi để lấy đúng dòng đã gộp).
+    if (currentMember.role === 'admin') {
+      const uid = currentMember.uid || currentMember.id;
+      return calculateTeamKpi(members, month, allTasks, projects, reports).find((k) => k.uid === uid) || null;
+    }
+    return calculateMemberKpi(currentMember, month, allTasks, projects, reports);
+  }, [currentMember, members, month, allTasks, projects, reports]);
 
   const progressOf = (p: Project) => {
     const pTasks = allTasks.filter((t) => t.projectId === p.id);
@@ -131,8 +136,8 @@ export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onO
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={<FolderKanban size={16} />} tint="text-indigo-300" label="Dự án đang làm" value={myActiveProjects.length} />
-        <StatCard icon={<Gauge size={16} />} tint="text-emerald-300" label="Sản lượng tháng" value={kpi?.outputCount ?? 0} sub={`/ ${kpi?.kpiOutputTarget ?? 0} chỉ tiêu`} />
-        <StatCard icon={<Gauge size={16} />} tint={kpi && kpi.finalKPI >= 100 ? 'text-emerald-300' : 'text-amber-300'} label="KPI tháng" value={`${kpi?.finalKPI ?? 0}%`} />
+        <StatCard icon={<Gauge size={16} />} tint="text-emerald-300" label="Sản lượng tháng" value={kpi?.outputCount ?? 0} sub={kpi?.hasTarget ? `/ ${kpi.kpiOutputTarget} chỉ tiêu` : 'chưa đặt chỉ tiêu'} />
+        <StatCard icon={<Gauge size={16} />} tint={kpi?.hasTarget && kpi.finalKPI >= 100 ? 'text-emerald-300' : 'text-amber-300'} label="KPI tháng" value={kpi?.hasTarget ? `${kpi.finalKPI}%` : '—'} />
         <StatCard icon={<ListTodo size={16} />} tint="text-rose-300" label="Việc hôm nay" value={todayCount} danger={todayProjects.some((p) => p.deadline! < today) || todayPreTasks.some((t) => t.deadline! < today)} />
       </div>
 
@@ -142,18 +147,21 @@ export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onO
           <h2 className="font-bold text-sm flex items-center gap-2 mb-3"><Gauge size={15} className="text-indigo-300" /> KPI tháng {Number(month.slice(5))}/{month.slice(0, 4)}</h2>
           {kpi && (
             <>
+              {kpi.isTeamAggregate && (
+                <p className="text-[11px] text-amber-300/90 font-semibold mb-2">Bạn là admin — KPI tính bằng tổng sản lượng cả team.</p>
+              )}
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <KpiStat icon={<Camera size={14} className="text-sky-300" />} label="Project ảnh" value={kpi.photoScore} />
                 <KpiStat icon={<Video size={14} className="text-violet-300" />} label="Video" value={kpi.videoCount} />
-                <KpiStat icon={<FolderKanban size={14} className="text-fuchsia-300" />} label="Dự án" value={kpi.projectCount} />
+                <KpiStat icon={<FolderKanban size={14} className="text-fuchsia-300" />} label="Outsource" value={kpi.outsourceScore} />
                 <KpiStat icon={<ClipboardList size={14} className="text-amber-300" />} label="DNTT" value={kpi.dnttCount} />
               </div>
               <div className="flex items-center justify-between text-xs mb-1.5">
                 <span className="text-muted font-bold uppercase tracking-wide">Sản lượng / Chỉ tiêu</span>
-                <span className="tabular-nums font-bold">{kpi.outputCount}/{kpi.kpiOutputTarget}</span>
+                <span className="tabular-nums font-bold">{kpi.outputCount}{kpi.hasTarget ? `/${kpi.kpiOutputTarget}` : ' · chưa đặt chỉ tiêu'}</span>
               </div>
-              <ProgressBar value={kpi.finalKPI} />
-              <p className={`text-right text-lg font-extrabold tabular-nums mt-1.5 ${kpi.finalKPI >= 100 ? 'text-emerald-400' : kpi.finalKPI >= 60 ? 'text-indigo-300' : 'text-muted'}`}>{kpi.finalKPI}%</p>
+              <ProgressBar value={kpi.hasTarget ? kpi.finalKPI : 0} />
+              <p className={`text-right text-lg font-extrabold tabular-nums mt-1.5 ${!kpi.hasTarget ? 'text-dim' : kpi.finalKPI >= 100 ? 'text-emerald-400' : kpi.finalKPI >= 60 ? 'text-indigo-300' : 'text-muted'}`}>{kpi.hasTarget ? `${kpi.finalKPI}%` : '—'}</p>
             </>
           )}
         </Card>

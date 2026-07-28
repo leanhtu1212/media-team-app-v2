@@ -353,19 +353,10 @@ function ReportFormModal({
             </Select>
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Loại sản phẩm">
-            <Select value={form.outputType || 'none'} onChange={(e) => set('outputType', e.target.value)}>
-              <option value="none">Không tính điểm</option>
-              <option value="photo">Ảnh</option>
-              <option value="video">Video</option>
-              <option value="pre-production">Tiền kỳ</option>
-            </Select>
-          </Field>
-          <Field label="Số lượng">
-            <Input type="number" min={1} value={form.quantity ?? 1} onChange={(e) => set('quantity', Math.max(1, Number(e.target.value)))} />
-          </Field>
-        </div>
+        <p className="text-[11px] text-muted bg-bg border border-line rounded-lg px-3 py-2.5">
+          Báo cáo thủ công là <span className="font-bold text-ink">ghi chú công việc</span>, không tính vào KPI.
+          Sản lượng vào KPI phải thêm qua task ảnh/video của dự án hoặc trả video ở Nội dung.
+        </p>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Huỷ</Button>
           <Button type="submit" disabled={busy || !form.content || !form.projectId}>

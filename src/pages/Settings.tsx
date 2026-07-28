@@ -277,7 +277,7 @@ function MembersTab({ user }: { user: User }) {
         username: form.username.trim(),
         role: form.role,
         title: form.title || '',
-        kpiOutput: 100, kpiQuality: 10, kpiDeadline: 10,
+        kpiOutput: 0, kpiQuality: 10, kpiDeadline: 10, // chỉ tiêu 0 = admin đặt sau ở Settings → KPI
         joinedAt: serverTimestamp(),
       });
       toast(`Đã tạo thành viên ${form.username}`);
@@ -416,13 +416,14 @@ function KpiTab() {
   const toast = useToast();
   const [forms, setForms] = useState<Record<string, number>>({});
 
-  const outputOf = (m: Member) => forms[m.id] ?? (m.kpiOutput || 100);
+  // Không còn chỉ tiêu mặc định — chưa đặt thì để 0 và KPI hiển thị "chưa đặt chỉ tiêu".
+  const outputOf = (m: Member) => forms[m.id] ?? (Number(m.kpiOutput) || 0);
 
   return (
     <Card>
       <div className="px-5 py-4 border-b border-line">
         <h2 className="font-bold">Chỉ tiêu sản lượng thành viên</h2>
-        <p className="text-xs text-muted mt-0.5">Số sản phẩm cần đạt mỗi tháng (project ảnh + video + DNTT). KPI = sản lượng thực / chỉ tiêu.</p>
+        <p className="text-xs text-muted mt-0.5">Số sản phẩm cần đạt mỗi tháng (project ảnh + video + project outsource quản lý). KPI = sản lượng thực / chỉ tiêu. Admin không cần chỉ tiêu — KPI của admin là tổng sản lượng cả team.</p>
       </div>
       <div className="divide-y divide-line">
         {members.filter((m) => m.role === 'admin' || m.role === 'editor').map((m) => {
@@ -431,11 +432,16 @@ function KpiTab() {
             <div key={m.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
               <div className="flex items-center gap-2.5 flex-1 min-w-44">
                 <Avatar name={m.username} url={m.avatarUrl} size={30} />
-                <p className="font-bold text-sm truncate">{m.username}</p>
+                <div className="min-w-0">
+                  <p className="font-bold text-sm truncate">{m.username}</p>
+                  {m.role === 'admin'
+                    ? <p className="text-[11px] text-dim">Admin · KPI = tổng cả team</p>
+                    : output <= 0 && <p className="text-[11px] text-amber-300/90 font-semibold">Chưa đặt chỉ tiêu</p>}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs font-bold text-muted uppercase">Chỉ tiêu</label>
-                <Input type="number" min={0} value={output} onChange={(e) => setForms((s) => ({ ...s, [m.id]: Number(e.target.value) }))} className="!w-28" title="Sản lượng / tháng" />
+                <Input type="number" min={0} value={output} onChange={(e) => setForms((s) => ({ ...s, [m.id]: Number(e.target.value) }))} className="!w-28" title="Sản lượng / tháng · 0 = chưa đặt" />
               </div>
               <Button
                 variant="outline"

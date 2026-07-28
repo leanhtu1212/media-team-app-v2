@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Crown, X, Camera, Video, Wallet, FolderKanban, TrendingUp, ArrowUp, ArrowDown, Minus, ShoppingBag, Building2, Users } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, Avatar, Input, EmptyState, Drawer } from '../components/ui';
-import { calculateTeamKpi, ecomProjectIdSet, teamTypeTotals, type MemberKpi, type ProjectClass, type TypeTotals } from '../lib/kpi';
+import { calculateTeamKpi, ecomProjectIdSet, teamTypeTotals, individualKpi, teamAggregate, type MemberKpi, type ProjectClass, type TypeTotals } from '../lib/kpi';
 import { currentMonth, shiftMonth, formatVND, formatDate } from '../lib/utils';
 import type { Task, Project } from '../types';
 
@@ -52,10 +52,13 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
 
   const ecomIds = useMemo(() => ecomProjectIdSet(projects, tags), [projects, tags]);
   const projById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
-  const kpi = useMemo(
+  const allKpi = useMemo(
     () => calculateTeamKpi(members, month, allTasks, projects, reports),
     [members, month, allTasks, projects, reports],
   );
+  // Bảng xếp hạng chỉ gồm KPI cá nhân; dòng admin là tổng-team nên tách ra hiển thị riêng.
+  const kpi = useMemo(() => individualKpi(allKpi), [allKpi]);
+  const teamRow = useMemo(() => teamAggregate(allKpi), [allKpi]);
   const prevByUid = useMemo(() => {
     const prev = calculateTeamKpi(members, shiftMonth(month, -1), allTasks, projects, reports);
     return new Map(prev.map((k) => [k.uid, k]));
@@ -80,10 +83,13 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
   const trend = useMemo(() => {
     const months = Array.from({ length: 6 }, (_, i) => shiftMonth(month, i - 5));
     return months.map((mo) => {
-      const teamKpi = calculateTeamKpi(members, mo, allTasks, projects, reports);
-      const photo = Math.round(teamKpi.reduce((s, k) => s + k.photoScore, 0) * 10) / 10;
-      const video = teamKpi.reduce((s, k) => s + k.videoCount, 0);
-      const avgKpi = teamKpi.length ? teamKpi.reduce((s, k) => s + k.finalKPI, 0) / teamKpi.length : 0;
+      // Dòng admin là tổng-team → loại ra khi cộng dồn/tính trung bình để không cộng trùng.
+      const eds = individualKpi(calculateTeamKpi(members, mo, allTasks, projects, reports));
+      const photo = Math.round(eds.reduce((s, k) => s + k.photoScore, 0) * 10) / 10;
+      const video = eds.reduce((s, k) => s + k.videoCount, 0);
+      // Trung bình KPI chỉ tính người ĐÃ được đặt chỉ tiêu (người chưa đặt luôn 0% sẽ kéo tụt số liệu).
+      const rated = eds.filter((k) => k.hasTarget);
+      const avgKpi = rated.length ? rated.reduce((s, k) => s + k.finalKPI, 0) / rated.length : 0;
       const tt = teamTypeTotals(allTasks, projects, ecomIds, mo);
       const cost = tt.inhouse.cost + tt.outsource.cost; // chi phí non-ecom (Ecom xem ở bảng loại)
       return { month: mo, label: `T${Number(mo.slice(5))}`, photo, video, cost, avgKpi: Math.round(avgKpi * 10) / 10 };
@@ -128,8 +134,8 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
     setDrawer({ title: `Chi phí · T${Number(mo.slice(5))}`, subtitle: `${items.length} khoản`, items });
   };
   const openKpiMonth = (mo: string) => {
-    const k = calculateTeamKpi(members, mo, allTasks, projects, reports);
-    setDrawer({ title: `KPI · T${Number(mo.slice(5))}`, subtitle: 'KPI từng thành viên', items: k.map((m) => ({ id: m.uid, title: m.username, sub: `Sản lượng ${fmtScore(m.outputCount)}/${m.kpiOutputTarget}`, right: `${m.finalKPI}%` })) });
+    const k = individualKpi(calculateTeamKpi(members, mo, allTasks, projects, reports));
+    setDrawer({ title: `KPI · T${Number(mo.slice(5))}`, subtitle: 'KPI từng thành viên', items: k.map((m) => ({ id: m.uid, title: m.username, sub: m.hasTarget ? `Sản lượng ${fmtScore(m.outputCount)}/${m.kpiOutputTarget}` : `Sản lượng ${fmtScore(m.outputCount)} · chưa đặt chỉ tiêu`, right: m.hasTarget ? `${m.finalKPI}%` : '—' })) });
   };
 
   return (
@@ -148,6 +154,10 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
           <span className="text-indigo-300"><TrendingUp size={16} /></span>
           <h3 className="font-bold text-sm">Tổng sản lượng team <span className="text-xs text-muted font-normal">· gộp Inhouse + Outsource + Ecom</span></h3>
         </div>
+        <p className="text-[11px] text-dim mb-3 -mt-1">
+          Đây là sản lượng SẢN XUẤT thực tế. Riêng Outsource team chỉ quản lý nên số ảnh/video ở đây
+          <span className="text-muted font-semibold"> không tính vào KPI</span> — KPI chỉ tính theo % tiến độ project outsource.
+        </p>
         <div className="grid grid-cols-3 gap-2 md:gap-3">
           <StatCell icon={<Camera size={14} />} tint="text-indigo-300" label="Tổng ảnh" value={totalTotals.photoTasks.length} sub={`${totalTotals.photos} ảnh`} onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'photos')} />
           <StatCell icon={<Video size={14} />} tint="text-violet-300" label="Tổng video" value={totalTotals.videos} onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'videos')} />
@@ -166,7 +176,16 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
       <Card>
         <div className="px-4 py-3 border-b border-line flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 font-bold text-sm"><Crown size={15} className="text-amber-300" /> Bảng KPI thành viên</div>
-          <span className="text-xs text-muted">KPI = Sản lượng / Chỉ tiêu · nhấp đúp dòng hoặc ô để xem chi tiết</span>
+          <div className="flex items-center gap-3 flex-wrap">
+            {teamRow && (
+              <span className="inline-flex items-center gap-1.5 text-xs bg-bg border border-line rounded-lg px-2.5 py-1" title="KPI của admin = tổng sản lượng cả team / tổng chỉ tiêu team">
+                <span className="font-bold text-muted uppercase tracking-wide text-[10px]">KPI Team</span>
+                <span className="font-extrabold tabular-nums text-amber-300">{teamRow.hasTarget ? `${teamRow.finalKPI}%` : '—'}</span>
+                <span className="text-dim tabular-nums">{fmtScore(teamRow.outputCount)}/{teamRow.kpiOutputTarget}</span>
+              </span>
+            )}
+            <span className="text-xs text-muted">KPI = Sản lượng / Chỉ tiêu · nhấp đúp dòng hoặc ô để xem chi tiết</span>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[720px]">
@@ -176,6 +195,7 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
                 <th className="text-left px-2 py-2.5 font-bold">Thành viên</th>
                 <th className="text-center px-2 py-2.5 font-bold">Ảnh</th>
                 <th className="text-center px-2 py-2.5 font-bold">Video</th>
+                <th className="text-center px-2 py-2.5 font-bold">Outsource</th>
                 <th className="text-left px-3 py-2.5 font-bold w-40">Sản lượng</th>
                 <th className="text-left px-3 py-2.5 font-bold w-52">KPI</th>
                 <th className="text-center pr-4 pl-2 py-2.5 font-bold">T.trước</th>
@@ -206,20 +226,25 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
                     </td>
                     <td className="text-center tabular-nums font-semibold hover:text-indigo-300" title={`${m.photoCount} ảnh · ${m.photoProjects.length} project`} onDoubleClick={(e) => { e.stopPropagation(); openMember(m, 'photo'); }}>{fmtScore(m.photoScore)}</td>
                     <td className="text-center tabular-nums font-semibold hover:text-indigo-300" onDoubleClick={(e) => { e.stopPropagation(); openMember(m, 'video'); }}>{m.videoCount}</td>
+                    <td className="text-center tabular-nums font-semibold" title={`${m.outsourceProjects.length} project outsource quản lý · tính theo % tiến độ trong tháng`}>{fmtScore(m.outsourceScore)}</td>
                     <td className="px-3 py-3" onDoubleClick={(e) => { e.stopPropagation(); openMember(m, 'projects'); }}>
                       <div className="flex items-baseline justify-between text-[11px] mb-1">
                         <span className="font-bold tabular-nums">{fmtScore(m.outputCount)}</span>
-                        <span className="text-dim tabular-nums">/ {m.kpiOutputTarget}</span>
+                        <span className="text-dim tabular-nums">{m.hasTarget ? `/ ${m.kpiOutputTarget}` : '/ —'}</span>
                       </div>
                       <div className="h-1.5 rounded-full bg-line overflow-hidden"><div className="h-full rounded-full bg-indigo-400/80" style={{ width: `${outPct}%` }} /></div>
                     </td>
                     <td className="px-3 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-2 rounded-full bg-line overflow-hidden">
-                          <div className={`h-full rounded-full ${kpiBar}`} style={{ width: `${Math.min(100, m.finalKPI)}%` }} />
+                      {m.hasTarget ? (
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 rounded-full bg-line overflow-hidden">
+                            <div className={`h-full rounded-full ${kpiBar}`} style={{ width: `${Math.min(100, m.finalKPI)}%` }} />
+                          </div>
+                          <span className={`text-xs font-extrabold tabular-nums w-11 text-right ${kpiText}`}>{m.finalKPI}%</span>
                         </div>
-                        <span className={`text-xs font-extrabold tabular-nums w-11 text-right ${kpiText}`}>{m.finalKPI}%</span>
-                      </div>
+                      ) : (
+                        <span className="text-[11px] text-amber-300/90 font-semibold">Chưa đặt chỉ tiêu</span>
+                      )}
                     </td>
                     <td className="text-center pr-4 pl-2">
                       <span className={`inline-flex items-center gap-0.5 text-xs font-bold tabular-nums px-1.5 py-0.5 rounded-md ${
@@ -240,6 +265,7 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
                   <td className="px-2 py-2.5 font-bold text-muted uppercase tracking-wide text-[11px]">Tổng team</td>
                   <td className="text-center tabular-nums font-bold">{fmtScore(kpi.reduce((s, m) => s + m.photoScore, 0))}</td>
                   <td className="text-center tabular-nums font-bold">{kpi.reduce((s, m) => s + m.videoCount, 0)}</td>
+                  <td className="text-center tabular-nums font-bold">{fmtScore(kpi.reduce((s, m) => s + m.outsourceScore, 0))}</td>
                   <td className="px-3 py-2.5 tabular-nums font-bold">{fmtScore(kpi.reduce((s, m) => s + m.outputCount, 0))}<span className="text-dim font-normal">/{kpi.reduce((s, m) => s + m.kpiOutputTarget, 0)}</span></td>
                   <td className="px-3 py-2.5">
                     <span className="text-xs text-muted">TB </span>
@@ -560,18 +586,19 @@ function MemberDetail({
             <h2 className="font-extrabold">{kpi.username}</h2>
             <p className="text-xs text-muted">{kpi.title || kpi.role} · Tháng {Number(month.slice(5))}</p>
           </div>
-          <span className={`px-3 py-1.5 rounded-lg text-sm font-extrabold tabular-nums ${kpi.finalKPI >= 100 ? 'bg-emerald-500/15 text-emerald-400' : 'bg-indigo-500/15 text-indigo-300'}`}>
-            KPI {kpi.finalKPI}%
+          <span className={`px-3 py-1.5 rounded-lg text-sm font-extrabold tabular-nums ${!kpi.hasTarget ? 'bg-amber-500/15 text-amber-300' : kpi.finalKPI >= 100 ? 'bg-emerald-500/15 text-emerald-400' : 'bg-indigo-500/15 text-indigo-300'}`}>
+            {kpi.hasTarget ? `KPI ${kpi.finalKPI}%` : 'Chưa đặt chỉ tiêu'}
           </span>
           <button onClick={onClose} className="text-muted hover:text-ink cursor-pointer p-1"><X size={18} /></button>
         </div>
 
         <div className="p-5 space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
             <MiniStat label="Ảnh (project)" value={fmtScore(kpi.photoScore)} />
             <MiniStat label="Video" value={kpi.videoCount} />
-            <MiniStat label="Sản lượng" value={`${fmtScore(kpi.outputCount)}/${kpi.kpiOutputTarget}`} />
-            <MiniStat label="KPI" value={`${kpi.finalKPI}%`} />
+            <MiniStat label="Outsource" value={fmtScore(kpi.outsourceScore)} />
+            <MiniStat label="Sản lượng" value={kpi.hasTarget ? `${fmtScore(kpi.outputCount)}/${kpi.kpiOutputTarget}` : fmtScore(kpi.outputCount)} />
+            <MiniStat label="KPI" value={kpi.hasTarget ? `${kpi.finalKPI}%` : '—'} />
           </div>
 
           {/* Bóc tách điểm ảnh theo project */}

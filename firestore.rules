@@ -94,9 +94,14 @@ service cloud.firestore {
       match /reports/{reportId} {
         allow read: if isTeamMember(teamId);
         allow create: if isTeamMember(teamId) && request.resource.data.createdBy == request.auth.uid;
-        allow update: if isTeamMember(teamId) &&
-          (resource.data.createdBy == request.auth.uid || isAdmin(teamId));
-        allow delete: if isAdmin(teamId);
+        // Chủ báo cáo và admin sửa/xoá được báo cáo. Ngoài ra người có quyền sửa nội dung
+        // được sửa/xoá BÁO CÁO TỰ ĐỘNG — cần thiết vì bỏ tick / xoá / sửa link video trong
+        // Daily Content phải gỡ hoặc đồng bộ báo cáo auto liên kết (nếu chặn, KPI đếm đôi).
+        allow update, delete: if isTeamMember(teamId) && (
+          resource.data.createdBy == request.auth.uid ||
+          isAdmin(teamId) ||
+          (canEditDaily(teamId) && resource.data.reportType == 'auto')
+        );
       }
 
       // ProductTypes Subcollection
