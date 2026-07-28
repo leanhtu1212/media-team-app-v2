@@ -274,6 +274,29 @@ export async function createManualReport(data: Partial<Report>, user: User): Pro
   return id;
 }
 
+/** Report tự động khi trả 1 video trong Daily Content (1 video = 1 báo cáo). */
+export async function createContentVideoReport(input: {
+  contentId: string; title: string; projectId?: string; reportDate: string;
+  createdBy: string; userEmail: string;
+}): Promise<string> {
+  const id = genId();
+  await setDoc(ref.report(id), {
+    id,
+    content: `Hoàn thành 1 video - ${input.title}`,
+    reportDate: input.reportDate || todayStr(),
+    projectId: input.projectId || '',
+    quantity: 1,
+    outputType: 'video',
+    hasKB: false,
+    reportType: 'auto',
+    relatedContentId: input.contentId,
+    createdAt: serverTimestamp(),
+    createdBy: input.createdBy,
+    userEmail: input.userEmail || '',
+  });
+  return id;
+}
+
 export async function updateReport(id: string, data: Partial<Report>): Promise<void> {
   await updateDoc(ref.report(id), { ...data, updatedAt: serverTimestamp() });
 }
@@ -317,6 +340,11 @@ export async function updateDailyContent(
 }
 
 export async function deleteDailyContent(id: string, title?: string): Promise<void> {
+  // Xoá luôn báo cáo auto sinh ra từ các video con của content này (tránh mồ côi).
+  try {
+    const snap = await getDocs(query(col.reports(), where('relatedContentId', '==', id)));
+    await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+  } catch { /* không chặn xoá content nếu dọn báo cáo lỗi */ }
   await deleteDoc(ref.daily(id));
   notify(`🗑️ Đã xoá nội dung "${title || id}"`);
 }

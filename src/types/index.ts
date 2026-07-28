@@ -84,6 +84,7 @@ export interface Report {
   createdBy?: string;
   userEmail?: string;
   relatedTaskId?: string;
+  relatedContentId?: string; // id daily content nguồn (báo cáo auto từ trả video content)
 }
 
 export interface ProductType {
@@ -104,6 +105,7 @@ export interface ContentItem {
   done: boolean;
   link?: string; // link tham khảo/thành phẩm (không bắt buộc)
   doneDate?: string; // ngày trả video (YYYY-MM-DD), set khi done=true
+  reportId?: string; // id báo cáo auto liên kết (xoá video → xoá báo cáo)
 }
 
 export interface DailyContent {
