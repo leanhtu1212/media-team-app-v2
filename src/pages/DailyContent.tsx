@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video, StickyNote, Tag, ArrowLeft, FileText, Check, Calendar, ExternalLink, Hash, CheckCircle2, Circle } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, ProgressBar } from '../components/ui';
@@ -942,7 +942,7 @@ export function ContentDetailPage({
   onBack: () => void;
   onOpenProject: (id: string) => void;
 }) {
-  const { dailyContent, members, projects, tags, reports, canEditDaily } = useAppData();
+  const { dailyContent, members, projects, tags, canEditDaily } = useAppData();
   const toast = useToast();
   const item = dailyContent.find((d) => d.id === contentId);
 
@@ -954,34 +954,6 @@ export function ContentDetailPage({
   const [newVideo, setNewVideo] = useState('');
   const [newName, setNewName] = useState('');
   const [editItem, setEditItem] = useState<{ id: string; title: string; link: string } | null>(null);
-
-  // Backfill: video đã trả từ trước (chưa có reportId) → tạo báo cáo auto còn thiếu.
-  // Firestore rules bắt buộc report.createdBy == người đang đăng nhập → ghi công cho người đang mở.
-  const backfilledRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!item || !canEditDaily) return;
-    const done = (item.items || []).filter((i) => i.done);
-    const missing = done.filter((i) => !i.reportId); // chưa có báo cáo → tạo
-    const linkSync = done.filter((i) => i.reportId && i.link && (reports.find((rp) => rp.id === i.reportId)?.link || '') !== i.link); // báo cáo cũ thiếu link → vá
-    if ((missing.length === 0 && linkSync.length === 0) || backfilledRef.current === item.id) return;
-    backfilledRef.current = item.id;
-    (async () => {
-      const idMap: Record<string, string> = {};
-      for (const it of missing) {
-        try {
-          idMap[it.id] = await createContentVideoReport({
-            contentId: item.id, title: item.title, projectId: item.projectId,
-            reportDate: it.doneDate || todayStr(), createdBy: user.uid, userEmail: user.email || '', link: it.link,
-          });
-        } catch (e) { console.error('Backfill báo cáo video lỗi:', e); }
-      }
-      for (const it of linkSync) { try { await updateReport(it.reportId!, { link: it.link! }); } catch (e) { console.error(e); } }
-      if (Object.keys(idMap).length === 0) return;
-      const next = (item.items || []).map((i) => (idMap[i.id] ? { ...i, reportId: idMap[i.id] } : i));
-      try { await updateDailyContent(item.id, { items: next }, { title: item.title, platform: item.platform }); } catch (e) { console.error(e); }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item?.id, canEditDaily]);
 
   if (!item) {
     return (
@@ -1030,7 +1002,7 @@ export function ContentDetailPage({
     const title = name || (isUrl ? '' : link);
     const today = todayStr();
     // Không đưa key undefined vào Firestore (getFirestore không bật ignoreUndefinedProperties → sẽ ném lỗi).
-    const newItem: ContentItem = { id: newItemId(), title, done: true, doneDate: today };
+    const newItem: ContentItem = { id: newItemId(), title, done: true, doneDate: today, addedBy: user.uid, addedByEmail: user.email || '' };
     if (isUrl) newItem.link = link;
     try { newItem.reportId = await newVideoReport(today, isUrl ? link : undefined); } catch { /* lỗi tạo báo cáo vẫn lưu video */ }
     await saveItems([...items, newItem], 'Đã trả video — đã thêm báo cáo');

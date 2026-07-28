@@ -107,6 +107,8 @@ export interface ContentItem {
   link?: string; // link tham khảo/thành phẩm (không bắt buộc)
   doneDate?: string; // ngày trả video (YYYY-MM-DD), set khi done=true
   reportId?: string; // id báo cáo auto liên kết (xoá video → xoá báo cáo)
+  addedBy?: string; // uid người thêm video (người được ghi công báo cáo)
+  addedByEmail?: string;
 }
 
 export interface DailyContent {

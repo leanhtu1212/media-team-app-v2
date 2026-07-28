@@ -170,10 +170,17 @@ export function calculateMemberKpi(
   }
   const photoScore = round2(photoScoreRaw);
 
-  // ── Video: tổng số lượng video hoàn thành trong tháng (mọi loại dự án) ──
-  const videoCount = userTasks
+  // ── Video: tổng số lượng video hoàn thành trong tháng ──
+  // (a) video từ task dự án (mọi loại dự án)
+  const taskVideoCount = userTasks
     .filter((t) => t.category === 'video' && isDone(t))
     .reduce((s, t) => s + (Number(t.quantity) || 1), 0);
+  // (b) video trả trong Daily Content — lưu dưới dạng báo cáo auto có relatedContentId
+  //     (không trùng task video vì task auto-report dùng relatedTaskId, không có relatedContentId).
+  const contentVideoCount = userReports
+    .filter((r) => (r.relatedContentId || '') !== '' && r.outputType === 'video')
+    .reduce((s, r) => s + (Number(r.quantity) || 1), 0);
+  const videoCount = taskVideoCount + contentVideoCount;
 
   const dnttCount = userTasks.filter((t) => t.category === 'pre-production' && t.dntt).length;
 

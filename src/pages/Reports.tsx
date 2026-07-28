@@ -300,6 +300,7 @@ export function ReportsPage({ user }: { user: User }) {
           }
         }}
       />
+
     </div>
   );
 }
