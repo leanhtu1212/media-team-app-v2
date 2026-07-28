@@ -1,5 +1,7 @@
 node_modules
-dist
+# dist ĐƯỢC commit có chủ đích: Plesk chạy deploy action trong chroot (chrootsh) nên
+# không có npm — build trên server luôn fail. Commit sẵn dist thì Plesk chỉ cần pull.
+# => PHẢI chạy `npm run build` trước mỗi lần push, nếu không web sẽ chạy bản cũ.
 *.log
 .DS_Store
 ._*
