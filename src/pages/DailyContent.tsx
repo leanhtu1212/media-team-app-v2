@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video, StickyNote, Tag, ArrowLeft, FileText, Check, Calendar, ExternalLink, Hash, CheckCircle2, Circle } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, ProgressBar } from '../components/ui';
@@ -84,13 +84,14 @@ function stripeFor(entry: CalEntry, today: string): string {
   if (entry.kind === 'project') {
     const p = entry.project;
     if (isProjectFinished(p.status)) return 'border-emerald-500';
-    if ((p.deadline || '') < today) return 'border-red-500';
+    // Chưa có deadline thì KHÔNG được coi là quá hạn — '' < today luôn true nên phải check tồn tại trước.
+    if (!!p.deadline && p.deadline < today) return 'border-red-500';
     if (p.status === 'post-production') return 'border-amber-400';
     if (p.status === 'pre-production') return 'border-sky-400';
     return 'border-slate-500';
   }
   const t = entry.task;
-  if ((t.deadline || '') < today) return 'border-red-500';
+  if (!!t.deadline && t.deadline < today) return 'border-red-500';
   return 'border-amber-400';
 }
 
@@ -102,6 +103,16 @@ type SpanProject = { project: Project; start: string; end: string };
 
 const BAR_UNIT = 24; // chiều cao mỗi lane thanh (px)
 const BAR_TOP = 26;  // chừa chỗ số ngày ở đầu ô
+const MAX_WEEKS = 160; // chặn trên số tuần render (~3 năm) — tránh cuộn vô hạn ăn hết bộ nhớ
+
+/* ---------- Helper ngày cho lịch cuộn liên tục (kiểu Apple Calendar) ---------- */
+const parseDate = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const fmtDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const addDays = (s: string, n: number) => { const d = parseDate(s); d.setDate(d.getDate() + n); return fmtDate(d); };
+/** Thứ 2 của tuần chứa ngày `s` — mọi tuần trong dải đều bắt đầu từ đây. */
+const mondayOf = (s: string) => { const d = parseDate(s); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return fmtDate(d); };
+/** Chỉ số tuần TUYỆT ĐỐI (không phụ thuộc dải đang render) → lane dự án ổn định khi nạp thêm tuần. */
+const weekIndexAbs = (s: string) => Math.floor(parseDate(mondayOf(s)).getTime() / 604800000);
 
 // Hue (0–360) từ mã màu hex, để xếp thứ tự ưu tiên theo màu. null nếu không đọc được.
 function hexHue(hex?: string): number | null {
@@ -626,214 +637,316 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
     }
   };
 
-  // Dự án inhouse (kể cả đã xong) → vẽ thanh nối liền từ NGÀY BẮT ĐẦU (startDate) → deadline.
-  // startDate là ngày người dùng chọn khi tạo (double-tap trên lịch), không phải ngày tạo bản ghi.
-  // Dự án cũ chưa có startDate → tạm lấy createdAt để vẫn hiển thị. Thiếu deadline → thanh 1 ngày ở start.
-  const spanProjects = useMemo<SpanProject[]>(() => {
-    const [mStart, mEnd] = monthRange(month);
-    return projects.flatMap((p) => {
+  // ── Lịch CUỘN LIÊN TỤC kiểu Apple Calendar ──
+  // Không tách ô theo tháng: một dải TUẦN nối nhau, ngày đầu mỗi tháng có nhãn phân cách.
+  // rangeStart = thứ 2 của tuần chứa ngày 1 tháng bắt đầu; weeksShown = số tuần đang render.
+  const [startMonth, setStartMonth] = useState(() => shiftMonth(currentMonth(), -1));
+  const [weeksShown, setWeeksShown] = useState(18);
+  const rangeStart = useMemo(() => mondayOf(`${startMonth}-01`), [startMonth]);
+  const weeks = useMemo(
+    () => Array.from({ length: weeksShown }, (_, w) => Array.from({ length: 7 }, (_, i) => addDays(rangeStart, w * 7 + i))),
+    [rangeStart, weeksShown],
+  );
+
+  // Dự án inhouse → thanh nối liền từ startDate (fallback createdAt) đến deadline.
+  // Không giới hạn theo tháng nữa: layoutWeek tự cắt theo từng tuần của dải.
+  const spanProjects = useMemo<SpanProject[]>(
+    () => projects.flatMap((p) => {
       if (p.projectType === 'outsource') return [];
       const start = p.startDate || tsToDateStr(p.createdAt);
       if (!start) return [];
       const end = p.deadline && p.deadline >= start ? p.deadline : start;
-      if (end < mStart || start > mEnd) return []; // không giao với tháng đang xem
       return [{ project: p, start, end }];
-    });
-  }, [projects, month]);
+    }),
+    [projects],
+  );
   const spanIds = useMemo(() => new Set(spanProjects.map((s) => s.project.id)), [spanProjects]);
-  // Lane cố định toàn cục CHỈ cho dự án DÀI (qua ≥2 tuần) — các tuần thẳng hàng nhau.
-  // Dự án ngắn (gói trong 1 tuần) không vào map này → layoutWeek tự lấp lane trống của tuần.
-  const globalLanes = useMemo(() => {
-    const [y, m] = month.split('-').map(Number);
-    const off = (new Date(y, m - 1, 1).getDay() + 6) % 7;
-    const [mStart, mEnd] = monthRange(month);
-    const weekIdx = (d: string) => Math.floor((off + Number(d.slice(8)) - 1) / 7);
-    const longSpans = spanProjects.filter((s) => {
-      const a = s.start < mStart ? mStart : s.start;
-      const b = s.end > mEnd ? mEnd : s.end;
-      return weekIdx(a) !== weekIdx(b);
-    });
-    return assignGlobalLanes(longSpans, (p) => tagColorOf(p.tagId) || ((p.deadline || '') < today ? '#dc2626' : '#0284c7'));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spanProjects, month, today]);
 
-  // Gom mọi entry của tháng theo ngày (bỏ qua dự án đã vẽ thành thanh nối liền)
+  // Lane cố định cho dự án DÀI (qua ≥2 tuần) — dùng chỉ số tuần tuyệt đối nên ổn định
+  // kể cả khi nạp thêm tuần ở hai đầu dải.
+  const globalLanes = useMemo(
+    () => assignGlobalLanes(
+      spanProjects.filter((s) => weekIndexAbs(s.start) !== weekIndexAbs(s.end)),
+      (p) => tagColorOf(p.tagId) || (!!p.deadline && p.deadline < today ? '#dc2626' : '#0284c7'),
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [spanProjects, today, tags],
+  );
+
+  // Gom mọi mục theo ngày (map toàn bộ dữ liệu, tra cứu O(1) — không phụ thuộc dải đang xem)
   const byDay = useMemo(() => {
     const map: Record<string, CalEntry[]> = {};
     const push = (date: string, e: CalEntry) => { (map[date] ||= []).push(e); };
-
-    dailyContent.forEach((d) => {
-      if ((d.dueDate || '').startsWith(month)) push(d.dueDate!, { kind: 'daily', daily: d });
-    });
-    // Mọi dự án chưa vẽ thành thanh (chủ yếu là outsource) — hiện chip theo deadline,
-    // nếu chưa có deadline thì dùng startDate để không bị vô hình trên lịch.
+    dailyContent.forEach((d) => { if (d.dueDate) push(d.dueDate, { kind: 'daily', daily: d }); });
     projects.forEach((p) => {
       if (spanIds.has(p.id)) return;
       const day = p.deadline || p.startDate;
-      if ((day || '').startsWith(month)) push(day!, { kind: 'project', project: p });
+      if (day) push(day, { kind: 'project', project: p });
     });
-    // Khoản chi phí tiền kỳ chưa xong, deadline trong tháng — CHỈ admin thấy (dữ liệu chi phí)
     if (isAdmin) {
       allTasks.forEach((t) => {
-        if (t.category === 'pre-production' && t.status !== 'completed' && !t.dntt && (t.deadline || '').startsWith(month)) {
-          push(t.deadline!, { kind: 'task', task: t, project: projects.find((p) => p.id === t.projectId) });
+        if (t.category === 'pre-production' && t.status !== 'completed' && !t.dntt && t.deadline) {
+          push(t.deadline, { kind: 'task', task: t, project: projects.find((p) => p.id === t.projectId) });
         }
       });
     }
-    // Ghi chú ghim theo ngày trong tháng
-    notes.forEach((n) => {
-      if ((n.date || '').startsWith(month)) push(n.date, { kind: 'note', note: n });
-    });
+    notes.forEach((n) => { if (n.date) push(n.date, { kind: 'note', note: n }); });
     return map;
-  }, [dailyContent, projects, allTasks, notes, month, spanIds, isAdmin]);
+  }, [dailyContent, projects, allTasks, notes, spanIds, isAdmin]);
 
-  const monthCount = useMemo(() => Object.values(byDay).reduce((s, l) => s + l.length, 0) + spanProjects.length, [byDay, spanProjects]);
+  // Chạm đáy → nối thêm tuần. `readyRef` chặn nạp trong lúc đang cuộn về hôm nay lúc mở trang,
+  // nếu không observer bắn liên tiếp và lịch chạy đà đi vài năm. MAX_WEEKS là chặn trên an toàn.
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const readyRef = useRef(false);
+  useEffect(() => {
+    const el = bottomRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!readyRef.current) return;
+        if (entries.some((e) => e.isIntersecting)) setWeeksShown((n) => Math.min(n + 6, MAX_WEEKS));
+      },
+      { rootMargin: '200px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
-  // Calendar cells
-  const [yy, mm] = month.split('-').map(Number);
-  const startOffset = (new Date(yy, mm - 1, 1).getDay() + 6) % 7;
-  const lastDate = new Date(yy, mm, 0).getDate();
-  const totalCells = Math.ceil((startOffset + lastDate) / 7) * 7;
-  const cells: (string | null)[] = Array.from({ length: totalCells }, (_, i) => {
-    const d = i - startOffset + 1;
-    return d >= 1 && d <= lastDate ? `${month}-${String(d).padStart(2, '0')}` : null;
-  });
-  const weeks: (string | null)[][] = [];
-  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  // Nối thêm về QUÁ KHỨ, giữ nguyên vị trí đang đọc (bù lại phần chiều cao vừa chèn thêm)
+  const loadEarlier = () => {
+    const h = document.documentElement.scrollHeight;
+    setStartMonth((m) => shiftMonth(m, -2));
+    setWeeksShown((n) => n + 9);
+    requestAnimationFrame(() => window.scrollBy(0, document.documentElement.scrollHeight - h));
+  };
+
+  // Tháng hiện hành = tháng của tuần đang cắt qua ĐƯỜNG 1/3 TRÊN của khung nhìn.
+  // Tính trực tiếp theo scroll (không dùng IntersectionObserver) để chuyển tháng đúng thời điểm
+  // ngày 1 tháng mới chạm mốc 1/3, thay vì phải cuộn quá nửa tháng mới đổi.
+  const weekRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  useEffect(() => {
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const lineY = window.innerHeight / 3;
+      let best: string | null = null;
+      for (const el of Object.values(weekRefs.current)) {
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (r.top <= lineY && r.bottom > lineY) { best = el.getAttribute('data-month'); break; }
+      }
+      if (best && best !== month) setMonth(best);
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(update); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    update();
+    return () => { window.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
+  }, [weeks, month, setMonth]);
+
+  // Cuộn tới ĐẦU tháng `m` (tuần chứa ngày 1) để thấy trọn tháng, chừa chỗ cho hàng thứ dính trên.
+  const HEADER_OFFSET = 56;
+  const scrollToMonthStart = (m: string, behavior: ScrollBehavior = 'auto') => {
+    const el = document.querySelector<HTMLElement>(`[data-week-of="${mondayOf(`${m}-01`)}"]`);
+    if (!el) return;
+    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - HEADER_OFFSET, behavior });
+  };
+
+  // MỞ LỊCH ƯU TIÊN THÁNG HÔM NAY: reset dải quanh tháng hiện tại, cuộn tới ĐẦU tháng đó (thấy cả tháng).
+  const didInit = useRef(false);
+  useEffect(() => {
+    if (didInit.current) return;
+    didInit.current = true;
+    const cur = currentMonth();
+    setStartMonth(shiftMonth(cur, -1));
+    setWeeksShown(18);
+    setMonth(cur);
+    const jump = () => scrollToMonthStart(cur);
+    // Cuộn ngay khi dải dựng xong (2 nhịp: state → layout), rồi cuộn LẠI sau khi dữ liệu Firestore
+    // về — lúc đó chip làm các ô cao lên nên vị trí cũ bị lệch. Xong mới cho phép nạp thêm tuần.
+    requestAnimationFrame(() => requestAnimationFrame(jump));
+    const t1 = setTimeout(jump, 400);
+    const t2 = setTimeout(() => { readyRef.current = true; }, 800);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const goToday = () => {
+    const cur = currentMonth();
+    setStartMonth(shiftMonth(cur, -1));
+    setWeeksShown(18);
+    requestAnimationFrame(() => requestAnimationFrame(() => scrollToMonthStart(cur, 'smooth')));
+  };
 
   return (
     <div className="fade-up space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-extrabold tracking-tight">Lịch tháng</h1>
-          <p className="text-sm text-muted">{monthCount} mục trong {monthLabel(month).toLowerCase()} — nội dung, deadline dự án & task đang chạy</p>
+          <p className="text-sm text-muted">Đang xem {monthLabel(month).toLowerCase()} — cuộn xuống để xem tháng tiếp theo</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={goToday}><Calendar size={15} /> Hôm nay</Button>
           {isEditor && <Button variant="outline" onClick={() => setTagManagerOpen(true)}><Tag size={15} /> Tag màu</Button>}
           {canEditDaily && <Button onClick={() => openNew()}><Plus size={15} /> Nội dung</Button>}
         </div>
       </div>
 
-      <MonthNav month={month} onChange={setMonth} />
-
-      <Card className="p-3 sm:p-4">
-        <div className="grid grid-cols-7 gap-2 mb-2">
-          {DAY_LABELS.map((d) => <div key={d} className="text-center text-xs font-bold text-dim py-1">{d}</div>)}
+      {/* Chú thích màu — đặt ngoài danh sách tháng để luôn thấy khi cuộn */}
+      <Card className="p-3 space-y-2">
+        <div className="flex flex-wrap gap-3 items-center text-[11px] text-muted">
+          <span className="font-bold text-dim uppercase text-[10px] tracking-wide">Loại</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500/50" /> Content</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-sky-500/50" /> Dự án inhouse</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/50" /> Dự án outsource</span>
+          {isAdmin && <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500/50" /> Chi phí</span>}
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500/50" /> Ghi chú</span>
         </div>
+        <div className="flex flex-wrap gap-3 items-center text-[11px] text-muted">
+          <span className="font-bold text-dim uppercase text-[10px] tracking-wide">Tiến độ (vạch)</span>
+          <span className="flex items-center gap-1.5"><span className="w-1 h-3 bg-slate-500 rounded" /> Chưa bắt đầu</span>
+          <span className="flex items-center gap-1.5"><span className="w-1 h-3 bg-amber-400 rounded" /> Đang làm</span>
+          <span className="flex items-center gap-1.5"><span className="w-1 h-3 bg-emerald-500 rounded" /> Xong</span>
+          <span className="flex items-center gap-1.5"><span className="w-1 h-3 bg-red-500 rounded" /> Quá hạn</span>
+        </div>
+      </Card>
+      {/* Dải TUẦN liên tục kiểu Apple Calendar — thứ dính trên đầu, tháng phân cách bằng nhãn */}
+      <Card className="p-3 sm:p-4">
+        <div className="sticky top-0 z-30 -mx-3 sm:-mx-4 -mt-3 sm:-mt-4 px-3 sm:px-4 pt-3 sm:pt-4 pb-2 bg-surface/95 backdrop-blur-sm rounded-t-xl">
+          <div className="grid grid-cols-7 gap-2">
+            {DAY_LABELS.map((d) => <div key={d} className="text-center text-xs font-bold text-dim py-1">{d}</div>)}
+          </div>
+        </div>
+
+        <div className="flex justify-center py-2">
+          <Button variant="ghost" onClick={loadEarlier} className="!text-xs !py-1.5">
+            <ChevronLeft size={14} /> Xem trước đó
+          </Button>
+        </div>
+
         <div className="space-y-2">
           {weeks.map((week, wi) => {
-            // Bố cục thanh dự án nối liền của tuần này
             const { bars, colLanes } = layoutWeek(week, spanProjects, globalLanes);
+            // Tuần này có chứa ngày 1 của tháng nào không → chèn nhãn phân cách tháng
+            const firstOfMonth = week.find((d) => d.endsWith('-01'));
+            // Tháng đại diện của tuần: nếu tuần chứa ngày 1 của tháng mới → tính là THÁNG MỚI luôn
+            // (để tuần vắt qua 2 tháng đổi sang tháng mới ngay khi ngày 1 xuất hiện, không đợi hết tuần).
+            const weekMonth = (firstOfMonth ?? week[0]).slice(0, 7);
             return (
-              <div key={wi} className="relative">
-                {/* Lớp ô ngày */}
-                <div className="grid grid-cols-7 gap-2">
-                  {week.map((date, c) => {
-                    if (!date) return <div key={c} />;
-                    const list = byDay[date] || [];
-                    const isToday = date === today;
-                    const isDragOver = date === dragOverDay;
-                    const off = isDayOff(date);
-                    return (
-                      // Ô ngày là <div> (không phải <button>) để các chip lồng bên trong nhận
-                      // được sự kiện double-click riêng — button không giao event cho con.
-                      <div
-                        key={date}
-                        role="button"
-                        tabIndex={0}
-                        onDoubleClick={() => startCreate(date)}
-                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverDay !== date) setDragOverDay(date); }}
-                        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverDay((cur) => (cur === date ? null : cur)); }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          setDragOverDay(null);
-                          const payload = e.dataTransfer.getData('text/plain');
-                          if (payload) handleDropOnDay(date, payload);
-                        }}
-                        title={canEditDaily ? (isEditor ? `Nhấn đúp để tạo mới (dự án / nội dung)${off ? ' · Ngày nghỉ' : ''}` : `Nhấn đúp vào chỗ trống để tạo nội dung${off ? ' · Ngày nghỉ' : ''}`) : (off ? 'Ngày nghỉ' : undefined)}
-                        className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col select-none ${
-                          isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40' : isToday ? 'border-indigo-500/40 bg-surface-2' : off ? 'border-line/60 bg-black/40 hover:border-line-2' : 'border-line hover:border-line-2'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className={`text-sm font-bold ${isToday ? 'text-indigo-300' : 'text-muted'}`}>{Number(date.slice(8))}</span>
-                          {list.length > 0 && <span className="text-[10px] font-bold text-dim">{list.length}</span>}
-                        </div>
-                        {/* Chừa chỗ phía trên đúng bằng số thanh đi qua Ô NÀY */}
-                        <div className="space-y-1 flex-1" style={colLanes[c] ? { marginTop: colLanes[c] * BAR_UNIT } : undefined}>
-                          {list.slice(0, 4).map((entry, j) => (
-                            <CalChip
-                              key={j}
-                              entry={entry}
-                              today={today}
-                              canEditDaily={canEditDaily}
-                              isEditor={isEditor}
-                              assigneeName={(id) => memberOf(id)?.username}
-                              onDetail={(d) => onOpenContent(d.id)}
-                              onOpenProject={onOpenProject}
-                              onNote={(n) => setNoteModal({ note: n, date: n.date })}
-                              tagColor={tagColorOf}
-                            />
-                          ))}
-                          {list.length > 4 && <span className="text-[10px] text-dim block pl-1">+{list.length - 4} mục khác</span>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Lớp thanh dự án nối liền (overlay) — grid-column phủ luôn khoảng gap → liền mạch */}
-                {bars.length > 0 && (
-                  <div className="absolute inset-0 grid grid-cols-7 gap-2 pointer-events-none" style={{ paddingTop: BAR_TOP }}>
-                    {bars.map((bar) => {
-                      const p = bar.project;
-                      const overdue = (p.deadline || '') < today;
-                      const tagCol = tagColorOf(p.tagId);
-                      const stripe = stripeFor({ kind: 'project', project: p }, today);
+              <div key={week[0]} data-month={weekMonth} data-week-of={week[0]} ref={(el) => { weekRefs.current[wi] = el; }}>
+                {firstOfMonth && (() => {
+                  const lm = firstOfMonth.slice(0, 7);
+                  const isActive = lm === month;
+                  return (
+                    <div className={`flex items-center gap-3 pt-3 pb-1.5 transition-opacity ${isActive ? '' : 'opacity-45'}`}>
+                      <h3 className={`text-sm font-extrabold tracking-tight ${lm === today.slice(0, 7) ? 'text-indigo-300' : 'text-ink'}`}>
+                        {monthLabel(lm)}
+                      </h3>
+                      <div className="flex-1 h-px bg-line" />
+                    </div>
+                  );
+                })()}
+                <div className="relative">
+                  <div className="grid grid-cols-7 gap-2">
+                    {week.map((date, c) => {
+                      const list = byDay[date] || [];
+                      const isToday = date === today;
+                      const isDragOver = date === dragOverDay;
+                      const off = isDayOff(date);
+                      const dayNum = Number(date.slice(8));
+                      const isMonthStart = dayNum === 1;
+                      // Chỉ tháng đang cuộn tới hiện rõ; các tháng khác mờ đi để dễ định vị
+                      const inActiveMonth = date.slice(0, 7) === month;
                       return (
+                        // Ô ngày là <div> (không phải <button>) để chip con nhận được double-click riêng
                         <div
-                          key={p.id}
-                          style={{ gridColumn: `${bar.colStart + 1} / span ${bar.span}`, gridRow: 1, alignSelf: 'start', marginTop: bar.lane * BAR_UNIT, height: BAR_UNIT - 4, ...(tagCol ? { backgroundColor: tagCol } : {}) }}
-                          onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
-                          title={`${p.title}${p.deadline ? ` · deadline ${formatDate(p.deadline)}` : ''}`}
-                          className={`pointer-events-auto cursor-pointer flex items-center gap-1 px-2 overflow-hidden select-none shadow-sm text-white ${
-                            bar.roundLeft ? 'justify-start' : 'justify-end'
-                          } ${tagCol ? '' : overdue ? 'bg-red-600' : 'bg-sky-600'} ${bar.roundLeft ? `border-l-4 ${stripe} rounded-l-md ml-0.5` : ''} ${bar.roundRight ? 'rounded-r-md mr-0.5' : ''}`}
+                          key={date}
+                          role="button"
+                          tabIndex={0}
+                          onDoubleClick={() => startCreate(date)}
+                          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverDay !== date) setDragOverDay(date); }}
+                          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverDay((cur) => (cur === date ? null : cur)); }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            setDragOverDay(null);
+                            const payload = e.dataTransfer.getData('text/plain');
+                            if (payload) handleDropOnDay(date, payload);
+                          }}
+                          title={canEditDaily ? (isEditor ? `Nhấn đúp để tạo mới (dự án / nội dung)${off ? ' · Ngày nghỉ' : ''}` : `Nhấn đúp vào chỗ trống để tạo nội dung${off ? ' · Ngày nghỉ' : ''}`) : (off ? 'Ngày nghỉ' : undefined)}
+                          className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col select-none ${
+                            isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40' : isToday ? 'border-indigo-500/40 bg-surface-2' : off ? 'border-line/60 bg-black/40 hover:border-line-2' : 'border-line hover:border-line-2'
+                          } ${inActiveMonth ? '' : 'opacity-35 hover:opacity-70'}`}
                         >
-                          {bar.roundLeft ? (
-                            <>
-                              <FolderKanban size={11} className="shrink-0" />
-                              <span className="truncate text-[11px] font-semibold">{p.title}</span>
-                            </>
-                          ) : (
-                            // Đoạn nối tiếp ở tuần sau → tên nhỏ & mờ ở cuối line, chỉ để nhận biết
-                            <span className="truncate text-[10px] font-medium text-white/55">{p.title}</span>
-                          )}
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className={`text-sm font-bold ${isToday ? 'text-indigo-300' : isMonthStart ? 'text-ink' : 'text-muted'}`}>
+                              {dayNum}
+                              {isMonthStart && <span className="ml-1 text-[10px] font-bold text-dim">Th{Number(date.slice(5, 7))}</span>}
+                            </span>
+                            {list.length > 0 && <span className="text-[10px] font-bold text-dim">{list.length}</span>}
+                          </div>
+                          {/* Chừa chỗ phía trên đúng bằng số thanh đi qua Ô NÀY */}
+                          <div className="space-y-1 flex-1" style={colLanes[c] ? { marginTop: colLanes[c] * BAR_UNIT } : undefined}>
+                            {list.slice(0, 4).map((entry, j) => (
+                              <CalChip
+                                key={j}
+                                entry={entry}
+                                today={today}
+                                canEditDaily={canEditDaily}
+                                isEditor={isEditor}
+                                assigneeName={(id) => memberOf(id)?.username}
+                                onDetail={(d) => onOpenContent(d.id)}
+                                onOpenProject={onOpenProject}
+                                onNote={(n) => setNoteModal({ note: n, date: n.date })}
+                                tagColor={tagColorOf}
+                              />
+                            ))}
+                            {list.length > 4 && <span className="text-[10px] text-dim block pl-1">+{list.length - 4} mục khác</span>}
+                          </div>
                         </div>
                       );
                     })}
                   </div>
-                )}
+
+                  {/* Lớp thanh dự án nối liền (overlay) — grid-column phủ luôn khoảng gap → liền mạch */}
+                  {bars.length > 0 && (
+                    <div className="absolute inset-0 grid grid-cols-7 gap-2 pointer-events-none" style={{ paddingTop: BAR_TOP }}>
+                      {bars.map((bar) => {
+                        const p = bar.project;
+                        const overdue = !!p.deadline && p.deadline < today;
+                        const tagCol = tagColorOf(p.tagId);
+                        const stripe = stripeFor({ kind: 'project', project: p }, today);
+                        return (
+                          <div
+                            key={p.id}
+                            style={{ gridColumn: `${bar.colStart + 1} / span ${bar.span}`, gridRow: 1, alignSelf: 'start', marginTop: bar.lane * BAR_UNIT, height: BAR_UNIT - 4, ...(tagCol ? { backgroundColor: tagCol } : {}) }}
+                            onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
+                            title={`${p.title}${p.deadline ? ` · deadline ${formatDate(p.deadline)}` : ''}`}
+                            className={`pointer-events-auto cursor-pointer flex items-center gap-1 px-2 overflow-hidden select-none shadow-sm text-white ${
+                              bar.roundLeft ? 'justify-start' : 'justify-end'
+                            } ${tagCol ? '' : overdue ? 'bg-red-600' : 'bg-sky-600'} ${bar.roundLeft ? `border-l-4 ${stripe} rounded-l-md ml-0.5` : ''} ${bar.roundRight ? 'rounded-r-md mr-0.5' : ''}`}
+                          >
+                            {bar.roundLeft ? (
+                              <>
+                                <FolderKanban size={11} className="shrink-0" />
+                                <span className="truncate text-[11px] font-semibold">{p.title}</span>
+                              </>
+                            ) : (
+                              // Đoạn nối tiếp ở tuần sau → tên nhỏ & mờ ở cuối line, chỉ để nhận biết
+                              <span className="truncate text-[10px] font-medium text-white/55">{p.title}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
-        <div className="mt-3 space-y-2">
-          <div className="flex flex-wrap gap-3 items-center text-[11px] text-muted">
-            <span className="font-bold text-dim uppercase text-[10px] tracking-wide">Loại</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500/50" /> Content</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-sky-500/50" /> Dự án inhouse</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/50" /> Dự án outsource</span>
-            {isAdmin && <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500/50" /> Chi phí</span>}
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500/50" /> Ghi chú</span>
-          </div>
-          <div className="flex flex-wrap gap-3 items-center text-[11px] text-muted">
-            <span className="font-bold text-dim uppercase text-[10px] tracking-wide">Tiến độ (vạch)</span>
-            <span className="flex items-center gap-1.5"><span className="w-0.5 h-3 bg-slate-500 rounded" /> Chưa bắt đầu</span>
-            <span className="flex items-center gap-1.5"><span className="w-0.5 h-3 bg-amber-400 rounded" /> Đang làm</span>
-            <span className="flex items-center gap-1.5"><span className="w-0.5 h-3 bg-emerald-500 rounded" /> Xong</span>
-            <span className="flex items-center gap-1.5"><span className="w-0.5 h-3 bg-red-500 rounded" /> Quá hạn</span>
-          </div>
+
+        {/* Mốc chạm đáy → nối thêm tuần */}
+        <div ref={bottomRef} className="h-10 flex items-center justify-center text-[11px] text-dim">
+          Đang tải thêm…
         </div>
       </Card>
 
