@@ -125,7 +125,7 @@ export async function createTask(input: NewTaskInput, user: User, projectTitle: 
   let sourceReportId: string | undefined;
   if (isCompleted && input.category !== 'pre-production') {
     const report = buildAutoReport(
-      { taskId: id, projectId: input.projectId, projectTitle, title: input.title, category: input.category, quantity: input.quantity || 1, hasKB: !!input.hasKB, reportDate },
+      { taskId: id, projectId: input.projectId, projectTitle, title: input.title, category: input.category, quantity: input.quantity || 1, hasKB: !!input.hasKB, reportDate, link: input.link },
       user,
     );
     sourceReportId = report.id;
@@ -223,7 +223,7 @@ export async function toggleDntt(task: Task): Promise<void> {
 
 interface AutoReportInfo {
   taskId: string; projectId: string; projectTitle: string; title: string;
-  category: string; quantity: number; hasKB: boolean; reportDate: string;
+  category: string; quantity: number; hasKB: boolean; reportDate: string; link?: string;
 }
 
 /** Dựng dữ liệu report tự động (thuần — không ghi Firestore) để dùng trong batch. */
@@ -242,6 +242,7 @@ function buildAutoReport(info: AutoReportInfo, user: User): { id: string; data: 
       hasKB: info.hasKB,
       reportType: 'auto',
       relatedTaskId: info.taskId,
+      link: info.link || '',
       createdAt: serverTimestamp(),
       createdBy: user.uid,
       userEmail: user.email || '',
@@ -277,7 +278,7 @@ export async function createManualReport(data: Partial<Report>, user: User): Pro
 /** Report tự động khi trả 1 video trong Daily Content (1 video = 1 báo cáo). */
 export async function createContentVideoReport(input: {
   contentId: string; title: string; projectId?: string; reportDate: string;
-  createdBy: string; userEmail: string;
+  createdBy: string; userEmail: string; link?: string;
 }): Promise<string> {
   const id = genId();
   await setDoc(ref.report(id), {
@@ -290,6 +291,7 @@ export async function createContentVideoReport(input: {
     hasKB: false,
     reportType: 'auto',
     relatedContentId: input.contentId,
+    link: input.link || '',
     createdAt: serverTimestamp(),
     createdBy: input.createdBy,
     userEmail: input.userEmail || '',

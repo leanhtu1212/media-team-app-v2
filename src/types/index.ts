@@ -85,6 +85,7 @@ export interface Report {
   userEmail?: string;
   relatedTaskId?: string;
   relatedContentId?: string; // id daily content nguồn (báo cáo auto từ trả video content)
+  link?: string; // link thành phẩm ảnh/video (nếu có)
 }
 
 export interface ProductType {

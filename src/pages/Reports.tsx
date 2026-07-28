@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, Pencil, FileText, Download } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, Pencil, FileText, Download, ExternalLink } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, EmptyState } from '../components/ui';
 import { createManualReport, updateReport, deleteReport } from '../lib/actions';
@@ -27,8 +27,12 @@ function autoLabel(r: Report, projTitle?: string): string {
 const isAutoReport = (r: Report) => r.reportType === 'auto' || (r.content || '').startsWith('Báo cáo tự động:');
 
 export function ReportsPage({ user }: { user: User }) {
-  const { reports, projects, members, productTypes, allTasks, isEditor } = useAppData();
+  const { reports, projects, members, productTypes, allTasks, dailyContent, isEditor } = useAppData();
   const toast = useToast();
+  // Tên nguồn báo cáo auto: content (trả video) hoặc dự án (task ảnh/video).
+  const sourceTitleOf = (r: Report) => r.relatedContentId
+    ? dailyContent.find((d) => d.id === r.relatedContentId)?.title
+    : projects.find((p) => p.id === r.projectId)?.title;
   const [month, setMonth] = useState(currentMonth());
   const [filter, setFilter] = useState<'all' | 'manual' | 'auto'>('all');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -164,7 +168,7 @@ export function ReportsPage({ user }: { user: User }) {
                     {list.slice(0, 3).map((r) => {
                       const isAuto = isAutoReport(r);
                       const name = memberOf(r)?.username || r.userEmail?.split('@')[0] || '?';
-                      const summary = isAuto ? autoLabel(r, projects.find((p) => p.id === r.projectId)?.title) : (r.content || '');
+                      const summary = isAuto ? autoLabel(r, sourceTitleOf(r)) : (r.content || '');
                       const color = colorOf(r);
                       return (
                         <div
@@ -213,10 +217,15 @@ export function ReportsPage({ user }: { user: User }) {
                   <div className="flex-1 min-w-0">
                     {isAuto ? (
                       <>
-                        <p className="text-sm">{autoLabel(r, proj?.title)}</p>
+                        <p className="text-sm">{autoLabel(r, sourceTitleOf(r))}</p>
                         <div className="flex items-center gap-2 mt-0.5 text-[11px] text-dim flex-wrap">
                           <span className="font-bold text-muted">{creator?.username || r.userEmail}</span>
                           <span>· {formatDateTime(r.createdAt) || formatDate(r.reportDate)}</span>
+                          {r.link && (
+                            <a href={r.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-indigo-300 hover:text-indigo-200 underline underline-offset-2 max-w-[220px] truncate">
+                              <ExternalLink size={11} className="shrink-0" /> <span className="truncate">{r.link}</span>
+                            </a>
+                          )}
                         </div>
                       </>
                     ) : (

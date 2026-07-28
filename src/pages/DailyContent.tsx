@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video, StickyNote, Tag, ArrowLeft, FileText, Check, Calendar, ExternalLink, Hash, CheckCircle2, Circle } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, ProgressBar } from '../components/ui';
-import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject, createNote, updateNote, deleteNote, createContentVideoReport, deleteReport } from '../lib/actions';
+import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject, createNote, updateNote, deleteNote, createContentVideoReport, deleteReport, updateReport } from '../lib/actions';
 import { notify, displayName } from '../lib/notify';
 import { ProjectFormModal } from './Projects';
 import { Linkify } from './ProjectDetail';
@@ -942,7 +942,7 @@ export function ContentDetailPage({
   onBack: () => void;
   onOpenProject: (id: string) => void;
 }) {
-  const { dailyContent, members, projects, tags, canEditDaily } = useAppData();
+  const { dailyContent, members, projects, tags, reports, canEditDaily } = useAppData();
   const toast = useToast();
   const item = dailyContent.find((d) => d.id === contentId);
 
@@ -960,8 +960,10 @@ export function ContentDetailPage({
   const backfilledRef = useRef<string | null>(null);
   useEffect(() => {
     if (!item || !canEditDaily) return;
-    const missing = (item.items || []).filter((i) => i.done && !i.reportId);
-    if (missing.length === 0 || backfilledRef.current === item.id) return;
+    const done = (item.items || []).filter((i) => i.done);
+    const missing = done.filter((i) => !i.reportId); // chưa có báo cáo → tạo
+    const linkSync = done.filter((i) => i.reportId && i.link && (reports.find((rp) => rp.id === i.reportId)?.link || '') !== i.link); // báo cáo cũ thiếu link → vá
+    if ((missing.length === 0 && linkSync.length === 0) || backfilledRef.current === item.id) return;
     backfilledRef.current = item.id;
     (async () => {
       const idMap: Record<string, string> = {};
@@ -969,10 +971,11 @@ export function ContentDetailPage({
         try {
           idMap[it.id] = await createContentVideoReport({
             contentId: item.id, title: item.title, projectId: item.projectId,
-            reportDate: it.doneDate || todayStr(), createdBy: user.uid, userEmail: user.email || '',
+            reportDate: it.doneDate || todayStr(), createdBy: user.uid, userEmail: user.email || '', link: it.link,
           });
         } catch (e) { console.error('Backfill báo cáo video lỗi:', e); }
       }
+      for (const it of linkSync) { try { await updateReport(it.reportId!, { link: it.link! }); } catch (e) { console.error(e); } }
       if (Object.keys(idMap).length === 0) return;
       const next = (item.items || []).map((i) => (idMap[i.id] ? { ...i, reportId: idMap[i.id] } : i));
       try { await updateDailyContent(item.id, { items: next }, { title: item.title, platform: item.platform }); } catch (e) { console.error(e); }
@@ -1011,10 +1014,10 @@ export function ContentDetailPage({
   const doneN = items.filter((i) => i.done).length;
   const saveItems = (next: ContentItem[], ok: string) => setField({ items: next }, ok);
   // Báo cáo luôn ghi công cho người đang thao tác (người bấm trả video).
-  const newVideoReport = async (reportDate: string, by?: { createdBy: string; userEmail: string }) =>
+  const newVideoReport = async (reportDate: string, link?: string) =>
     createContentVideoReport({
       contentId: item.id, title: item.title, projectId: item.projectId, reportDate,
-      createdBy: by?.createdBy || user.uid, userEmail: by?.userEmail ?? (user.email || ''),
+      createdBy: user.uid, userEmail: user.email || '', link,
     });
   // Editor trả video: dán link + tên tuỳ chọn → thêm vào coi như ĐÃ XONG (done=true) + tạo báo cáo auto.
   // Bấm tên vẫn mở đúng link. Nếu không nhập link mà chỉ gõ tên → item không link.
@@ -1029,7 +1032,7 @@ export function ContentDetailPage({
     // Không đưa key undefined vào Firestore (getFirestore không bật ignoreUndefinedProperties → sẽ ném lỗi).
     const newItem: ContentItem = { id: newItemId(), title, done: true, doneDate: today };
     if (isUrl) newItem.link = link;
-    try { newItem.reportId = await newVideoReport(today); } catch { /* lỗi tạo báo cáo vẫn lưu video */ }
+    try { newItem.reportId = await newVideoReport(today, isUrl ? link : undefined); } catch { /* lỗi tạo báo cáo vẫn lưu video */ }
     await saveItems([...items, newItem], 'Đã trả video — đã thêm báo cáo');
     setNewVideo('');
     setNewName('');
@@ -1049,7 +1052,7 @@ export function ContentDetailPage({
       // tick lại → tạo báo cáo mới
       const today = todayStr();
       let reportId: string | undefined;
-      try { reportId = await newVideoReport(today); } catch { /* vẫn tick */ }
+      try { reportId = await newVideoReport(today, it.link); } catch { /* vẫn tick */ }
       await saveItems(items.map((i) => {
         if (i.id !== id) return i;
         const { reportId: _old, ...base } = i;
@@ -1064,9 +1067,19 @@ export function ContentDetailPage({
     if (it?.reportId) { try { await deleteReport(it.reportId); } catch { /* đã xoá */ } }
     await saveItems(items.filter((i) => i.id !== id), 'Đã xoá video');
   };
-  const saveEditItem = () => {
+  const saveEditItem = async () => {
     if (!editItem || !editItem.title.trim()) return;
-    saveItems(items.map((i) => (i.id === editItem.id ? { ...i, title: editItem.title.trim(), link: editItem.link.trim() || undefined } : i)), 'Đã cập nhật video');
+    const link = editItem.link.trim();
+    const target = items.find((i) => i.id === editItem.id);
+    await saveItems(items.map((i) => {
+      if (i.id !== editItem.id) return i;
+      const { link: _l, ...rest } = i; // bỏ key link cũ, chỉ set lại khi có (tránh ghi undefined)
+      const updated: ContentItem = { ...rest, title: editItem.title.trim() };
+      if (link) updated.link = link;
+      return updated;
+    }), 'Đã cập nhật video');
+    // Đồng bộ link mới vào báo cáo liên kết (best-effort; cần là chủ báo cáo hoặc admin).
+    if (target?.reportId) { try { await updateReport(target.reportId, { link }); } catch { /* ignore */ } }
     setEditItem(null);
   };
 
