@@ -12,7 +12,7 @@ import { DashboardPage } from './pages/Dashboard';
 import { MePage } from './pages/Me';
 import { ProjectsPage, type ProjectsTab } from './pages/Projects';
 import { ProjectDetailPage } from './pages/ProjectDetail';
-import { DailyContentPage } from './pages/DailyContent';
+import { DailyContentPage, ContentDetailPage } from './pages/DailyContent';
 import { ReportsPage } from './pages/Reports';
 import { PerformancePage } from './pages/Performance';
 import { SettingsPage } from './pages/Settings';
@@ -22,6 +22,7 @@ function Shell({ user }: { user: User }) {
   useAutoIcsSync(); // tự động đẩy feed lịch Inhouse lên Apple khi dữ liệu đổi
   const [view, setView] = useState<View>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedContentId, setSelectedContentId] = useState<string | null>(null);
   // Lifted so the Inhouse/Outsource/Content tab survives opening a project detail
   const [projectsTypeFilter, setProjectsTypeFilter] = useState<ProjectsTab>('inhouse');
   // Lifted so Lịch tháng giữ nguyên tháng đang xem khi mở project detail rồi quay lại
@@ -36,24 +37,28 @@ function Shell({ user }: { user: User }) {
     );
   }
 
-  const openProject = (id: string) => setSelectedProjectId(id);
+  const openProject = (id: string) => { setSelectedContentId(null); setSelectedProjectId(id); };
   const closeProject = () => setSelectedProjectId(null);
-  const navigate = (v: View) => { setSelectedProjectId(null); setView(v); };
+  const openContent = (id: string) => { setSelectedProjectId(null); setSelectedContentId(id); };
+  const closeContent = () => setSelectedContentId(null);
+  const navigate = (v: View) => { setSelectedProjectId(null); setSelectedContentId(null); setView(v); };
 
   return (
     <div className="flex min-h-screen">
       <Sidebar view={view} onNavigate={navigate} />
       <main className="flex-1 min-w-0 p-4 lg:p-8">
         {/* key = remount boundary khi đổi trang, để một crash không kẹt cứng cả app */}
-        <ErrorBoundary key={selectedProjectId || view}>
+        <ErrorBoundary key={selectedProjectId || selectedContentId || view}>
           {selectedProjectId ? (
             <ProjectDetailPage projectId={selectedProjectId} user={user} onBack={closeProject} />
+          ) : selectedContentId ? (
+            <ContentDetailPage contentId={selectedContentId} user={user} onBack={closeContent} onOpenProject={openProject} />
           ) : (
             <>
-              {view === 'dashboard' && <DashboardPage user={user} onOpenProject={openProject} />}
-              {view === 'me' && <MePage user={user} onOpenProject={openProject} />}
-              {view === 'projects' && <ProjectsPage user={user} onOpenProject={openProject} typeFilter={projectsTypeFilter} onTypeFilterChange={setProjectsTypeFilter} />}
-              {view === 'daily' && <DailyContentPage user={user} onOpenProject={openProject} month={calendarMonth} onMonthChange={setCalendarMonth} />}
+              {view === 'dashboard' && <DashboardPage user={user} onOpenProject={openProject} onOpenContent={openContent} />}
+              {view === 'me' && <MePage user={user} onOpenProject={openProject} onOpenContent={openContent} />}
+              {view === 'projects' && <ProjectsPage user={user} onOpenProject={openProject} onOpenContent={openContent} typeFilter={projectsTypeFilter} onTypeFilterChange={setProjectsTypeFilter} />}
+              {view === 'daily' && <DailyContentPage user={user} onOpenProject={openProject} onOpenContent={openContent} month={calendarMonth} onMonthChange={setCalendarMonth} />}
               {view === 'reports' && <ReportsPage user={user} />}
               {view === 'performance' && isAdmin && <PerformancePage onOpenProject={openProject} />}
               {view === 'settings' && <SettingsPage user={user} />}

@@ -27,12 +27,12 @@ export interface Project {
   startDate?: string; // YYYY-MM-DD — ngày bắt đầu (vẽ thanh lịch từ đây → deadline)
   deadline?: string; // YYYY-MM-DD
   status: ProjectStatus;
-  itemStatus?: string;
   projectType?: ProjectType | string;
   productType?: string; // name from productTypes
   productCount?: number;
   photoTarget?: number;
   videoTarget?: number;
+  photoLink?: string; // link album/thư mục ảnh của dự án
   photoPoint?: number; // default 1
   videoPoint?: number; // default 3
   qualityScore?: number; // 0-10 when done
@@ -57,6 +57,7 @@ export interface Task {
   amount?: number; // VND, pre-production only
   difficulty?: number; // 1-5
   dntt?: boolean;
+  link?: string; // link thành phẩm (ảnh/video), không bắt buộc
   deadline?: string;
   tagId?: string;
   hasKB?: boolean;
@@ -95,6 +96,16 @@ export interface ProductType {
 
 export type DailyStatus = 'planned' | 'in-progress' | 'done' | 'published';
 
+/** Video con thuộc 1 content — 1 content có thể gồm nhiều video, tick xong từng cái.
+ *  Lưu thẳng dạng mảng trên doc dailyContent (không cần subcollection). */
+export interface ContentItem {
+  id: string;
+  title: string;
+  done: boolean;
+  link?: string; // link tham khảo/thành phẩm (không bắt buộc)
+  doneDate?: string; // ngày trả video (YYYY-MM-DD), set khi done=true
+}
+
 export interface DailyContent {
   id: string;
   title: string;
@@ -106,6 +117,7 @@ export interface DailyContent {
   notes?: string;
   points?: number;
   quantity?: number; // số lượng nội dung (mặc định 1)
+  items?: ContentItem[]; // danh sách video con; tiến độ = số video done / tổng
   status: DailyStatus;
   projectId?: string;
   tagId?: string;

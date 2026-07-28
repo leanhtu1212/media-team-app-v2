@@ -4,7 +4,7 @@ import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, EmptyState, Modal, Input, Textarea, Field, Avatar } from '../components/ui';
 import { createProject, updateProject } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
-import { formatDate, todayStr, normalize, itemStatusFromProjectStatus, isProjectFinished } from '../lib/utils';
+import { formatDate, todayStr, normalize, isProjectFinished } from '../lib/utils';
 import { ContentKanban } from './DailyContent';
 import { TagSelect } from '../components/tags';
 import type { Project, ProjectStatus } from '../types';
@@ -70,10 +70,11 @@ function ProjectCard({
 }
 
 export function ProjectsPage({
-  user, onOpenProject, typeFilter, onTypeFilterChange,
+  user, onOpenProject, onOpenContent, typeFilter, onTypeFilterChange,
 }: {
   user: User;
   onOpenProject: (id: string) => void;
+  onOpenContent: (id: string) => void;
   typeFilter: ProjectsTab;
   onTypeFilterChange: (t: ProjectsTab) => void;
 }) {
@@ -112,8 +113,7 @@ export function ProjectsPage({
     const p = projects.find((x) => x.id === projectId);
     if (!p || p.status === status) return;
     try {
-      // Status change drives itemStatus the same way ProjectDetail does
-      await updateProject(projectId, { status, itemStatus: itemStatusFromProjectStatus(status) }, { title: p.title, prevStatus: p.status });
+      await updateProject(projectId, { status }, { title: p.title, prevStatus: p.status });
       toast(`"${p.title}" → ${STATUS_LABEL[status]}`);
     } catch (e: unknown) {
       toast(`Lỗi: ${(e as Error).message}`, 'error');
@@ -181,7 +181,7 @@ export function ProjectsPage({
         </div>
       </div>
 
-      {typeFilter === 'content' && <ContentKanban user={user} newRef={contentNewRef} />}
+      {typeFilter === 'content' && <ContentKanban user={user} newRef={contentNewRef} onOpenContent={onOpenContent} />}
 
       {typeFilter !== 'content' && (
       <>

@@ -109,6 +109,7 @@ interface NewTaskInput {
   status?: Task['status'];
   dntt?: boolean;
   tagId?: string;
+  link?: string;
 }
 
 /** Create task; if created as completed → also create the linked auto-report.
@@ -143,6 +144,7 @@ export async function createTask(input: NewTaskInput, user: User, projectTitle: 
     amount: Number(input.amount) || 0,
     difficulty: Number(input.difficulty) || 1,
     dntt: !!input.dntt,
+    link: input.link || '',
     deadline: input.deadline || '',
     hasKB: !!input.hasKB,
     images: input.images || [],
@@ -162,13 +164,16 @@ export async function createTask(input: NewTaskInput, user: User, projectTitle: 
   } else {
     const label = input.category === 'photo' ? 'ảnh' : 'video';
     const icon = input.category === 'photo' ? '📸' : '🎬';
-    notify(`${icon} ${who} vừa thêm ${Number(input.quantity) || 1} ${label} — ${projectTitle}`);
+    const link = (input.link || '').trim();
+    notify(`${icon} ${who} vừa thêm ${Number(input.quantity) || 1} ${label} — ${projectTitle}${link ? `\n🔗 ${link}` : ''}`);
   }
   return id;
 }
 
 export async function updateTask(projectId: string, taskId: string, data: Partial<Task>): Promise<void> {
-  await updateDoc(ref.task(projectId, taskId), { ...data, updatedAt: serverTimestamp() });
+  // Firestore từ chối giá trị undefined → lọc bỏ trước khi ghi.
+  const clean = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+  await updateDoc(ref.task(projectId, taskId), { ...clean, updatedAt: serverTimestamp() });
 }
 
 export async function deleteTask(projectId: string, taskId: string): Promise<void> {

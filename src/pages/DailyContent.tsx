@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video, StickyNote, Tag } from 'lucide-react';
+import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video, StickyNote, Tag, ArrowLeft, FileText, Check, Calendar, ExternalLink, Hash, CheckCircle2, Circle } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
-import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
+import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, ProgressBar } from '../components/ui';
 import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject, createNote, updateNote, deleteNote } from '../lib/actions';
 import { notify, displayName } from '../lib/notify';
 import { ProjectFormModal } from './Projects';
@@ -9,13 +9,34 @@ import { Linkify } from './ProjectDetail';
 import { TagManagerModal, TagSelect, hexA } from '../components/tags';
 import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr, isDayOff } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
-import type { DailyContent, DailyStatus, Project, Task, Note } from '../types';
+import type { DailyContent, DailyStatus, Project, Task, Note, ContentItem } from '../types';
 import type { User } from '../lib/firebase';
 
 const STATUSES: DailyStatus[] = ['planned', 'in-progress', 'done', 'published'];
 const NEXT_STATUS: Record<DailyStatus, DailyStatus | null> = {
   planned: 'in-progress', 'in-progress': 'done', done: 'published', published: null,
 };
+// Tiến độ nội dung theo bước trạng thái (giống ProgressBar của dự án).
+// Kế hoạch 0% (đỏ) → Đang làm 40% (vàng) → Xong 75% (xanh) → Đã đăng 100% (xanh lá).
+const STATUS_PROGRESS: Record<DailyStatus, number> = {
+  planned: 0, 'in-progress': 40, done: 75, published: 100,
+};
+
+// Số video đã trả (done).
+const itemsDone = (d: DailyContent) => (d.items || []).filter((i) => i.done).length;
+
+// Số video CẦN làm = "số lượng" (quantity). Đủ số này thì content mới 100%.
+const contentTarget = (d: DailyContent) => Math.max(1, Number(d.quantity) || 1);
+
+// Tiến độ content: nếu đã có video con → số video trả / số lượng cần; chưa có video nào → theo trạng thái.
+function contentProgress(d: DailyContent): number {
+  const list = d.items || [];
+  if (list.length) return Math.min(100, (itemsDone(d) / contentTarget(d)) * 100);
+  return STATUS_PROGRESS[d.status];
+}
+
+const newItemId = () =>
+  (typeof crypto !== 'undefined' && 'randomUUID' in crypto) ? crypto.randomUUID() : `v_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const TYPES = ['Reels', 'Short', 'Viral / Trending', 'Brand Content', 'Lịch đăng'];
 const PLATFORMS = ['Instagram', 'TikTok', 'Facebook', 'YouTube', 'Đa kênh'];
 const DAY_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
@@ -167,7 +188,6 @@ export function useContentModals(user: User) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<DailyContent | null>(null);
   const [confirmDel, setConfirmDel] = useState<DailyContent | null>(null);
-  const [detailItem, setDetailItem] = useState<DailyContent | null>(null);
 
   const memberOf = (id?: string) => members.find((m) => m.uid === id || m.id === id);
   const openNew = (presetDate?: string) => {
@@ -206,19 +226,10 @@ export function useContentModals(user: User) {
         message={`Xoá "${confirmDel?.title}"?`}
         onConfirm={() => confirmDel && deleteDailyContent(confirmDel.id, confirmDel.title).then(() => toast('Đã xoá')).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
       />
-      <ContentDetailDrawer
-        item={detailItem}
-        assignee={detailItem ? memberOf(detailItem.assigneeId) : undefined}
-        creator={detailItem ? memberOf(detailItem.createdBy) : undefined}
-        canEdit={canEditDaily}
-        onClose={() => setDetailItem(null)}
-        onEdit={(it) => { setDetailItem(null); openEdit(it); }}
-        onDelete={(it) => { setDetailItem(null); setConfirmDel(it); }}
-      />
     </>
   );
 
-  return { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals };
+  return { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, modals };
 }
 
 function MonthNav({ month, onChange }: { month: string; onChange: (m: string) => void }) {
@@ -267,6 +278,16 @@ function ItemCard({
       <p className="text-sm font-bold leading-snug">{item.title}</p>
       <p className="text-[11px] text-dim mt-0.5">{item.type}</p>
       {item.notes && <p className="text-[11px] text-muted mt-1 line-clamp-2">{item.notes}</p>}
+      <div className="flex items-center justify-between mt-2.5 mb-1.5">
+        <span className="text-[10px] font-black uppercase tracking-widest text-muted flex items-center gap-1">
+          Tiến độ
+          {(item.items?.length || 0) > 0 && (
+            <span className="inline-flex items-center gap-0.5 text-violet-300 normal-case tracking-normal font-bold"><Video size={10} />{itemsDone(item)}/{contentTarget(item)}</span>
+          )}
+        </span>
+        <span className="text-[11px] font-bold tabular-nums text-dim">{Math.round(contentProgress(item))}%</span>
+      </div>
+      <ProgressBar value={contentProgress(item)} />
       <div className="flex items-center justify-between mt-2.5">
         <div className="flex items-center gap-1.5">
           {assignee && <Avatar name={assignee.username} url={assignee.avatarUrl} size={20} />}
@@ -289,9 +310,9 @@ function ItemCard({
  * ContentKanban — kanban Daily Content, render trong tab "Content"
  * của trang Dự án.
  * ================================================================ */
-export function ContentKanban({ user, newRef }: { user: User; newRef?: React.MutableRefObject<(() => void) | null> }) {
+export function ContentKanban({ user, newRef, onOpenContent }: { user: User; newRef?: React.MutableRefObject<(() => void) | null>; onOpenContent: (id: string) => void }) {
   const { dailyContent } = useAppData();
-  const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
+  const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, modals } = useContentModals(user);
   const [month, setMonth] = useState(currentMonth());
   const [dragOverCol, setDragOverCol] = useState<DailyStatus | null>(null);
 
@@ -348,7 +369,7 @@ export function ContentKanban({ user, newRef }: { user: User; newRef?: React.Mut
                     toast={toast}
                     onEdit={() => openEdit(item)}
                     onDelete={() => setConfirmDel(item)}
-                    onDetail={() => setDetailItem(item)}
+                    onDetail={() => onOpenContent(item.id)}
                   />
                 ))}
                 {items.length === 0 && <div className="border border-dashed border-line rounded-xl py-8 text-center text-xs text-dim">Trống</div>}
@@ -533,9 +554,9 @@ function NoteFormModal({
   );
 }
 
-export function DailyContentPage({ user, onOpenProject, month, onMonthChange }: { user: User; onOpenProject: (id: string) => void; month: string; onMonthChange: (m: string) => void }) {
+export function DailyContentPage({ user, onOpenProject, onOpenContent, month, onMonthChange }: { user: User; onOpenProject: (id: string) => void; onOpenContent: (id: string) => void; month: string; onMonthChange: (m: string) => void }) {
   const { dailyContent, projects, allTasks, notes, tags, isEditor, isAdmin } = useAppData();
-  const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, setDetailItem, modals } = useContentModals(user);
+  const { canEditDaily, toast, memberOf, openNew, modals } = useContentModals(user);
   const setMonth = onMonthChange;
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
@@ -738,7 +759,7 @@ export function DailyContentPage({ user, onOpenProject, month, onMonthChange }: 
                               canEditDaily={canEditDaily}
                               isEditor={isEditor}
                               assigneeName={(id) => memberOf(id)?.username}
-                              onDetail={setDetailItem}
+                              onDetail={(d) => onOpenContent(d.id)}
                               onOpenProject={onOpenProject}
                               onNote={(n) => setNoteModal({ note: n, date: n.date })}
                               tagColor={tagColorOf}
@@ -909,66 +930,357 @@ export function DailyContentPage({ user, onOpenProject, month, onMonthChange }: 
   );
 }
 
-/* ---------- Content detail drawer (trượt từ trái) ---------- */
-function ContentDetailDrawer({
-  item, assignee, creator, canEdit, onClose, onEdit, onDelete,
+/* ================================================================
+ * ContentDetailPage — trang chi tiết 1 nội dung (giống ProjectDetail):
+ * header + info panel sidebar + mô tả/ghi chú edit inline, sửa/xoá.
+ * ================================================================ */
+export function ContentDetailPage({
+  contentId, user, onBack, onOpenProject,
 }: {
-  item: DailyContent | null;
-  assignee?: { username?: string; avatarUrl?: string };
-  creator?: { username?: string; avatarUrl?: string };
-  canEdit: boolean;
-  onClose: () => void;
-  onEdit: (it: DailyContent) => void;
-  onDelete: (it: DailyContent) => void;
+  contentId: string;
+  user: User;
+  onBack: () => void;
+  onOpenProject: (id: string) => void;
 }) {
-  if (!item) return null;
-  const overdue = isDailyOverdue(item);
-  const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div className="flex items-start justify-between gap-4 py-2.5 border-b border-line">
-      <span className="text-xs font-bold text-muted uppercase tracking-wide shrink-0">{label}</span>
-      <span className="text-sm text-ink text-right break-words min-w-0">{children}</span>
-    </div>
-  );
-  return (
-    <Drawer
-      open={!!item}
-      onClose={onClose}
-      side="left"
-      title={<div>
-        <p className="font-extrabold leading-snug break-words">{item.title}</p>
-        <p className="text-xs text-muted">{item.type}</p>
-      </div>}
-      headerExtra={canEdit ? (
-        <div className="flex items-center gap-1 shrink-0">
-          <button type="button" onClick={() => onEdit(item)} title="Sửa" className="text-muted hover:text-ink cursor-pointer p-1"><Pencil size={16} /></button>
-          <button type="button" onClick={() => onDelete(item)} title="Xoá" className="text-muted hover:text-red-400 cursor-pointer p-1"><Trash2 size={16} /></button>
-        </div>
-      ) : undefined}
-    >
-      <div className="space-y-0.5">
-        <Row label="Nền tảng"><Badge color={PLATFORM_COLOR[item.platform] || PLATFORM_COLOR['Đa kênh']}>{item.platform}</Badge></Row>
-        <Row label="Trạng thái"><Badge color={STATUS_BADGE[item.status]}>{STATUS_LABEL[item.status]}</Badge></Row>
-        <Row label="Số lượng"><span className="tabular-nums font-bold">{Number(item.quantity) || 1}</span></Row>
-        <Row label="Ngày order"><span>{formatDate(item.orderDate || tsToDateStr(item.createdAt) || undefined)}</span></Row>
-        <Row label="Ngày đăng"><span className={overdue ? 'text-red-400 font-bold' : ''}>{formatDate(item.dueDate)}{overdue ? ' · quá hạn' : ''}</span></Row>
-        <Row label="Người phụ trách">
-          {assignee ? (
-            <span className="inline-flex items-center gap-1.5"><Avatar name={assignee.username} url={assignee.avatarUrl} size={20} />{assignee.username}</span>
-          ) : <span className="text-dim">Chưa gán</span>}
-        </Row>
-        <Row label="Người tạo">
-          {creator ? (
-            <span className="inline-flex items-center gap-1.5"><Avatar name={creator.username} url={creator.avatarUrl} size={20} />{creator.username}</span>
-          ) : <span className="text-dim">Không rõ</span>}
-        </Row>
+  const { dailyContent, members, projects, tags, canEditDaily } = useAppData();
+  const toast = useToast();
+  const item = dailyContent.find((d) => d.id === contentId);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesDraft, setNotesDraft] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [newVideo, setNewVideo] = useState('');
+  const [newName, setNewName] = useState('');
+  const [editItem, setEditItem] = useState<{ id: string; title: string; link: string } | null>(null);
+
+  if (!item) {
+    return (
+      <div className="text-center py-20 text-muted">
+        <p>Không tìm thấy nội dung</p>
+        <Button variant="ghost" onClick={onBack} className="mt-3"><ArrowLeft size={15} /> Quay lại</Button>
       </div>
-      {item.notes && (
-        <div className="mt-4">
-          <p className="text-xs font-bold text-muted uppercase tracking-wide mb-1.5">Ghi chú</p>
-          <p className="text-sm text-muted whitespace-pre-wrap break-words"><Linkify text={item.notes} /></p>
+    );
+  }
+
+  const memberOf = (id?: string) => members.find((m) => m.uid === id || m.id === id);
+  const assignee = memberOf(item.assigneeId);
+  const creator = memberOf(item.createdBy);
+  const linkedProject = item.projectId ? projects.find((p) => p.id === item.projectId) : undefined;
+  const tag = item.tagId ? tags.find((t) => t.id === item.tagId) : undefined;
+  const overdue = isDailyOverdue(item);
+  const next = NEXT_STATUS[item.status];
+
+  const setField = async (data: Partial<DailyContent>, ok: string) => {
+    try {
+      await updateDailyContent(item.id, data, { title: item.title, platform: item.platform });
+      toast(ok);
+    } catch (e: unknown) {
+      toast(`Lỗi: ${(e as Error).message}`, 'error');
+    }
+  };
+
+  // ----- Video con -----
+  const items = item.items || [];
+  const doneN = items.filter((i) => i.done).length;
+  const saveItems = (next: ContentItem[], ok: string) => setField({ items: next }, ok);
+  // Editor trả video: dán link + tên tuỳ chọn → thêm vào coi như ĐÃ XONG (done=true).
+  // Bấm tên vẫn mở đúng link. Nếu không nhập link mà chỉ gõ tên → item không link.
+  const addItem = () => {
+    const link = newVideo.trim();
+    const name = newName.trim();
+    if (!link && !name) return;
+    const isUrl = /^https?:\/\//i.test(link);
+    // title = tên tuỳ chọn; nếu không có tên và ô "link" thực ra là chữ thường → dùng nó làm tên
+    const title = name || (isUrl ? '' : link);
+    // Không đưa key undefined vào Firestore (getFirestore không bật ignoreUndefinedProperties → sẽ ném lỗi).
+    const next: ContentItem = { id: newItemId(), title, done: true, doneDate: todayStr() };
+    if (isUrl) next.link = link;
+    saveItems([...items, next], 'Đã trả video');
+    setNewVideo('');
+    setNewName('');
+  };
+  const toggleItem = (id: string) => saveItems(items.map((i) => {
+    if (i.id !== id) return i;
+    if (i.done) { const { doneDate, ...rest } = i; return { ...rest, done: false }; } // bỏ tick → xoá hẳn key doneDate
+    return { ...i, done: true, doneDate: todayStr() };
+  }), 'Đã cập nhật');
+  const removeItem = (id: string) => saveItems(items.filter((i) => i.id !== id), 'Đã xoá video');
+  const saveEditItem = () => {
+    if (!editItem || !editItem.title.trim()) return;
+    saveItems(items.map((i) => (i.id === editItem.id ? { ...i, title: editItem.title.trim(), link: editItem.link.trim() || undefined } : i)), 'Đã cập nhật video');
+    setEditItem(null);
+  };
+
+  return (
+    <div className="fade-up space-y-5">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0">
+          <Button variant="ghost" onClick={onBack} className="!px-2"><ArrowLeft size={17} /></Button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-extrabold tracking-tight break-words">{item.title}</h1>
+              <Badge color={STATUS_BADGE[item.status]}>{STATUS_LABEL[item.status]}</Badge>
+            </div>
+            <p className={`text-xs mt-1 ${overdue ? 'text-red-400 font-bold' : 'text-muted'}`}>
+              <Calendar size={11} className="inline mr-1" />Ngày đăng: {formatDate(item.dueDate)}{overdue && ' — QUÁ HẠN'}
+            </p>
+          </div>
         </div>
-      )}
-    </Drawer>
+        {canEditDaily && (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setEditOpen(true)}><Pencil size={14} /> Sửa</Button>
+            <Button variant="danger" onClick={() => setConfirmDel(true)}><Trash2 size={14} /></Button>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 items-start">
+        {/* Main column — video con + ghi chú + dự án liên kết */}
+        <div className="space-y-4 min-w-0">
+          {/* Video con — 1 content gồm nhiều video, tick xong từng cái (giống task của dự án) */}
+          <Card>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-line">
+              <div className="flex items-center gap-2 font-bold text-sm">
+                <Video size={15} className="text-violet-300" /> Video
+                <span className="text-[11px] font-bold text-dim bg-bg border border-line rounded px-1.5 py-0.5 tabular-nums">{doneN}/{contentTarget(item)}</span>
+              </div>
+              <span className="text-xs font-bold tabular-nums">{Math.round(contentProgress(item))}%</span>
+            </div>
+            {items.length > 0 && <div className="px-4 pt-3"><ProgressBar value={contentProgress(item)} /></div>}
+            <div className="px-4 py-2">
+              <div className="divide-y divide-line">
+                {items.length === 0 && <p className="text-sm text-dim py-4 text-center">Chưa có video — dán link để trả video</p>}
+                {items.map((v) => (
+                  <div key={v.id} className="flex items-center gap-3 py-2.5 group">
+                    {editItem?.id === v.id ? (
+                      <div className="flex-1 space-y-2">
+                        <Input value={editItem.title} onChange={(e) => setEditItem({ ...editItem, title: e.target.value })} autoFocus placeholder="Tên video" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveEditItem(); } }} />
+                        <Input value={editItem.link} onChange={(e) => setEditItem({ ...editItem, link: e.target.value })} placeholder="Link thành phẩm (không bắt buộc)" />
+                        <div className="flex gap-2">
+                          <Button className="!py-1.5 !px-3 !text-xs" disabled={!editItem.title.trim()} onClick={saveEditItem}><Check size={13} /> Lưu</Button>
+                          <Button variant="ghost" className="!py-1.5 !px-3 !text-xs" onClick={() => setEditItem(null)}>Huỷ</Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          disabled={!canEditDaily}
+                          onClick={() => toggleItem(v.id)}
+                          title={v.done ? 'Đánh dấu chưa xong' : 'Đánh dấu đã xong'}
+                          className="shrink-0 cursor-pointer disabled:cursor-default"
+                        >
+                          {v.done ? <CheckCircle2 size={18} className="text-emerald-400" /> : <Circle size={18} className="text-dim hover:text-muted" />}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          {v.link ? (
+                            <>
+                              <a href={v.link} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title={v.link} className="text-sm font-medium text-indigo-300 hover:text-indigo-200 underline underline-offset-2 truncate flex items-center gap-1">
+                                <ExternalLink size={13} className="shrink-0" />
+                                <span className="truncate">{v.title || v.link}</span>
+                              </a>
+                              {v.title && <span className="text-[11px] text-dim truncate block">{v.link}</span>}
+                            </>
+                          ) : (
+                            <p className={`text-sm font-medium truncate ${v.done ? 'line-through text-dim' : ''}`}>{v.title}</p>
+                          )}
+                        </div>
+                        {v.done && v.doneDate && (
+                          <span className="shrink-0 text-[11px] font-medium text-emerald-400/90 tabular-nums flex items-center gap-1" title="Ngày trả video">
+                            <Calendar size={11} />{formatDate(v.doneDate)}
+                          </span>
+                        )}
+                        {canEditDaily && (
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => setEditItem({ id: v.id, title: v.title, link: v.link || '' })} className="text-muted hover:text-ink cursor-pointer p-1"><Pencil size={13} /></button>
+                            <button onClick={() => removeItem(v.id)} className="text-muted hover:text-red-400 cursor-pointer p-1"><Trash2 size={13} /></button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {canEditDaily && (
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-3 mt-1 border-t border-line">
+                  <Input className="sm:!w-44 shrink-0" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Tên (tuỳ chọn)" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addItem(); } }} />
+                  <Input value={newVideo} onChange={(e) => setNewVideo(e.target.value)} placeholder="Dán link video đã xong…" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addItem(); } }} />
+                  <Button className="shrink-0" onClick={addItem} disabled={!newVideo.trim() && !newName.trim()}><Plus size={15} /> Trả video</Button>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-bold text-base flex items-center gap-2"><FileText size={17} className="text-blue-400" /> Ghi chú nội dung</h2>
+              {canEditDaily && !editingNotes && (
+                <button onClick={() => { setNotesDraft(item.notes || ''); setEditingNotes(true); }} className="text-muted hover:text-ink cursor-pointer"><Pencil size={14} /></button>
+              )}
+            </div>
+            {editingNotes ? (
+              <div className="space-y-2">
+                <Textarea rows={5} value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} autoFocus placeholder="Nhập ghi chú, brief, link tham khảo…" />
+                <div className="flex gap-2">
+                  <Button variant="primary" className="!py-1.5 !px-3 !text-xs" disabled={savingNotes} onClick={async () => { setSavingNotes(true); await setField({ notes: notesDraft }, 'Đã lưu ghi chú'); setSavingNotes(false); setEditingNotes(false); }}><Check size={13} /> Lưu</Button>
+                  <Button variant="ghost" className="!py-1.5 !px-3 !text-xs" onClick={() => setEditingNotes(false)}>Huỷ</Button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted whitespace-pre-wrap break-words">{item.notes ? <Linkify text={item.notes} /> : <span className="text-dim">Chưa có ghi chú</span>}</p>
+            )}
+          </Card>
+
+          {linkedProject && (
+            <Card className="p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-2">Dự án liên kết</p>
+              <button
+                type="button"
+                onClick={() => onOpenProject(linkedProject.id)}
+                className="w-full flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-line-2 transition-all text-left cursor-pointer group"
+              >
+                <FolderKanban size={18} className="text-sky-300 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold truncate group-hover:text-indigo-300 transition-colors">{linkedProject.title}</p>
+                  <p className="text-[11px] text-dim">{STATUS_LABEL[linkedProject.status]}</p>
+                </div>
+                <ExternalLink size={14} className="text-muted shrink-0" />
+              </button>
+            </Card>
+          )}
+        </div>
+
+        {/* Sidebar — thông tin nội dung */}
+        <Card className="p-5">
+          <h2 className="font-bold text-base flex items-center gap-2 mb-4"><FileText size={17} className="text-violet-400" /> Thông tin nội dung</h2>
+
+          {/* Trạng thái (đổi inline) + đẩy nhanh sang bước kế */}
+          <div className="mb-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Trạng thái</p>
+            <Select
+              value={item.status}
+              disabled={!canEditDaily}
+              onChange={(e) => setField({ status: e.target.value as DailyStatus }, `→ ${STATUS_LABEL[e.target.value as DailyStatus]}`)}
+              className="!font-bold !w-auto"
+            >
+              {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+            </Select>
+            {canEditDaily && next && (
+              <button
+                onClick={() => setField({ status: next }, `→ ${STATUS_LABEL[next]}`)}
+                className="mt-2 flex items-center gap-0.5 text-xs font-bold text-indigo-300 hover:text-indigo-200 cursor-pointer"
+              >
+                Chuyển sang: {STATUS_LABEL[next]} <ChevronRight size={13} />
+              </button>
+            )}
+          </div>
+
+          {/* Tiến độ — theo video con nếu có, không thì theo bước trạng thái */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted">Tiến độ</p>
+              <span className="text-xs font-bold tabular-nums">
+                {items.length > 0 && <span className="text-violet-300 mr-1.5">{doneN}/{contentTarget(item)} video</span>}
+                {Math.round(contentProgress(item))}%
+              </span>
+            </div>
+            <ProgressBar value={contentProgress(item)} />
+          </div>
+
+          {/* Grid: Nền tảng / Loại */}
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Nền tảng</p>
+              <Badge color={PLATFORM_COLOR[item.platform] || PLATFORM_COLOR['Đa kênh']}>{item.platform}</Badge>
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Loại</p>
+              <p className="text-sm font-bold">{item.type}</p>
+            </div>
+          </div>
+
+          {/* Grid: Số lượng / Ngày order / Ngày đăng */}
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Số lượng</p>
+              <p className="text-lg font-extrabold flex items-center gap-1.5 tabular-nums"><Hash size={14} className="text-muted" />{Number(item.quantity) || 1}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Ngày order</p>
+              <p className="text-sm font-bold">{formatDate(item.orderDate || tsToDateStr(item.createdAt) || undefined)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Ngày đăng</p>
+              <p className={`text-sm font-bold ${overdue ? 'text-red-400' : ''}`}>{formatDate(item.dueDate)}</p>
+            </div>
+            {tag && (
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Tag</p>
+                <span className="inline-flex items-center gap-1.5 text-sm font-bold">
+                  <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: tag.color }} />{tag.name}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Người phụ trách */}
+          <div className="mb-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Người phụ trách</p>
+            {assignee ? (
+              <span className="inline-flex items-center gap-1.5 bg-bg border border-line rounded-full pl-1 pr-2.5 py-0.5">
+                <Avatar name={assignee.username} url={assignee.avatarUrl} size={20} />
+                <span className="text-xs font-bold">{assignee.username}</span>
+              </span>
+            ) : <p className="text-sm text-dim">Chưa gán</p>}
+          </div>
+
+          {/* Người tạo */}
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Người tạo</p>
+            <div className="flex items-center gap-2">
+              <Avatar name={creator?.username} url={creator?.avatarUrl} size={22} />
+              <span className="text-sm font-bold">{creator?.username || 'Không rõ'}</span>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Sửa nội dung */}
+      <ContentFormModal
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        editing={item}
+        members={members.filter((m) => m.role !== 'viewer')}
+        onSave={async (data) => {
+          try {
+            await updateDailyContent(item.id, data);
+            notify(`✏️ ${displayName(user)} sửa nội dung "${data.title || item.title || ''}"`);
+            toast('Đã cập nhật');
+            setEditOpen(false);
+          } catch (e: unknown) {
+            toast(`Lỗi: ${(e as Error).message}`, 'error');
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={confirmDel}
+        onClose={() => setConfirmDel(false)}
+        title="Xoá nội dung?"
+        message={`Xoá "${item.title}" và không thể khôi phục.`}
+        onConfirm={async () => {
+          try {
+            await deleteDailyContent(item.id, item.title);
+            toast('Đã xoá');
+            onBack();
+          } catch (e: unknown) {
+            toast(`Lỗi: ${(e as Error).message}`, 'error');
+          }
+        }}
+      />
+    </div>
   );
 }
 

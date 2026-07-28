@@ -38,7 +38,7 @@ export function Select({ className = '', children, ...rest }: SelectHTMLAttribut
 export function Textarea({ className = '', ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea className={`${fieldCls} ${className}`} {...rest} />;
 }
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
     <div className="space-y-1.5">
       <label className="text-xs font-semibold text-muted uppercase tracking-wide">{label}</label>

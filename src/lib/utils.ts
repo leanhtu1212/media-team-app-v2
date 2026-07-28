@@ -62,18 +62,6 @@ export function formatDate(d?: string): string {
   return `${day}/${m}/${y}`;
 }
 
-/** Trạng thái hàng gợi ý theo trạng thái dự án (khớp logic bản cũ). */
-export function itemStatusFromProjectStatus(status: string): string {
-  switch (status) {
-    case 'plan': return 'chưa nhận';
-    case 'pre-production': return 'đang triển khai';
-    case 'post-production': return 'đang sản xuất';
-    case 'done': return 'đã hoàn thành';
-    case 'payment': return 'đã hoàn thành';
-    default: return 'chưa nhận';
-  }
-}
-
 /** "done" hoặc "payment" đều coi là đã xong sản xuất — dùng cho các chỗ tính overdue/active/KPI. */
 export function isProjectFinished(status: string): boolean {
   return status === 'done' || status === 'payment';

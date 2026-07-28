@@ -17,7 +17,7 @@ const PLATFORM_COLOR: Record<string, string> = {
   'Đa kênh': 'bg-violet-500/15 text-violet-300',
 };
 
-export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
+export function DashboardPage({ user, onOpenProject, onOpenContent }: { user: User; onOpenProject: (id: string) => void; onOpenContent: (id: string) => void }) {
   const { members, projects, allTasks, reports, dailyContent, isAdmin } = useAppData();
   const toast = useToast();
   const [month, setMonth] = useState(currentMonth());
@@ -222,17 +222,17 @@ export function DashboardPage({ user, onOpenProject }: { user: User; onOpenProje
               const assignee = memberOf(d.assigneeId);
               const overdue = !!d.dueDate && d.dueDate < today && d.status !== 'done';
               return (
-                <div key={d.id} className="flex items-center gap-3 px-4 py-2.5">
+                <button key={d.id} type="button" onClick={() => onOpenContent(d.id)} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-surface-2 transition-colors text-left cursor-pointer group">
                   <Badge color={PLATFORM_COLOR[d.platform] || PLATFORM_COLOR['Đa kênh']}>{d.platform}</Badge>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{d.title}</p>
+                    <p className="text-sm font-medium truncate group-hover:text-indigo-300 transition-colors">{d.title}</p>
                     <p className="text-[11px] text-dim truncate">{d.type}{assignee ? ` · ${assignee.username}` : ''}</p>
                   </div>
                   <div className="text-right shrink-0">
                     <span className={`text-[11px] tabular-nums block ${overdue ? 'text-red-400 font-bold' : 'text-dim'}`}>{formatDate(d.dueDate)}</span>
                     <Badge color={STATUS_BADGE[d.status]}>{STATUS_LABEL[d.status]}</Badge>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>

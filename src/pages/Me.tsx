@@ -16,9 +16,9 @@ const PLATFORM_COLOR: Record<string, string> = {
   'Đa kênh': 'bg-violet-500/15 text-violet-300',
 };
 
-export function MePage({ user, onOpenProject }: { user: User; onOpenProject: (id: string) => void }) {
+export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onOpenProject: (id: string) => void; onOpenContent: (id: string) => void }) {
   const { currentMember, projects, allTasks, dailyContent, reports } = useAppData();
-  const { setDetailItem, modals } = useContentModals(user);
+  const { modals } = useContentModals(user);
   const today = todayStr();
   const month = currentMonth();
 
@@ -197,7 +197,7 @@ export function MePage({ user, onOpenProject }: { user: User; onOpenProject: (id
               return (
                 <button
                   key={`d-${d.id}`}
-                  onDoubleClick={() => setDetailItem(d)}
+                  onDoubleClick={() => onOpenContent(d.id)}
                   title="Nhấn đúp để xem chi tiết"
                   className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-surface-2 transition-colors text-left cursor-pointer select-none"
                 >
@@ -261,7 +261,7 @@ export function MePage({ user, onOpenProject }: { user: User; onOpenProject: (id
               return (
                 <button
                   key={d.id}
-                  onDoubleClick={() => setDetailItem(d)}
+                  onDoubleClick={() => onOpenContent(d.id)}
                   title="Nhấn đúp để xem chi tiết"
                   className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-surface-2 transition-colors text-left cursor-pointer select-none"
                 >

@@ -1,21 +1,13 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, Plus, Trash2, Pencil, Camera, Video, Wallet, Star, CheckCircle2, Circle, Calendar, AlertTriangle, Package, FileText, Check, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Pencil, Camera, Video, Wallet, Star, CheckCircle2, Circle, Calendar, Package, FileText, Check, TrendingUp, ExternalLink } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
 import { updateProject, deleteProject, createTask, updateTask, deleteTask, toggleDntt } from '../lib/actions';
-import { formatVND, formatDate, todayStr, itemStatusFromProjectStatus, isProjectFinished } from '../lib/utils';
+import { formatVND, formatDate, todayStr, isProjectFinished } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { ProjectFormModal } from './Projects';
 import type { Task, TaskCategory, Project } from '../types';
 import type { User } from '../lib/firebase';
-
-const ITEM_STATUS_OPTIONS = ['chưa nhận', 'đã nhận', 'đang triển khai', 'đang sản xuất', 'đã hoàn thành', 'đã trả'];
-
-function itemStatusColor(s: string): string {
-  if (s === 'đã trả' || s === 'đã hoàn thành') return 'text-emerald-400 border-emerald-500/25 bg-emerald-500/5';
-  if (s === 'đã nhận' || s === 'đang sản xuất' || s === 'đang triển khai') return 'text-blue-400 border-blue-500/25 bg-blue-500/5';
-  return 'text-muted border-line bg-bg';
-}
 
 export function ProjectDetailPage({ projectId, user, onBack }: { projectId: string; user: User; onBack: () => void }) {
   const { projects, allTasks, members, isAdmin, isEditor } = useAppData();
@@ -75,7 +67,16 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
             )}
             <Avatar name={creator?.username} url={creator?.avatarUrl} size={24} />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{t.title}</p>
+              {category === 'pre-production' ? (
+                <p className="text-sm font-medium truncate">{t.title}</p>
+              ) : t.link ? (
+                <a href={t.link} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title={t.link} className="text-sm font-semibold text-indigo-300 hover:text-indigo-200 underline underline-offset-2 truncate flex items-center gap-1">
+                  <ExternalLink size={13} className="shrink-0" />
+                  <span className="truncate">{t.quantity || 1} {category === 'photo' ? 'ảnh' : 'video'}</span>
+                </a>
+              ) : (
+                <p className="text-sm font-semibold truncate">{t.quantity || 1} {category === 'photo' ? 'ảnh' : 'video'}</p>
+              )}
               <div className="flex items-center gap-2 text-[11px] text-dim">
                 <span>{formatDate(t.reportDate)}</span>
                 {category === 'pre-production' && t.deadline && <span className="flex items-center gap-0.5"><Calendar size={10} /> {formatDate(t.deadline)}</span>}
@@ -84,10 +85,8 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
                 )}
               </div>
             </div>
-            {category === 'pre-production' ? (
-              (Number(t.amount) || 0) > 0 && <span className="text-sm font-bold text-amber-300 tabular-nums">{formatVND(Number(t.amount) || 0)}</span>
-            ) : (
-              <span className="text-xs text-muted tabular-nums">×{t.quantity || 1}</span>
+            {category === 'pre-production' && (Number(t.amount) || 0) > 0 && (
+              <span className="text-sm font-bold text-amber-300 tabular-nums">{formatVND(Number(t.amount) || 0)}</span>
             )}
             {isEditor && (
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -389,7 +388,16 @@ function TaskDetailDrawer({
             )}
           </>
         ) : (
-          <Row label="Số lượng">×{task.quantity || 1}</Row>
+          <>
+            <Row label="Số lượng">×{task.quantity || 1}</Row>
+            {task.link && (
+              <Row label="Link thành phẩm">
+                <a href={task.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-indigo-300 hover:text-indigo-200 underline underline-offset-2 break-all">
+                  <ExternalLink size={13} className="shrink-0" /> {task.link}
+                </a>
+              </Row>
+            )}
+          </>
         )}
         <Row label="Người tạo">
           <span className="inline-flex items-center gap-1.5">
@@ -418,10 +426,9 @@ function InfoPanel({ project, isEditor, toast, creator, assignees }: { project: 
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState(project.description || '');
   const [savingDesc, setSavingDesc] = useState(false);
-
-  const itemStatus = project.itemStatus || 'chưa nhận';
-  const recommended = itemStatusFromProjectStatus(project.status);
-  const outOfSync = itemStatus !== recommended;
+  const [editingPhotoLink, setEditingPhotoLink] = useState(false);
+  const [photoLinkDraft, setPhotoLinkDraft] = useState(project.photoLink || '');
+  const [savingPhotoLink, setSavingPhotoLink] = useState(false);
 
   const setField = async (data: Partial<Project>, ok: string) => {
     try { await updateProject(project.id, data, { title: project.title, prevStatus: project.status }); toast(ok); }
@@ -431,42 +438,6 @@ function InfoPanel({ project, isEditor, toast, creator, assignees }: { project: 
   return (
     <Card className="p-5">
       <h2 className="font-bold text-base flex items-center gap-2 mb-4"><FileText size={17} className="text-blue-400" /> Thông tin dự án</h2>
-
-      {/* Tình trạng hàng */}
-      <div className="mb-4">
-        <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Tình trạng hàng</p>
-        <Select
-          value={itemStatus}
-          disabled={!isEditor}
-          onChange={(e) => setField({ itemStatus: e.target.value }, 'Đã cập nhật tình trạng hàng')}
-          className={`!font-bold uppercase ${itemStatusColor(itemStatus)}`}
-        >
-          {ITEM_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-        </Select>
-      </div>
-
-      {/* Cảnh báo lệch trạng thái */}
-      {outOfSync && (
-        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
-          <div className="flex items-start gap-2">
-            <AlertTriangle size={16} className="text-amber-400 mt-0.5 shrink-0" />
-            <div className="flex-1">
-              <p className="font-bold text-sm text-amber-300">Dữ liệu không đồng bộ!</p>
-              <p className="text-xs text-muted mt-0.5">
-                Tình trạng hàng (<span className="text-amber-300 font-bold uppercase">{itemStatus}</span>) chưa khớp với trạng thái dự án (<span className="text-amber-300 font-bold uppercase">{STATUS_LABEL[project.status]}</span>).
-              </p>
-              {isEditor && (
-                <button
-                  onClick={() => setField({ itemStatus: recommended }, 'Đã đồng bộ tình trạng hàng')}
-                  className="mt-2 w-full py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-xs font-bold uppercase tracking-wide transition-colors cursor-pointer"
-                >
-                  Đưa về: {recommended}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Mô tả */}
       <div className="mb-4">
@@ -486,6 +457,33 @@ function InfoPanel({ project, isEditor, toast, creator, assignees }: { project: 
           </div>
         ) : (
           <p className="text-sm text-muted break-words">{project.description ? <Linkify text={project.description} /> : <span className="text-dim">Không có mô tả</span>}</p>
+        )}
+      </div>
+
+      {/* Link Ảnh */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-1.5">
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted">Link Ảnh</p>
+          {isEditor && !editingPhotoLink && project.photoLink && (
+            <button onClick={() => { setPhotoLinkDraft(project.photoLink || ''); setEditingPhotoLink(true); }} className="text-muted hover:text-ink cursor-pointer"><Pencil size={13} /></button>
+          )}
+        </div>
+        {editingPhotoLink || !project.photoLink ? (
+          isEditor ? (
+            <div className="space-y-2">
+              <Input value={photoLinkDraft} onChange={(e) => setPhotoLinkDraft(e.target.value)} placeholder="Dán link album/thư mục ảnh rồi nhấn Lưu" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (!savingPhotoLink) { setSavingPhotoLink(true); setField({ photoLink: photoLinkDraft.trim() }, 'Đã lưu link ảnh').finally(() => { setSavingPhotoLink(false); setEditingPhotoLink(false); }); } } }} />
+              <div className="flex gap-2">
+                <Button variant="primary" className="!py-1.5 !px-3 !text-xs" disabled={savingPhotoLink} onClick={async () => { setSavingPhotoLink(true); await setField({ photoLink: photoLinkDraft.trim() }, 'Đã lưu link ảnh'); setSavingPhotoLink(false); setEditingPhotoLink(false); }}><Check size={13} /> Lưu</Button>
+                {editingPhotoLink && <Button variant="ghost" className="!py-1.5 !px-3 !text-xs" onClick={() => setEditingPhotoLink(false)}>Huỷ</Button>}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-dim">Chưa có link ảnh</p>
+          )
+        ) : (
+          <a href={project.photoLink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-indigo-300 hover:text-indigo-200 underline underline-offset-2 break-all">
+            <ExternalLink size={13} className="shrink-0" /> {project.photoLink}
+          </a>
         )}
       </div>
 
@@ -537,7 +535,7 @@ function InfoPanel({ project, isEditor, toast, creator, assignees }: { project: 
         <Select
           value={project.status}
           disabled={!isEditor}
-          onChange={(e) => setField({ status: e.target.value as Project['status'], itemStatus: itemStatusFromProjectStatus(e.target.value) }, 'Đã cập nhật trạng thái')}
+          onChange={(e) => setField({ status: e.target.value as Project['status'] }, 'Đã cập nhật trạng thái')}
           className="!font-bold !w-auto"
         >
           <option value="plan">Kế hoạch</option>
@@ -597,8 +595,10 @@ function TaskFormModal({
 
   const set = (k: keyof Task, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const isPre = state.category === 'pre-production';
+  // Chỉ VIDEO bắt buộc link thành phẩm; ảnh & chi phí thì không.
+  const invalid = (isPre && !form.title) || (state.category === 'video' && !form.link?.trim());
   const submit = async () => {
-    if (busy || (isPre && !form.title)) return;
+    if (busy || invalid) return;
     setBusy(true);
     await onSave(form);
     setBusy(false);
@@ -638,14 +638,18 @@ function TaskFormModal({
             </Field>
           )}
         </div>
-        {isPre && (
+        {isPre ? (
           <Field label="Mô tả">
             <Textarea rows={2} value={form.description || ''} onChange={(e) => set('description', e.target.value)} placeholder="Ghi chú thêm về khoản chi (không bắt buộc)" />
+          </Field>
+        ) : (
+          <Field label={<>Link thành phẩm {state.category === 'video' && <span className="text-red-400">*</span>}</>}>
+            <Input value={form.link || ''} onChange={(e) => set('link', e.target.value)} placeholder={state.category === 'video' ? 'Dán link video (bắt buộc)' : 'Dán link ảnh (không bắt buộc)'} required={state.category === 'video'} />
           </Field>
         )}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Huỷ</Button>
-          <Button type="submit" disabled={busy || (isPre && !form.title)}>
+          <Button type="submit" disabled={busy || invalid}>
             {state.editing ? 'Lưu' : 'Thêm'}
           </Button>
         </div>
