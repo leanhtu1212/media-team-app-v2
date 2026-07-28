@@ -91,7 +91,13 @@ export function AppDataProvider({ user, children }: { user: User; children: Reac
       ),
 
       onSnapshot(collection(db, 'teams', MAIN_TEAM_ID, 'dailyContent'), (snap) =>
-        setDailyContent(snap.docs.map((d) => ({ id: d.id, ...d.data() } as DailyContent))),
+        setDailyContent(snap.docs.map((d) => {
+          const data = { id: d.id, ...d.data() } as DailyContent;
+          // Trạng thái 'published' đã bỏ — doc cũ vẫn còn nên quy về 'done', nếu không
+          // chúng sẽ rơi ra ngoài mọi cột kanban và biến mất khỏi UI.
+          if ((data.status as string) === 'published') data.status = 'done';
+          return data;
+        })),
       ),
 
       onSnapshot(collection(db, 'teams', MAIN_TEAM_ID, 'notes'), (snap) =>

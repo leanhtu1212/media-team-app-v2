@@ -96,7 +96,7 @@ export interface ProductType {
   notes?: string;
 }
 
-export type DailyStatus = 'planned' | 'in-progress' | 'done' | 'published';
+export type DailyStatus = 'planned' | 'in-progress' | 'done';
 
 /** Video con thuộc 1 content — 1 content có thể gồm nhiều video, tick xong từng cái.
  *  Lưu thẳng dạng mảng trên doc dailyContent (không cần subcollection). */

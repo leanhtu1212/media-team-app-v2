@@ -76,9 +76,9 @@ export function DashboardPage({ user, onOpenProject, onOpenContent }: { user: Us
   const recentReports = [...reports].sort((a, b) => (b.reportDate || '').localeCompare(a.reportDate || '')).slice(0, 6);
   const memberOf = (id?: string, email?: string) => members.find((m) => m.uid === id || m.id === id || m.email?.toLowerCase() === email?.toLowerCase());
 
-  // Upcoming daily content (not published), soonest due first
+  // Upcoming daily content (chưa hoàn thành), soonest due first
   const upcomingDaily = dailyContent
-    .filter((d) => d.status !== 'published')
+    .filter((d) => d.status !== 'done')
     .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'))
     .slice(0, 5);
 
@@ -226,10 +226,10 @@ export function DashboardPage({ user, onOpenProject, onOpenContent }: { user: Us
 
         <Card>
           <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-            <h2 className="font-bold text-sm flex items-center gap-2"><CalendarDays size={15} className="text-pink-300" /> Content sắp đăng</h2>
+            <h2 className="font-bold text-sm flex items-center gap-2"><CalendarDays size={15} className="text-pink-300" /> Content chưa hoàn thành</h2>
           </div>
           <div className="divide-y divide-line">
-            {upcomingDaily.length === 0 && <p className="text-sm text-dim py-8 text-center">Không có nội dung sắp đăng</p>}
+            {upcomingDaily.length === 0 && <p className="text-sm text-dim py-8 text-center">Không có nội dung nào đang chờ</p>}
             {upcomingDaily.map((d) => {
               const assignee = memberOf(d.assigneeId);
               const overdue = !!d.dueDate && d.dueDate < today && d.status !== 'done';

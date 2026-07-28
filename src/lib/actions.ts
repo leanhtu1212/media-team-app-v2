@@ -329,15 +329,15 @@ export async function createDailyContent(data: Partial<DailyContent>, user: User
   notify(`📅 ${displayName(user)} thêm nội dung "${data.title || 'Không tên'}"${data.platform ? ` · ${data.platform}` : ''}`);
 }
 
-/** info (tuỳ chọn): truyền title/platform để bắn thông báo khi nội dung chuyển sang "Đã đăng". */
+/** info (tuỳ chọn): truyền title/platform để bắn thông báo khi nội dung chuyển sang "Hoàn thành". */
 export async function updateDailyContent(
   id: string,
   data: Partial<DailyContent>,
   info?: { title?: string; platform?: string },
 ): Promise<void> {
   await updateDoc(ref.daily(id), { ...data, updatedAt: serverTimestamp() });
-  if (data.status === 'published' && info?.title) {
-    notify(`✅ Nội dung "${info.title}" đã ĐĂNG${info.platform ? ` (${info.platform})` : ''}`);
+  if (data.status === 'done' && info?.title) {
+    notify(`✅ Nội dung "${info.title}" đã HOÀN THÀNH${info.platform ? ` (${info.platform})` : ''}`);
   }
 }
 

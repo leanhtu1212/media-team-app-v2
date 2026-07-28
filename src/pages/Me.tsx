@@ -65,7 +65,7 @@ export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onO
   const todayContent = useMemo(
     () =>
       dailyContent
-        .filter((d) => isMine(d.assigneeId) && d.status !== 'published' && d.dueDate && d.dueDate <= today)
+        .filter((d) => isMine(d.assigneeId) && d.status !== 'done' && d.dueDate && d.dueDate <= today)
         .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || '')),
     [dailyContent, isMine, today],
   );
@@ -94,11 +94,11 @@ export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onO
 
   const todayCount = todayContent.length + todayPreTasks.length + todayProjects.length;
 
-  // Content sắp đăng của tôi
+  // Content chưa hoàn thành của tôi
   const upcomingContent = useMemo(
     () =>
       dailyContent
-        .filter((d) => isMine(d.assigneeId) && d.status !== 'published')
+        .filter((d) => isMine(d.assigneeId) && d.status !== 'done')
         .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'))
         .slice(0, 6),
     [dailyContent, isMine],
@@ -257,13 +257,13 @@ export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onO
           </div>
         </Card>
 
-        {/* Content sắp đăng của tôi */}
+        {/* Content chưa hoàn thành của tôi */}
         <Card>
           <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-            <h2 className="font-bold text-sm flex items-center gap-2"><CalendarDays size={15} className="text-pink-300" /> Content sắp đăng của tôi</h2>
+            <h2 className="font-bold text-sm flex items-center gap-2"><CalendarDays size={15} className="text-pink-300" /> Content chưa hoàn thành của tôi</h2>
           </div>
           <div className="divide-y divide-line">
-            {upcomingContent.length === 0 && <p className="text-sm text-dim py-8 text-center">Không có nội dung sắp đăng</p>}
+            {upcomingContent.length === 0 && <p className="text-sm text-dim py-8 text-center">Không có nội dung nào đang chờ</p>}
             {upcomingContent.map((d) => {
               const overdue = !!d.dueDate && d.dueDate < today && d.status !== 'done';
               return (

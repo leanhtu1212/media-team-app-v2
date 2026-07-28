@@ -144,7 +144,6 @@ export const STATUS_BADGE: Record<string, string> = {
   'in-progress': 'bg-amber-500/15 text-amber-400',
   completed: 'bg-emerald-500/15 text-emerald-400',
   planned: 'bg-slate-500/15 text-slate-300',
-  published: 'bg-violet-500/15 text-violet-300',
 };
 
 export const STATUS_LABEL: Record<string, string> = {
@@ -157,7 +156,6 @@ export const STATUS_LABEL: Record<string, string> = {
   'in-progress': 'Đang làm',
   completed: 'Hoàn thành',
   planned: 'Kế hoạch',
-  published: 'Đã đăng',
 };
 
 /* ---------- Avatar ---------- */

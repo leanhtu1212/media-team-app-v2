@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video, StickyNote, Tag, ArrowLeft, FileText, Check, Calendar, ExternalLink, Hash, CheckCircle2, Circle } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, ProgressBar } from '../components/ui';
@@ -12,14 +12,14 @@ import { useToast } from '../hooks/useToast';
 import type { DailyContent, DailyStatus, Project, Task, Note, ContentItem } from '../types';
 import type { User } from '../lib/firebase';
 
-const STATUSES: DailyStatus[] = ['planned', 'in-progress', 'done', 'published'];
+const STATUSES: DailyStatus[] = ['planned', 'in-progress', 'done'];
 const NEXT_STATUS: Record<DailyStatus, DailyStatus | null> = {
-  planned: 'in-progress', 'in-progress': 'done', done: 'published', published: null,
+  planned: 'in-progress', 'in-progress': 'done', done: null,
 };
 // Tiến độ nội dung theo bước trạng thái (giống ProgressBar của dự án).
-// Kế hoạch 0% (đỏ) → Đang làm 40% (vàng) → Xong 75% (xanh) → Đã đăng 100% (xanh lá).
+// Kế hoạch 0% (đỏ) → Đang làm 40% (vàng) → Hoàn thành 100% (xanh lá, terminal).
 const STATUS_PROGRESS: Record<DailyStatus, number> = {
-  planned: 0, 'in-progress': 40, done: 75, published: 100,
+  planned: 0, 'in-progress': 40, done: 100,
 };
 
 // Số video đã trả (done).
@@ -50,7 +50,7 @@ const PLATFORM_COLOR: Record<string, string> = {
 };
 
 const isDailyOverdue = (d: DailyContent) =>
-  !!d.dueDate && d.status !== 'published' && d.status !== 'done' && d.dueDate < todayStr();
+  !!d.dueDate && d.status !== 'done' && d.dueDate < todayStr();
 
 // Nền chip theo LOẠI mục (phân biệt content / dự án inhouse / dự án outsource / task tiền kỳ)
 const TYPE_TINT = {
@@ -66,7 +66,7 @@ function stripeFor(entry: CalEntry, today: string): string {
   if (entry.kind === 'daily') {
     const d = entry.daily;
     if (isDailyOverdue(d)) return 'border-red-500';
-    if (d.status === 'published' || d.status === 'done') return 'border-emerald-500';
+    if (d.status === 'done') return 'border-emerald-500';
     if (d.status === 'in-progress') return 'border-amber-400';
     return 'border-slate-500';
   }
@@ -954,6 +954,23 @@ export function ContentDetailPage({
   const [newVideo, setNewVideo] = useState('');
   const [newName, setNewName] = useState('');
   const [editItem, setEditItem] = useState<{ id: string; title: string; link: string } | null>(null);
+
+  // Đồng bộ trạng thái với số video đã trả — HAI CHIỀU, nếu không content bị kẹt ở
+  // "Hoàn thành" khi sau đó tăng số lượng hoặc xoá/bỏ tick video (vd 2/5 mà vẫn Hoàn thành).
+  // Chỉ can thiệp ranh giới xong/chưa xong; việc chọn Kế hoạch hay Đang làm để người dùng tự quyết.
+  useEffect(() => {
+    if (!item || !canEditDaily) return;
+    const list = item.items || [];
+    if (list.length === 0) return; // chưa dùng danh sách video → không tự đụng trạng thái
+    const done = list.filter((i) => i.done).length;
+    const target = Math.max(1, Number(item.quantity) || 1);
+    const desired: DailyStatus | null =
+      done >= target ? (item.status === 'done' ? null : 'done')
+        : (item.status === 'done' ? 'in-progress' : null);
+    if (!desired) return;
+    updateDailyContent(item.id, { status: desired }, { title: item.title, platform: item.platform }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.id, item?.items, item?.quantity, item?.status, canEditDaily]);
 
   if (!item) {
     return (
