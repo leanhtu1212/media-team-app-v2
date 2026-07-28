@@ -6,15 +6,26 @@ const NO_ECOM = new Set<string>();
 /** Task ảnh/video được coi là đã xong (đã hoàn thành hoặc đã duyệt DNTT). */
 const isDone = (t: Task) => t.status === 'completed' || !!t.dntt;
 
-/** Người đóng góp nhiều số lượng nhất trong danh sách task (tie-break theo uid cho ổn định). */
-function topContributor(tasks: Task[]): string | undefined {
-  if (tasks.length === 0) return undefined;
+/**
+ * Tỉ lệ đóng góp của từng người trong 1 nhóm task (tổng = 1).
+ * Điểm project được CHIA THEO CÔNG SỨC chứ không dồn hết cho người làm nhiều nhất:
+ * ai làm 49% vẫn được 0,49 phần thay vì mất trắng.
+ */
+function contributionShares(tasks: Task[]): Map<string, number> {
+  const byMember = qtyByUid(tasks);
+  const total = [...byMember.values()].reduce((s, q) => s + q, 0);
+  if (total <= 0) return new Map();
+  return new Map([...byMember].map(([uid, q]) => [uid, q / total]));
+}
+
+/** Số lượng mỗi người đóng góp trong nhóm task. */
+function qtyByUid(tasks: Task[]): Map<string, number> {
   const byMember = new Map<string, number>();
-  tasks.forEach((t) => {
+  for (const t of tasks) {
     const uid = t.createdBy || '';
     byMember.set(uid, (byMember.get(uid) || 0) + (Number(t.quantity) || 1));
-  });
-  return [...byMember.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+  }
+  return byMember;
 }
 
 const sumQty = (list: Task[]) => list.reduce((s, t) => s + (Number(t.quantity) || 1), 0);
@@ -45,17 +56,17 @@ function photoCumulative(qty: number, target: number): number {
  * Ảnh — phần tiến độ MỚI đạt được TRONG THÁNG của 1 project (0..1).
  * Lấy tiến độ tích luỹ đến hết tháng trừ đi phần các tháng trước đã tính → cộng mọi tháng luôn ≤ 1,
  * không còn cảnh project kéo dài 2 tháng bị đếm 2 lần.
- * topUid = người đóng góp nhiều nhất trong tháng → mỗi project chỉ tính cho 1 người.
+ * `shares` = tỉ lệ công sức từng người → điểm chia theo đóng góp, tổng vẫn đúng bằng `fraction`.
  */
 export function photoProjectFraction(
   proj: Project,
   allTasks: Task[],
   month: string,
-): { fraction: number; topUid?: string; done: number } {
+): { fraction: number; shares: Map<string, number>; done: number; byUid: Map<string, number> } {
   const { before, inMonth, inMonthTasks } = splitByMonth(allTasks, proj.id, ['photo'], month);
   const target = proj.photoTarget || 0;
   const fraction = photoCumulative(before + inMonth, target) - photoCumulative(before, target);
-  return { fraction: Math.max(0, fraction), topUid: topContributor(inMonthTasks), done: inMonth };
+  return { fraction: Math.max(0, fraction), shares: contributionShares(inMonthTasks), done: inMonth, byUid: qtyByUid(inMonthTasks) };
 }
 
 /**
@@ -68,14 +79,20 @@ export function outsourceProjectFraction(
   proj: Project,
   allTasks: Task[],
   month: string,
-): { fraction: number; topUid?: string; done: number; target: number } {
+): { fraction: number; shares: Map<string, number>; done: number; target: number; byUid: Map<string, number> } {
   const { before, inMonth, inMonthTasks, lastMonth } = splitByMonth(allTasks, proj.id, ['photo', 'video'], month);
   const target = (proj.photoTarget || 0) + (proj.videoTarget || 0);
   const cum = (qty: number) => (target > 0 ? Math.min(1, qty / target) : 0);
   const fraction = target > 0
     ? cum(before + inMonth) - cum(before)
     : (isProjectFinished(proj.status) && lastMonth === month ? 1 : 0);
-  return { fraction: Math.max(0, fraction), topUid: topContributor(inMonthTasks), done: inMonth, target };
+  return {
+    fraction: Math.max(0, fraction),
+    shares: contributionShares(inMonthTasks),
+    done: inMonth,
+    target,
+    byUid: qtyByUid(inMonthTasks),
+  };
 }
 
 /** Tập id dự án được gắn tag loại Ecom. */
@@ -136,17 +153,23 @@ export function teamTypeTotals(
 export interface PhotoProjectBreakdown {
   projectId: string;
   title: string;
-  done: number;
+  done: number; // ảnh CẢ TEAM làm trong tháng
+  myDone: number; // ảnh của riêng người này
   target: number;
-  fraction: number;
+  fraction: number; // tiến độ project đạt được trong tháng (0..1)
+  share: number; // tỉ lệ đóng góp của người này (0..1)
+  earned: number; // điểm thực nhận = fraction × share
 }
 
 export interface OutsourceProjectBreakdown {
   projectId: string;
   title: string;
-  done: number; // ảnh+video làm trong tháng (chỉ để hiển thị)
+  done: number; // ảnh+video CẢ TEAM làm trong tháng
+  myDone: number;
   target: number;
   fraction: number; // phần tiến độ project đạt được trong tháng (0..1)
+  share: number;
+  earned: number;
 }
 
 export interface MemberKpi {
@@ -220,10 +243,15 @@ export function calculateMemberKpi(
   for (const pid of photoProjectIds) {
     const proj = projOf(pid);
     if (!proj) continue;
-    const { fraction, topUid, done } = photoProjectFraction(proj, allTasks, month);
-    if (fraction > 0 && topUid === uid) {
-      photoScoreRaw += fraction;
-      photoProjects.push({ projectId: pid, title: proj.title, done, target: proj.photoTarget || 0, fraction: round2(fraction) });
+    const { fraction, shares, done, byUid } = photoProjectFraction(proj, allTasks, month);
+    const share = shares.get(uid) || 0;
+    const earned = fraction * share;
+    if (earned > 0) {
+      photoScoreRaw += earned;
+      photoProjects.push({
+        projectId: pid, title: proj.title, done, myDone: byUid.get(uid) || 0,
+        target: proj.photoTarget || 0, fraction: round2(fraction), share: round2(share), earned: round2(earned),
+      });
     }
   }
   const photoScore = round2(photoScoreRaw);
@@ -247,10 +275,15 @@ export function calculateMemberKpi(
   for (const pid of workedOutsourceIds) {
     const proj = projOf(pid);
     if (!proj) continue;
-    const { fraction, topUid, done, target } = outsourceProjectFraction(proj, allTasks, month);
-    if (fraction > 0 && topUid === uid) {
-      outsourceScoreRaw += fraction;
-      outsourceProjects.push({ projectId: pid, title: proj.title, done, target, fraction: round2(fraction) });
+    const { fraction, shares, done, target, byUid } = outsourceProjectFraction(proj, allTasks, month);
+    const share = shares.get(uid) || 0;
+    const earned = fraction * share;
+    if (earned > 0) {
+      outsourceScoreRaw += earned;
+      outsourceProjects.push({
+        projectId: pid, title: proj.title, done, myDone: byUid.get(uid) || 0,
+        target, fraction: round2(fraction), share: round2(share), earned: round2(earned),
+      });
     }
   }
   const outsourceScore = round2(outsourceScoreRaw);

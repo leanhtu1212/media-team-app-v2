@@ -607,10 +607,28 @@ function MemberDetail({
               <p className="text-[11px] font-bold text-muted uppercase tracking-wide mb-2">Điểm ảnh theo project</p>
               <div className="space-y-1.5">
                 {kpi.photoProjects.map((pp) => (
-                  <div key={pp.projectId} className="flex items-center gap-2 text-xs">
+                  <div key={pp.projectId} className="flex items-center gap-2 text-xs" title={`Tiến độ project trong tháng ${Math.round(pp.fraction * 100)}% × công sức của bạn ${Math.round(pp.share * 100)}% (${pp.myDone}/${pp.done} ảnh)`}>
                     <span className="flex-1 truncate">{pp.title}</span>
-                    <span className="text-dim tabular-nums">{pp.done}/{pp.target || '—'} ảnh</span>
-                    <span className="font-bold text-indigo-300 tabular-nums w-12 text-right">{Math.round(pp.fraction * 100)}%</span>
+                    <span className="text-dim tabular-nums">{pp.myDone}/{pp.done} ảnh</span>
+                    <span className="text-dim tabular-nums">{Math.round(pp.fraction * 100)}%×{Math.round(pp.share * 100)}%</span>
+                    <span className="font-bold text-indigo-300 tabular-nums w-12 text-right">{fmtScore(pp.earned)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Bóc tách điểm outsource theo project */}
+          {kpi.outsourceProjects.length > 0 && (
+            <div className="rounded-xl bg-bg border border-line p-3">
+              <p className="text-[11px] font-bold text-muted uppercase tracking-wide mb-2">Điểm outsource theo project</p>
+              <div className="space-y-1.5">
+                {kpi.outsourceProjects.map((op) => (
+                  <div key={op.projectId} className="flex items-center gap-2 text-xs" title={`Tiến độ project trong tháng ${Math.round(op.fraction * 100)}% × công sức của bạn ${Math.round(op.share * 100)}% (${op.myDone}/${op.done} sản phẩm)`}>
+                    <span className="flex-1 truncate">{op.title}</span>
+                    <span className="text-dim tabular-nums">{op.myDone}/{op.done} SP</span>
+                    <span className="text-dim tabular-nums">{Math.round(op.fraction * 100)}%×{Math.round(op.share * 100)}%</span>
+                    <span className="font-bold text-fuchsia-300 tabular-nums w-12 text-right">{fmtScore(op.earned)}</span>
                   </div>
                 ))}
               </div>
