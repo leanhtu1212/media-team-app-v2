@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video, StickyNote, Tag, ArrowLeft, FileText, Check, Calendar, ExternalLink, Hash, CheckCircle2, Circle } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, ProgressBar } from '../components/ui';
@@ -100,6 +100,16 @@ function stripeFor(entry: CalEntry, today: string): string {
  * có ngày tạo (createdAt) + deadline: vẽ liền mạch từ start → deadline.
  * ================================================================ */
 type SpanProject = { project: Project; start: string; end: string };
+
+/** Vị trí đang đọc của Lịch tháng, giữ ở App để lịch mount lại vẫn về đúng chỗ.
+ *  Neo theo TUẦN + offset thay vì scrollY vì chiều cao mỗi tuần đổi theo dữ liệu. */
+export type CalendarScroll = {
+  startMonth: string;   // tháng bắt đầu dải tuần đang render
+  weeksShown: number;   // số tuần đang render
+  month: string;        // tháng đang hiện ở tiêu đề
+  anchorWeek: string;   // data-week-of của tuần đầu tiên còn nhìn thấy
+  offset: number;       // khoảng cách từ đỉnh khung nhìn tới tuần đó (px, thường âm)
+};
 
 const BAR_UNIT = 24; // chiều cao mỗi lane thanh (px)
 const BAR_TOP = 26;  // chừa chỗ số ngày ở đầu ô
@@ -575,7 +585,7 @@ function NoteFormModal({
   );
 }
 
-export function DailyContentPage({ user, onOpenProject, onOpenContent, month, onMonthChange }: { user: User; onOpenProject: (id: string) => void; onOpenContent: (id: string) => void; month: string; onMonthChange: (m: string) => void }) {
+export function DailyContentPage({ user, onOpenProject, onOpenContent, month, onMonthChange, focusDate, scrollRef }: { user: User; onOpenProject: (id: string) => void; onOpenContent: (id: string) => void; month: string; onMonthChange: (m: string) => void; focusDate?: string | null; scrollRef?: MutableRefObject<CalendarScroll | null> }) {
   const { dailyContent, projects, allTasks, notes, tags, isEditor, isAdmin } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, modals } = useContentModals(user);
   const setMonth = onMonthChange;
@@ -638,10 +648,16 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
   };
 
   // ── Lịch CUỘN LIÊN TỤC kiểu Apple Calendar ──
+  // (kiểu CalendarScroll khai báo ở cuối file — App giữ ref này qua các lần lịch unmount)
   // Không tách ô theo tháng: một dải TUẦN nối nhau, ngày đầu mỗi tháng có nhãn phân cách.
   // rangeStart = thứ 2 của tuần chứa ngày 1 tháng bắt đầu; weeksShown = số tuần đang render.
-  const [startMonth, setStartMonth] = useState(() => shiftMonth(currentMonth(), -1));
-  const [weeksShown, setWeeksShown] = useState(18);
+  // Vị trí lịch lần trước (nếu vừa từ trang chi tiết quay lại). Chốt lại tại thời điểm mount —
+  // dựng đúng dải tuần cũ thì mới khôi phục được y nguyên chỗ đang đọc.
+  const restore = useRef(scrollRef?.current ?? null).current;
+  // Không có vị trí cũ → mở ở tháng của dự án vừa tạo (nếu có), không thì tháng hiện tại
+  const initialMonth = useRef(restore ? restore.month : focusDate ? focusDate.slice(0, 7) : currentMonth()).current;
+  const [startMonth, setStartMonth] = useState(() => (restore ? restore.startMonth : shiftMonth(initialMonth, -1)));
+  const [weeksShown, setWeeksShown] = useState(() => (restore ? restore.weeksShown : 18));
   const rangeStart = useMemo(() => mondayOf(`${startMonth}-01`), [startMonth]);
   const weeks = useMemo(
     () => Array.from({ length: weeksShown }, (_, w) => Array.from({ length: 7 }, (_, i) => addDays(rangeStart, w * 7 + i))),
@@ -730,10 +746,20 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
       raf = 0;
       const lineY = window.innerHeight / 3;
       let best: string | null = null;
+      // Tuần đầu tiên còn ló vào khung nhìn = mốc neo để khôi phục vị trí sau này.
+      // Neo theo TUẦN (không theo scrollY) vì chiều cao các tuần đổi khi dữ liệu/chip đổi.
+      let anchor: { week: string; offset: number } | null = null;
       for (const el of Object.values(weekRefs.current)) {
         if (!el) continue;
         const r = el.getBoundingClientRect();
+        if (!anchor && r.bottom > 0) {
+          const w = el.getAttribute('data-week-of');
+          if (w) anchor = { week: w, offset: r.top };
+        }
         if (r.top <= lineY && r.bottom > lineY) { best = el.getAttribute('data-month'); break; }
+      }
+      if (scrollRef && anchor) {
+        scrollRef.current = { startMonth, weeksShown, month: best || month, anchorWeek: anchor.week, offset: anchor.offset };
       }
       if (best && best !== month) setMonth(best);
     };
@@ -741,7 +767,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
     window.addEventListener('scroll', onScroll, { passive: true });
     update();
     return () => { window.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
-  }, [weeks, month, setMonth]);
+  }, [weeks, month, setMonth, scrollRef, startMonth, weeksShown]);
 
   // Cuộn tới ĐẦU tháng `m` (tuần chứa ngày 1) để thấy trọn tháng, chừa chỗ cho hàng thứ dính trên.
   const HEADER_OFFSET = 56;
@@ -751,18 +777,26 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
     window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - HEADER_OFFSET, behavior });
   };
 
-  // MỞ LỊCH ƯU TIÊN THÁNG HÔM NAY: reset dải quanh tháng hiện tại, cuộn tới ĐẦU tháng đó (thấy cả tháng).
+  // Quay lại từ trang chi tiết → cuộn về ĐÚNG chỗ đang đọc (neo theo tuần + offset đã lưu).
+  const scrollToAnchor = (s: CalendarScroll) => {
+    const el = document.querySelector<HTMLElement>(`[data-week-of="${s.anchorWeek}"]`);
+    if (!el) return;
+    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - s.offset });
+  };
+
+  // MỞ LỊCH: có vị trí cũ thì khôi phục y nguyên, không thì về tháng hôm nay (hoặc tháng dự án vừa tạo).
   const didInit = useRef(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (didInit.current) return;
     didInit.current = true;
-    const cur = currentMonth();
-    setStartMonth(shiftMonth(cur, -1));
-    setWeeksShown(18);
+    const cur = initialMonth;
     setMonth(cur);
-    const jump = () => scrollToMonthStart(cur);
-    // Cuộn ngay khi dải dựng xong (2 nhịp: state → layout), rồi cuộn LẠI sau khi dữ liệu Firestore
-    // về — lúc đó chip làm các ô cao lên nên vị trí cũ bị lệch. Xong mới cho phép nạp thêm tuần.
+    const jump = restore ? () => scrollToAnchor(restore) : () => scrollToMonthStart(cur);
+    // Cuộn NGAY trong layout effect (trước lượt vẽ đầu tiên) để không chớp qua tháng khác —
+    // quay lại từ trang chi tiết thì dữ liệu đã nằm sẵn trong context nên vị trí đã đúng luôn.
+    jump();
+    // Rồi cuộn LẠI sau khi dữ liệu Firestore về — lúc đó chip làm các ô cao lên nên vị trí cũ
+    // bị lệch. Xong mới cho phép nạp thêm tuần.
     requestAnimationFrame(() => requestAnimationFrame(jump));
     const t1 = setTimeout(jump, 400);
     const t2 = setTimeout(() => { readyRef.current = true; }, 800);
@@ -873,8 +907,8 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
                           }}
                           title={canEditDaily ? (isEditor ? `Nhấn đúp để tạo mới (dự án / nội dung)${off ? ' · Ngày nghỉ' : ''}` : `Nhấn đúp vào chỗ trống để tạo nội dung${off ? ' · Ngày nghỉ' : ''}`) : (off ? 'Ngày nghỉ' : undefined)}
                           className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col select-none ${
-                            isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40' : isToday ? 'border-indigo-500/40 bg-surface-2' : off ? 'border-line/60 bg-black/40 hover:border-line-2' : 'border-line hover:border-line-2'
-                          } ${inActiveMonth ? '' : 'opacity-35 hover:opacity-70'}`}
+                            isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40' : isToday ? 'border-accent/60 bg-accent/10 ring-1 ring-accent/30' : off ? 'border-line/60 bg-black/40 hover:border-line-2' : 'border-line hover:border-line-2'
+                          } ${inActiveMonth || isToday ? '' : 'opacity-35 hover:opacity-70'}`}
                         >
                           <div className="flex items-center justify-between mb-1.5">
                             <span className={`text-sm font-bold ${isToday ? 'text-indigo-300' : isMonthStart ? 'text-ink' : 'text-muted'}`}>

@@ -70,13 +70,14 @@ function ProjectCard({
 }
 
 export function ProjectsPage({
-  user, onOpenProject, onOpenContent, typeFilter, onTypeFilterChange,
+  user, onOpenProject, onOpenContent, typeFilter, onTypeFilterChange, onFocusCalendar,
 }: {
   user: User;
   onOpenProject: (id: string) => void;
   onOpenContent: (id: string) => void;
   typeFilter: ProjectsTab;
   onTypeFilterChange: (t: ProjectsTab) => void;
+  onFocusCalendar?: (date: string) => void;
 }) {
   const { projects, allTasks, members, isEditor, canEditDaily } = useAppData();
   const toast = useToast();
@@ -293,6 +294,8 @@ export function ProjectsPage({
               toast('Đã cập nhật dự án');
             } else {
               await createProject(data, user);
+              const focus = data.startDate || data.deadline;
+              if (focus) onFocusCalendar?.(focus);
               toast('Đã tạo dự án mới');
             }
             setModalOpen(false);
