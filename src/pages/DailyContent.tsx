@@ -24,13 +24,13 @@ const STATUS_PROGRESS: Record<DailyStatus, number> = {
 };
 
 // Số video đã trả (done).
-const itemsDone = (d: DailyContent) => (d.items || []).filter((i) => i.done).length;
+export const itemsDone = (d: DailyContent) => (d.items || []).filter((i) => i.done).length;
 
 // Số video CẦN làm = "số lượng" (quantity). Đủ số này thì content mới 100%.
-const contentTarget = (d: DailyContent) => Math.max(1, Number(d.quantity) || 1);
+export const contentTarget = (d: DailyContent) => Math.max(1, Number(d.quantity) || 1);
 
 // Tiến độ content: nếu đã có video con → số video trả / số lượng cần; chưa có video nào → theo trạng thái.
-function contentProgress(d: DailyContent): number {
+export function contentProgress(d: DailyContent): number {
   const list = d.items || [];
   if (list.length) return Math.min(100, (itemsDone(d) / contentTarget(d)) * 100);
   return STATUS_PROGRESS[d.status];
@@ -44,7 +44,7 @@ const DAY_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 /** Chỉ số thứ trong tuần bắt đầu từ THỨ 2 (getDay() trả 0 = Chủ nhật). */
 const dayIndexMon = (date: string) => (new Date(`${date}T00:00:00`).getDay() + 6) % 7;
 
-const PLATFORM_COLOR: Record<string, string> = {
+export const PLATFORM_COLOR: Record<string, string> = {
   Instagram: 'bg-pink-500/15 text-pink-300',
   TikTok: 'bg-slate-500/15 text-slate-200',
   Facebook: 'bg-blue-500/15 text-blue-300',
@@ -345,13 +345,13 @@ function ItemCard({
  * của trang Dự án.
  * ================================================================ */
 export function ContentKanban({ user, newRef, onOpenContent }: { user: User; newRef?: React.MutableRefObject<(() => void) | null>; onOpenContent: (id: string) => void }) {
-  const { dailyContent } = useAppData();
+  const { dailyContent, canCreateContent } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, openEdit, setConfirmDel, modals } = useContentModals(user);
   const [month, setMonth] = useState(currentMonth());
   const [dragOverCol, setDragOverCol] = useState<DailyStatus | null>(null);
 
   // Cho phép trang Dự án gọi "tạo nội dung" từ nút trên hàng tab (đồng nhất 3 tab)
-  if (newRef) newRef.current = canEditDaily ? () => openNew() : null;
+  if (newRef) newRef.current = canCreateContent ? () => openNew() : null;
 
   const monthItems = useMemo(
     () => dailyContent.filter((d) => (d.dueDate || '').startsWith(month)),
@@ -662,7 +662,7 @@ function NoteFormModal({
 }
 
 export function DailyContentPage({ user, onOpenProject, onOpenContent, month, onMonthChange, focusDate, scrollRef }: { user: User; onOpenProject: (id: string) => void; onOpenContent: (id: string) => void; month: string; onMonthChange: (m: string) => void; focusDate?: string | null; scrollRef?: MutableRefObject<CalendarScroll | null> }) {
-  const { dailyContent, projects, allTasks, notes, tags, isEditor, isAdmin } = useAppData();
+  const { dailyContent, projects, allTasks, notes, tags, isEditor, isAdmin, canCreateProject, canCreateContent } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, modals } = useContentModals(user);
   const setMonth = onMonthChange;
   const isMobile = useIsMobile();
@@ -679,11 +679,14 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
   // Modal tạo/sửa ghi chú: { note } khi sửa, hoặc { date } khi tạo mới ở 1 ngày
   const [noteModal, setNoteModal] = useState<{ note: Note | null; date: string } | null>(null);
 
-  // Điểm vào duy nhất khi tạo mới ở một ngày: editor → hiện bảng chọn; content → tạo content luôn
+  // Điểm vào duy nhất khi tạo mới ở một ngày. Ai tạo được nhiều hơn một thứ thì hiện bảng chọn;
+  // chỉ tạo được đúng một thứ thì vào thẳng form đó cho đỡ một bước bấm.
+  const createOptions = (canCreateProject ? 2 : 0) + (canCreateContent ? 1 : 0) + (canEditDaily ? 1 : 0);
   const startCreate = (date: string) => {
-    if (!canEditDaily) return;
-    if (isEditor) setPickerDate(date);
-    else openNew(date);
+    if (createOptions === 0) return;
+    if (createOptions > 1) { setPickerDate(date); return; }
+    if (canCreateContent) openNew(date);
+    else setNoteModal({ note: null, date });
   };
 
   const today = todayStr();
@@ -928,7 +931,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={goToday}><Calendar size={15} /> Hôm nay</Button>
           {isEditor && <Button variant="outline" onClick={() => setTagManagerOpen(true)}><Tag size={15} /> Tag màu</Button>}
-          {canEditDaily && <Button onClick={() => openNew()}><Plus size={15} /> Nội dung</Button>}
+          {canCreateContent && <Button onClick={() => openNew()}><Plus size={15} /> Nội dung</Button>}
         </div>
       </div>
 
@@ -1178,6 +1181,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
       <Modal open={!!pickerDate} onClose={() => setPickerDate(null)} title="Tạo mới">
         <p className="text-sm text-muted mb-4">Bạn muốn tạo gì cho ngày {pickerDate && formatDate(pickerDate)}?</p>
         <div className="grid grid-cols-1 gap-2.5">
+          {canCreateProject && (
           <button
             type="button"
             onClick={() => { const d = pickerDate!; setPickerDate(null); setProjModal({ projectType: 'inhouse', startDate: d }); }}
@@ -1189,6 +1193,8 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
               <p className="text-[11px] text-dim">Dự án chụp/quay đội tự làm</p>
             </div>
           </button>
+          )}
+          {canCreateProject && (
           <button
             type="button"
             onClick={() => { const d = pickerDate!; setPickerDate(null); setProjModal({ projectType: 'outsource', startDate: d }); }}
@@ -1200,6 +1206,8 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
               <p className="text-[11px] text-dim">Dự án thuê đối tác bên ngoài</p>
             </div>
           </button>
+          )}
+          {canCreateContent && (
           <button
             type="button"
             onClick={() => { const d = pickerDate!; setPickerDate(null); openNew(d); }}
@@ -1211,6 +1219,8 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
               <p className="text-[11px] text-dim">Nội dung hằng ngày (Reels, Short…)</p>
             </div>
           </button>
+          )}
+          {canEditDaily && (
           <button
             type="button"
             onClick={() => { const d = pickerDate!; setPickerDate(null); setNoteModal({ note: null, date: d }); }}
@@ -1222,6 +1232,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
               <p className="text-[11px] text-dim">Ghi chú nhanh ghim vào ngày này</p>
             </div>
           </button>
+          )}
         </div>
       </Modal>
 

@@ -341,6 +341,34 @@ export async function updateDailyContent(
   }
 }
 
+/** Tick/bỏ tick "đã sử dụng" cho 1 video của DỰ ÁN (task category 'video') ở trang DS Content.
+ *  Chỉ ghi 3 field used/usedDate/usedBy — rules cho role 'content' đúng bấy nhiêu key. */
+export async function setTaskUsed(
+  task: Task,
+  used: boolean,
+  user: { uid: string },
+): Promise<void> {
+  await updateDoc(ref.task(task.projectId, task.id), used
+    ? { used: true, usedDate: todayStr(), usedBy: user.uid }
+    : { used: false, usedDate: '', usedBy: '' });
+}
+
+/** Tick/bỏ tick "đã sử dụng" cho 1 video trong content (trang DS Content).
+ *  KHÔNG đụng tới `done` (editor trả video), tiến độ hay báo cáo/KPI — chỉ là dấu của bên content. */
+export async function setContentItemUsed(
+  content: DailyContent,
+  itemId: string,
+  used: boolean,
+  user: { uid: string },
+): Promise<void> {
+  const items = (content.items || []).map((it) =>
+    it.id === itemId
+      ? { ...it, used, ...(used ? { usedDate: todayStr(), usedBy: user.uid } : { usedDate: '', usedBy: '' }) }
+      : it,
+  );
+  await updateDoc(ref.daily(content.id), { items, updatedAt: serverTimestamp() });
+}
+
 export async function deleteDailyContent(id: string, title?: string): Promise<void> {
   // Xoá luôn báo cáo auto sinh ra từ các video con của content này (tránh mồ côi).
   try {

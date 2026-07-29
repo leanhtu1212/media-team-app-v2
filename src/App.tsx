@@ -13,12 +13,13 @@ import { MePage } from './pages/Me';
 import { ProjectsPage, type ProjectsTab } from './pages/Projects';
 import { ProjectDetailPage } from './pages/ProjectDetail';
 import { DailyContentPage, ContentDetailPage, type CalendarScroll } from './pages/DailyContent';
+import { ContentListPage } from './pages/ContentList';
 import { ReportsPage } from './pages/Reports';
 import { PerformancePage } from './pages/Performance';
 import { SettingsPage } from './pages/Settings';
 
 function Shell({ user }: { user: User }) {
-  const { loading, isAdmin, projects, dailyContent } = useAppData();
+  const { loading, isAdmin, role, projects, dailyContent } = useAppData();
   useAutoIcsSync(); // tự động đẩy feed lịch Inhouse lên Apple khi dữ liệu đổi
   const [view, setView] = useState<View>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -36,6 +37,14 @@ function Shell({ user }: { user: User }) {
   // Vị trí cuộn của Lịch tháng, ghi liên tục khi cuộn. Là ref (không phải state) để lịch unmount
   // rồi mount lại vẫn đọc được, mà cập nhật thì không làm cả app re-render.
   const calendarScrollRef = useRef<CalendarScroll | null>(null);
+
+  // Role 'content' chỉ thấy 4 trang này. View mặc định là 'dashboard' (lúc mount chưa biết role,
+  // members còn đang tải) nên khi role về mà đang đứng ở trang không được phép thì đẩy về Lịch tháng.
+  const contentAllowed: View[] = ['projects', 'daily', 'contentlist', 'settings'];
+  useEffect(() => {
+    if (role === 'content' && !contentAllowed.includes(view)) setView('daily');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, view]);
 
   if (loading) {
     return (
@@ -72,11 +81,13 @@ function Shell({ user }: { user: User }) {
             <ContentDetailPage contentId={selectedContentId} user={user} onBack={closeContent} onOpenProject={openProject} />
           ) : (
             <>
-              {view === 'dashboard' && <DashboardPage user={user} onOpenProject={openProject} onOpenContent={openContent} />}
-              {view === 'me' && <MePage user={user} onOpenProject={openProject} onOpenContent={openContent} />}
+              {view === 'dashboard' && role !== 'content' && <DashboardPage user={user} onOpenProject={openProject} onOpenContent={openContent} />}
+              {view === 'me' && role !== 'content' && <MePage user={user} onOpenProject={openProject} onOpenContent={openContent} />}
               {view === 'projects' && <ProjectsPage user={user} onOpenProject={openProject} onOpenContent={openContent} typeFilter={projectsTypeFilter} onTypeFilterChange={setProjectsTypeFilter} onFocusCalendar={setCalendarFocusDate} />}
               {view === 'daily' && <DailyContentPage user={user} onOpenProject={openProject} onOpenContent={openContent} month={calendarMonth} onMonthChange={setCalendarMonth} focusDate={calendarFocusDate} scrollRef={calendarScrollRef} />}
-              {view === 'reports' && <ReportsPage user={user} />}
+              {/* DS Content: chỉ admin + role 'content' (Sidebar cũng ẩn mục này với người khác) */}
+              {view === 'contentlist' && (isAdmin || role === 'content') && <ContentListPage user={user} onOpenContent={openContent} onOpenProject={openProject} />}
+              {view === 'reports' && role !== 'content' && <ReportsPage user={user} />}
               {view === 'performance' && isAdmin && <PerformancePage onOpenProject={openProject} />}
               {view === 'settings' && <SettingsPage user={user} />}
             </>

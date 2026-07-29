@@ -67,6 +67,11 @@ export interface Task {
   createdBy?: string;
   completedAt?: unknown;
   sourceReportId?: string;
+  // "Đã sử dụng" — bên content tick ở trang DS Content khi đã đăng video này.
+  // Không liên quan tới status/dntt của task, không ảnh hưởng tiến độ hay KPI.
+  used?: boolean;
+  usedDate?: string;
+  usedBy?: string;
 }
 
 export type OutputType = 'none' | 'photo' | 'video' | 'pre-production';
@@ -109,6 +114,11 @@ export interface ContentItem {
   reportId?: string; // id báo cáo auto liên kết (xoá video → xoá báo cáo)
   addedBy?: string; // uid người thêm video (người được ghi công báo cáo)
   addedByEmail?: string;
+  // ĐÃ SỬ DỤNG — hoàn toàn tách biệt với `done` (done = editor đã TRẢ video).
+  // Chỉ tick/bỏ tick ở trang DS Content, không đụng tới tiến độ hay KPI.
+  used?: boolean;
+  usedDate?: string; // ngày đánh dấu đã dùng (YYYY-MM-DD)
+  usedBy?: string;   // uid người đánh dấu
 }
 
 export interface DailyContent {

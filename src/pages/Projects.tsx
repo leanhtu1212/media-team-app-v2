@@ -79,7 +79,7 @@ export function ProjectsPage({
   onTypeFilterChange: (t: ProjectsTab) => void;
   onFocusCalendar?: (date: string) => void;
 }) {
-  const { projects, allTasks, members, isEditor, canEditDaily } = useAppData();
+  const { projects, allTasks, members, isEditor, canCreateProject, canCreateContent } = useAppData();
   const toast = useToast();
   const assigneesOf = (p: Project) =>
     (p.assigneeIds || [])
@@ -178,12 +178,12 @@ export function ProjectsPage({
               </button>
             ))}
           </div>
-          {typeFilter !== 'content' && isEditor && (
+          {typeFilter !== 'content' && canCreateProject && (
             <Button onClick={() => { setEditing(null); setModalOpen(true); }} className="order-3 sm:order-none w-full sm:w-auto">
               <Plus size={15} /> Dự án mới
             </Button>
           )}
-          {typeFilter === 'content' && canEditDaily && (
+          {typeFilter === 'content' && canCreateContent && (
             <Button onClick={() => contentNewRef.current?.()} className="order-3 sm:order-none w-full sm:w-auto">
               <Plus size={15} /> Nội dung
             </Button>

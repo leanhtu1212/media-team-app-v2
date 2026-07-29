@@ -20,8 +20,14 @@ interface AppData {
   loading: boolean;
   isAdmin: boolean;
   isEditor: boolean;
+  /** Role thô từ members doc — dùng khi cần phân biệt đúng role 'content'. */
+  role: string;
   /** Role "content": chỉ được sửa Daily Content, mọi nơi khác chỉ xem. */
   canEditDaily: boolean;
+  /** TẠO dự án mới: chỉ admin. Editor vẫn sửa được dự án đã có. */
+  canCreateProject: boolean;
+  /** TẠO nội dung mới: admin và role "content". Editor vẫn sửa được nội dung đã có. */
+  canCreateContent: boolean;
   currentMember: Member | null;
 }
 
@@ -116,11 +122,15 @@ export function AppDataProvider({ user, children }: { user: User; children: Reac
   const isAdmin = role === 'admin' || ADMIN_EMAILS.includes(user.email || '');
   const isEditor = role === 'editor' || isAdmin;
   const canEditDaily = isEditor || role === 'content';
+  // Quyền TẠO hẹp hơn quyền sửa: editor không mở được dự án/nội dung mới (tránh đẻ thêm đầu việc
+  // ngoài kế hoạch), nhưng vẫn sửa/cập nhật bình thường và vẫn tạo được ghi chú trên lịch.
+  const canCreateProject = isAdmin;
+  const canCreateContent = isAdmin || role === 'content';
   const loading = !loaded.members || !loaded.projects || !loaded.tasks;
 
   return (
     <AppDataContext.Provider
-      value={{ team, members, projects, allTasks, reports, productTypes, dailyContent, notes, tags, loading, isAdmin, isEditor, canEditDaily, currentMember }}
+      value={{ team, members, projects, allTasks, reports, productTypes, dailyContent, notes, tags, loading, isAdmin, isEditor, role, canEditDaily, canCreateProject, canCreateContent, currentMember }}
     >
       {children}
     </AppDataContext.Provider>

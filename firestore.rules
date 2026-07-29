@@ -4,6 +4,8 @@
 //      thuần không có Admin SDK server-side như app cũ, nên admin phải ghi trực
 //      tiếp từ client. Bản cũ bắt request.auth.uid == userId nên admin bị chặn.
 //   2. Thêm role 'content': chỉ được ghi dailyContent, không ghi projects/tasks.
+//   3. TẠO dự án: chỉ admin. TẠO nội dung: admin + role 'content'. Editor vẫn sửa được
+//      cả hai và vẫn tạo được ghi chú (notes).
 // Deploy: Firebase Console → Firestore → chọn database
 // ai-studio-9933e878-0247-44cf-b7f0-e77cd2ac2eac → tab Rules → dán → Publish.
 
@@ -48,6 +50,15 @@ service cloud.firestore {
       );
     }
 
+    // TẠO mới hẹp hơn SỬA: editor không mở được dự án/nội dung mới, nhưng vẫn cập nhật
+    // được cái đã có và vẫn tạo ghi chú (notes) bình thường.
+    function canCreateProject(teamId) {
+      return isAdmin(teamId);
+    }
+    function canCreateContent(teamId) {
+      return isTeamMember(teamId) && (getMemberRole(teamId) == 'admin' || getMemberRole(teamId) == 'content');
+    }
+
     // Collection Group for Tasks — chỉ thành viên team đọc (team id cố định, hard-code
     // được vì match collection-group không có teamId trong path).
     match /{path=**}/tasks/{taskId} {
@@ -78,14 +89,20 @@ service cloud.firestore {
       // Projects Subcollection
       match /projects/{projectId} {
         allow read: if isTeamMember(teamId);
-        allow create: if isEditor(teamId);
+        allow create: if canCreateProject(teamId);
         allow update: if isEditor(teamId);
         allow delete: if isAdmin(teamId);
 
         // Tasks Subcollection
         match /tasks/{taskId} {
           allow read: if isTeamMember(teamId);
-          allow create, update: if isEditor(teamId);
+          allow create: if isEditor(teamId);
+          // Role 'content' KHÔNG sửa task, chỉ được tick "đã sử dụng" ở trang DS Content —
+          // giới hạn đúng 3 field used/usedDate/usedBy để không lách sang sửa số lượng/link.
+          allow update: if isEditor(teamId) || (
+            canEditDaily(teamId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used', 'usedDate', 'usedBy'])
+          );
           allow delete: if isEditor(teamId);
         }
       }
@@ -113,7 +130,8 @@ service cloud.firestore {
       // Daily Content Subcollection — role 'content' được ghi ở đây
       match /dailyContent/{contentId} {
         allow read: if isTeamMember(teamId);
-        allow create, update: if canEditDaily(teamId);
+        allow create: if canCreateContent(teamId);
+        allow update: if canEditDaily(teamId);
         allow delete: if canEditDaily(teamId);
       }
 

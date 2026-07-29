@@ -1,32 +1,39 @@
-import { LayoutDashboard, FolderKanban, CalendarDays, FileText, TrendingUp, Settings, LogOut, Clapperboard, CircleUser, MoreHorizontal } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, CalendarDays, FileText, TrendingUp, Settings, LogOut, Clapperboard, CircleUser, MoreHorizontal, ListVideo } from 'lucide-react';
 import { useState } from 'react';
 import { auth, signOut } from '../../lib/firebase';
 import { Avatar } from '../ui';
 import { useAppData } from '../../store/AppDataContext';
 
-export type View = 'dashboard' | 'me' | 'projects' | 'daily' | 'reports' | 'performance' | 'settings';
+export type View = 'dashboard' | 'me' | 'projects' | 'daily' | 'contentlist' | 'reports' | 'performance' | 'settings';
 
-const NAV: { view: View; label: string; icon: typeof LayoutDashboard; adminOnly?: boolean }[] = [
-  { view: 'dashboard', label: 'Tổng quan', icon: LayoutDashboard },
-  { view: 'me', label: 'Của tôi', icon: CircleUser },
-  { view: 'projects', label: 'Dự án', icon: FolderKanban },
-  { view: 'daily', label: 'Lịch tháng', icon: CalendarDays },
-  { view: 'reports', label: 'Báo cáo', icon: FileText },
-  { view: 'performance', label: 'Hiệu suất', icon: TrendingUp, adminOnly: true },
-  { view: 'settings', label: 'Cài đặt', icon: Settings },
+type Access = { isAdmin: boolean; role: string };
+
+/** `show` quyết định mục có xuất hiện không:
+ *  - Role 'content' chỉ thấy Lịch tháng, Dự án, DS Content và Cài đặt.
+ *  - DS Content (danh sách content + link video đã trả) chỉ dành cho admin và role 'content'. */
+const NAV: { view: View; label: string; icon: typeof LayoutDashboard; show: (a: Access) => boolean }[] = [
+  { view: 'dashboard', label: 'Tổng quan', icon: LayoutDashboard, show: (a) => a.role !== 'content' },
+  { view: 'me', label: 'Của tôi', icon: CircleUser, show: (a) => a.role !== 'content' },
+  { view: 'projects', label: 'Dự án', icon: FolderKanban, show: () => true },
+  { view: 'daily', label: 'Lịch tháng', icon: CalendarDays, show: () => true },
+  { view: 'contentlist', label: 'DS Content', icon: ListVideo, show: (a) => a.isAdmin || a.role === 'content' },
+  { view: 'reports', label: 'Báo cáo', icon: FileText, show: (a) => a.role !== 'content' },
+  { view: 'performance', label: 'Hiệu suất', icon: TrendingUp, show: (a) => a.isAdmin },
+  { view: 'settings', label: 'Cài đặt', icon: Settings, show: () => true },
 ];
 
-/** 4 mục hay dùng nhất nằm thẳng trên thanh tab điện thoại; phần còn lại vào nút "Thêm".
- *  Giữ đúng 4+1 để mỗi ô đủ rộng cho ngón tay (~64px trên màn 320px). */
-const MOBILE_PRIMARY: View[] = ['dashboard', 'me', 'projects', 'daily'];
+/** Số mục nằm thẳng trên thanh tab điện thoại; phần còn lại vào nút "Thêm".
+ *  Giữ 4+1 để mỗi ô đủ rộng cho ngón tay (~64px trên màn 320px). Lấy theo thứ tự NAV
+ *  của những mục người dùng THẤY được — role 'content' ít mục nên vào thẳng tab hết. */
+const MOBILE_PRIMARY_COUNT = 4;
 
 /* ---------- Điện thoại: thanh tab dính đáy màn hình ---------- */
 function BottomNav({ view, onNavigate }: { view: View; onNavigate: (v: View) => void }) {
-  const { currentMember, isAdmin } = useAppData();
+  const { currentMember, isAdmin, role } = useAppData();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const nav = NAV.filter((n) => !n.adminOnly || isAdmin);
-  const primary = nav.filter((n) => MOBILE_PRIMARY.includes(n.view));
-  const rest = nav.filter((n) => !MOBILE_PRIMARY.includes(n.view));
+  const nav = NAV.filter((n) => n.show({ isAdmin, role }));
+  const primary = nav.slice(0, MOBILE_PRIMARY_COUNT);
+  const rest = nav.slice(MOBILE_PRIMARY_COUNT);
   const restActive = rest.some((n) => n.view === view);
 
   const go = (v: View) => { setSheetOpen(false); onNavigate(v); };
@@ -94,7 +101,7 @@ function BottomNav({ view, onNavigate }: { view: View; onNavigate: (v: View) => 
 }
 
 export function Sidebar({ view, onNavigate }: { view: View; onNavigate: (v: View) => void }) {
-  const { currentMember, isAdmin } = useAppData();
+  const { currentMember, isAdmin, role } = useAppData();
 
   return (
     <>
@@ -110,7 +117,7 @@ export function Sidebar({ view, onNavigate }: { view: View; onNavigate: (v: View
         </div>
 
         <nav className="flex-1 py-4 px-2 lg:px-3 space-y-1">
-          {NAV.filter((n) => !n.adminOnly || isAdmin).map((n) => {
+          {NAV.filter((n) => n.show({ isAdmin, role })).map((n) => {
             const active = view === n.view;
             return (
               <button
