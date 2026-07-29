@@ -62,7 +62,8 @@ function Shell({ user }: { user: User }) {
   return (
     <div className="flex min-h-screen">
       <Sidebar view={view} onNavigate={navigate} />
-      <main className="flex-1 min-w-0 p-4 lg:p-8">
+      {/* pb trên mobile chừa chỗ cho thanh tab dính đáy (56px + vùng an toàn máy có tai thỏ) */}
+      <main className="flex-1 min-w-0 p-4 lg:p-8 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-8">
         {/* key = remount boundary khi đổi trang, để một crash không kẹt cứng cả app */}
         <ErrorBoundary key={selectedProjectId || selectedContentId || (view === 'daily' ? `daily-${calendarResetNonce}` : view)}>
           {selectedProjectId ? (

@@ -385,12 +385,13 @@ function TypePanel({ cls, totals, onMetric }: { cls: ProjectClass; totals: TypeT
 
 function StatCell({ icon, tint, label, value, sub, small, onDoubleClick }: { icon: React.ReactNode; tint: string; label: string; value: React.ReactNode; sub?: React.ReactNode; small?: boolean; onDoubleClick: () => void }) {
   return (
-    <div onDoubleClick={onDoubleClick} title="Nhấp đúp để xem chi tiết" className="rounded-xl bg-bg border border-line p-3 cursor-pointer hover:border-line-2 transition-colors select-none">
-      <div className="flex items-center justify-between mb-1.5">
+    <div onDoubleClick={onDoubleClick} title="Nhấp đúp để xem chi tiết" className="rounded-xl bg-bg border border-line p-2 sm:p-3 cursor-pointer hover:border-line-2 transition-colors select-none overflow-hidden">
+      <div className="flex items-center justify-between gap-1 mb-1.5">
         <span className="text-[10px] font-bold text-muted uppercase tracking-wide">{label}</span>
-        <span className={tint}>{icon}</span>
+        <span className={`${tint} shrink-0`}>{icon}</span>
       </div>
-      <p className={`${small ? 'text-sm' : 'text-xl'} font-extrabold tabular-nums leading-none`}>{value}</p>
+      {/* Số tiền dài (vd 129.045.000đ) tràn ô 1/3 màn điện thoại → nhỏ hơn một nấc ở mobile */}
+      <p className={`${small ? 'text-[11px] sm:text-sm' : 'text-lg sm:text-xl'} font-extrabold tabular-nums leading-none break-all`}>{value}</p>
       {sub && <p className="text-[10px] text-dim tabular-nums mt-1 leading-none">{sub}</p>}
     </div>
   );

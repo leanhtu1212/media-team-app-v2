@@ -114,7 +114,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
               <span className="text-sm font-bold text-amber-300 tabular-nums">{formatVND(Number(t.amount) || 0)}</span>
             )}
             {isEditor && (
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                 <button onClick={() => setTaskModal({ open: true, category, editing: t })} className="text-muted hover:text-ink cursor-pointer p-1"><Pencil size={13} /></button>
                 <button onClick={() => setConfirmDelete({ type: 'task', task: t })} className="text-muted hover:text-red-400 cursor-pointer p-1"><Trash2 size={13} /></button>
               </div>
@@ -171,12 +171,14 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
 
   return (
     <div className="fade-up space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <Button variant="ghost" onClick={onBack} className="!px-2"><ArrowLeft size={17} /></Button>
-          <div>
+      {/* Thanh tiêu đề DÍNH TRÊN: cuộn xuống vẫn thấy tên dự án + nút quay lại.
+          Âm lề ngang + padding bù để nền phủ hết bề rộng khung nội dung (main có padding). */}
+      <div className="sticky top-0 z-40 -mx-4 lg:-mx-8 px-4 lg:px-8 -mt-4 lg:-mt-8 pt-4 lg:pt-8 pb-3 bg-bg/95 backdrop-blur border-b border-line flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0">
+          <Button variant="ghost" onClick={onBack} className="!px-2 shrink-0"><ArrowLeft size={17} /></Button>
+          <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl font-extrabold tracking-tight">{project.title}</h1>
+              <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">{project.title}</h1>
               <Badge color={STATUS_BADGE[project.status]}>{STATUS_LABEL[project.status]}</Badge>
             </div>
             {project.deadline && (() => {
@@ -186,8 +188,8 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
           </div>
         </div>
         {isAdmin && (
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setEditProject(true)}><Pencil size={14} /> Sửa</Button>
+          <div className="flex gap-2 shrink-0">
+            <Button variant="outline" onClick={() => setEditProject(true)}><Pencil size={14} /> <span className="hidden xs:inline">Sửa</span></Button>
             <Button variant="danger" onClick={() => setConfirmDelete({ type: 'project' })}><Trash2 size={14} /></Button>
           </div>
         )}

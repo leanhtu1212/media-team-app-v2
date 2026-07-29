@@ -96,7 +96,7 @@ export function DashboardPage({ user, onOpenProject, onOpenContent }: { user: Us
           <h1 className="text-xl font-extrabold tracking-tight">Tổng quan</h1>
           <p className="text-sm text-muted">Hoạt động của team trong {month === currentMonth() ? 'tháng này' : `tháng ${Number(month.slice(5))}/${month.slice(0, 4)}`}</p>
         </div>
-        <Input type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} className="!w-auto" />
+        <Input type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} className="w-full sm:!w-auto" />
       </div>
 
       {/* Project status distribution */}
@@ -140,14 +140,15 @@ export function DashboardPage({ user, onOpenProject, onOpenContent }: { user: Us
                 <button key={p.id} onClick={() => onOpenProject(p.id)} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors text-left cursor-pointer group">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold truncate group-hover:text-indigo-300 transition-colors">{p.title}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
+                    {/* wrap để badge + ngày không đội nhau trên màn hẹp */}
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
                       <Badge color={STATUS_BADGE[p.status]}>{STATUS_LABEL[p.status]}</Badge>
-                      <span className={`text-[11px] font-bold ${overdue ? 'text-red-400' : daysLeft <= 3 ? 'text-amber-300' : 'text-dim'}`}>
+                      <span className={`text-[11px] font-bold whitespace-nowrap ${overdue ? 'text-red-400' : daysLeft <= 3 ? 'text-amber-300' : 'text-dim'}`}>
                         {formatDate(p.deadline)}{overdue ? ` · quá ${Math.abs(daysLeft)}d` : daysLeft === 0 ? ' · hôm nay' : ` · còn ${daysLeft}d`}
                       </span>
                     </div>
                   </div>
-                  <div className="w-24 shrink-0">
+                  <div className="w-14 sm:w-24 shrink-0">
                     <p className="text-[11px] text-muted text-right mb-1 tabular-nums">{prog.done}/{prog.target || '—'}</p>
                     <ProgressBar value={prog.pct} />
                   </div>
@@ -240,7 +241,7 @@ export function DashboardPage({ user, onOpenProject, onOpenContent }: { user: Us
                     <p className="text-sm font-medium truncate group-hover:text-indigo-300 transition-colors">{d.title}</p>
                     <p className="text-[11px] text-dim truncate">{d.type}{assignee ? ` · ${assignee.username}` : ''}</p>
                   </div>
-                  <div className="text-right shrink-0">
+                  <div className="text-right shrink-0 hidden xs:block">
                     <span className={`text-[11px] tabular-nums block ${overdue ? 'text-red-400 font-bold' : 'text-dim'}`}>{formatDate(d.dueDate)}</span>
                     <Badge color={STATUS_BADGE[d.status]}>{STATUS_LABEL[d.status]}</Badge>
                   </div>

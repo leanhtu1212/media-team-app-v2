@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video, StickyNote, Tag, ArrowLeft, FileText, Check, Calendar, ExternalLink, Hash, CheckCircle2, Circle } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, ProgressBar } from '../components/ui';
@@ -9,6 +9,7 @@ import { Linkify } from './ProjectDetail';
 import { TagManagerModal, TagSelect, hexA } from '../components/tags';
 import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr, isDayOff } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
+import { useIsMobile } from '../hooks/useIsMobile';
 import type { DailyContent, DailyStatus, Project, Task, Note, ContentItem } from '../types';
 import type { User } from '../lib/firebase';
 
@@ -40,6 +41,8 @@ const newItemId = () =>
 const TYPES = ['Reels', 'Short', 'Viral / Trending', 'Brand Content', 'Lịch đăng'];
 const PLATFORMS = ['Instagram', 'TikTok', 'Facebook', 'YouTube', 'Đa kênh'];
 const DAY_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+/** Chỉ số thứ trong tuần bắt đầu từ THỨ 2 (getDay() trả 0 = Chủ nhật). */
+const dayIndexMon = (date: string) => (new Date(`${date}T00:00:00`).getDay() + 6) % 7;
 
 const PLATFORM_COLOR: Record<string, string> = {
   Instagram: 'bg-pink-500/15 text-pink-300',
@@ -300,7 +303,7 @@ function ItemCard({
       <div className="flex items-start justify-between gap-2 mb-1.5">
         <Badge color={PLATFORM_COLOR[item.platform] || PLATFORM_COLOR['Đa kênh']}>{item.platform}</Badge>
         {canEdit && (
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
             <button onClick={onEdit} className="text-muted hover:text-ink cursor-pointer"><Pencil size={12} /></button>
             <button onClick={onDelete} className="text-muted hover:text-red-400 cursor-pointer"><Trash2 size={12} /></button>
           </div>
@@ -531,6 +534,79 @@ function CalChip({
   );
 }
 
+/* ---------- Lịch trên ĐIỆN THOẠI: danh sách theo ngày (agenda) ----------
+ * Lưới 7 cột trên màn 375px mỗi ô chỉ còn ~45px, không đọc nổi tên. Ở mobile đổi thành
+ * mỗi ngày một hàng ngang: cột ngày hẹp bên trái, các mục xếp dọc bên phải.
+ * Chạm MỘT lần là mở (nhấn đúp không hợp với cảm ứng), đổi ngày làm trong form thay vì kéo-thả. */
+function AgendaChip({
+  entry, today, assigneeName, onDetail, onOpenProject, onNote, tagColor,
+}: {
+  entry: CalEntry;
+  today: string;
+  assigneeName: (id?: string) => string | undefined;
+  onDetail: (d: DailyContent) => void;
+  onOpenProject: (id: string) => void;
+  onNote: (n: Note) => void;
+  tagColor: (id?: string) => string | undefined;
+}) {
+  const stripe = stripeFor(entry, today);
+  const tagIdOf = entry.kind === 'daily' ? entry.daily.tagId : entry.kind === 'project' ? entry.project.tagId : entry.kind === 'task' ? entry.task.tagId : entry.note.tagId;
+  const tagCol = tagColor(tagIdOf);
+  const style = tagCol ? { backgroundColor: hexA(tagCol, 0.32), color: '#fff' } : undefined;
+
+  let tint: string = TYPE_TINT.note;
+  let icon: ReactNode = <StickyNote size={12} className="mt-0.5 shrink-0" />;
+  let label = '';
+  let sub: ReactNode = null;
+  let onTap = () => {};
+
+  if (entry.kind === 'note') {
+    const n = entry.note;
+    label = n.text || '(trống)';
+    onTap = () => onNote(n);
+  } else if (entry.kind === 'daily') {
+    const d = entry.daily;
+    const name = assigneeName(d.assigneeId);
+    tint = TYPE_TINT.content;
+    icon = null;
+    label = d.title;
+    sub = (
+      <span className="flex items-center gap-1.5 mt-1">
+        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${PLATFORM_COLOR[d.platform] || PLATFORM_COLOR['Đa kênh']}`}>{d.platform}</span>
+        {name && <span className="text-[10px] text-dim">{name}</span>}
+      </span>
+    );
+    onTap = () => onDetail(d);
+  } else if (entry.kind === 'project') {
+    const p = entry.project;
+    const isOut = p.projectType === 'outsource';
+    tint = isOut ? TYPE_TINT.outsource : TYPE_TINT.inhouse;
+    icon = <FolderKanban size={12} className="mt-0.5 shrink-0" />;
+    label = p.title;
+    sub = <span className="block text-[10px] font-bold uppercase opacity-80 mt-0.5">{isOut ? 'Outsource' : 'Inhouse'} · {STATUS_LABEL[p.status]}</span>;
+    onTap = () => onOpenProject(p.id);
+  } else {
+    const { task, project } = entry;
+    tint = TYPE_TINT.task;
+    icon = <Wallet size={12} className="mt-0.5 shrink-0" />;
+    label = task.title;
+    sub = project ? <span className="block text-[10px] text-dim mt-0.5">{project.title}</span> : null;
+    onTap = () => { if (project) onOpenProject(project.id); };
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onTap}
+      style={style}
+      className={`w-full text-left rounded-lg px-2.5 py-2 border-l-4 cursor-pointer active:opacity-70 ${stripe} ${tint}`}
+    >
+      <span className="text-[13px] font-bold leading-snug flex items-start gap-1.5">{icon}<span className="line-clamp-2">{label}</span></span>
+      {sub}
+    </button>
+  );
+}
+
 /** Modal tạo/sửa ghi chú (ghim vào 1 ngày). Component cấp module để input không remount. */
 function NoteFormModal({
   state, onClose, onSave, onDelete, creator,
@@ -589,6 +665,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
   const { dailyContent, projects, allTasks, notes, tags, isEditor, isAdmin } = useAppData();
   const { canEditDaily, toast, memberOf, openNew, modals } = useContentModals(user);
   const setMonth = onMonthChange;
+  const isMobile = useIsMobile();
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
 
@@ -695,7 +772,9 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
     const push = (date: string, e: CalEntry) => { (map[date] ||= []).push(e); };
     dailyContent.forEach((d) => { if (d.dueDate) push(d.dueDate, { kind: 'daily', daily: d }); });
     projects.forEach((p) => {
-      if (spanIds.has(p.id)) return;
+      // Desktop: dự án dài đã có thanh nối liền riêng nên bỏ qua ở đây.
+      // Mobile: không vẽ thanh (danh sách dọc) → xếp dự án vào đúng ngày deadline.
+      if (!isMobile && spanIds.has(p.id)) return;
       const day = p.deadline || p.startDate;
       if (day) push(day, { kind: 'project', project: p });
     });
@@ -708,7 +787,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
     }
     notes.forEach((n) => { if (n.date) push(n.date, { kind: 'note', note: n }); });
     return map;
-  }, [dailyContent, projects, allTasks, notes, spanIds, isAdmin]);
+  }, [dailyContent, projects, allTasks, notes, spanIds, isAdmin, isMobile]);
 
   // Chạm đáy → nối thêm tuần. `readyRef` chặn nạp trong lúc đang cuộn về hôm nay lúc mở trang,
   // nếu không observer bắn liên tiếp và lịch chạy đà đi vài năm. MAX_WEEKS là chặn trên an toàn.
@@ -744,7 +823,9 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
     let raf = 0;
     const update = () => {
       raf = 0;
-      const lineY = window.innerHeight / 3;
+      // Mốc đổi tháng: GIỮA màn hình trên điện thoại (agenda cuộn từng ngày — tháng sáng lên
+      // đúng lúc ranh giới 2 tháng đi qua chính giữa), 1/3 trên ở desktop (lưới tuần cao hơn).
+      const lineY = isMobile ? window.innerHeight / 2 : window.innerHeight / 3;
       let best: string | null = null;
       // Tuần đầu tiên còn ló vào khung nhìn = mốc neo để khôi phục vị trí sau này.
       // Neo theo TUẦN (không theo scrollY) vì chiều cao các tuần đổi khi dữ liệu/chip đổi.
@@ -756,7 +837,15 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
           const w = el.getAttribute('data-week-of');
           if (w) anchor = { week: w, offset: r.top };
         }
-        if (r.top <= lineY && r.bottom > lineY) { best = el.getAttribute('data-month'); break; }
+        if (!isMobile && r.top <= lineY && r.bottom > lineY) { best = el.getAttribute('data-month'); break; }
+      }
+      if (isMobile) {
+        // Lấy theo HÀNG NGÀY, không theo tuần: tuần vắt qua 2 tháng thì mốc phải là ngày cụ thể
+        // đang nằm giữa màn hình, chứ không phải cả tuần đổi tháng cùng lúc.
+        for (const el of document.querySelectorAll<HTMLElement>('[data-day]')) {
+          const r = el.getBoundingClientRect();
+          if (r.top <= lineY && r.bottom > lineY) { best = (el.dataset.day || '').slice(0, 7) || null; break; }
+        }
       }
       if (scrollRef && anchor) {
         scrollRef.current = { startMonth, weeksShown, month: best || month, anchorWeek: anchor.week, offset: anchor.offset };
@@ -767,7 +856,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
     window.addEventListener('scroll', onScroll, { passive: true });
     update();
     return () => { window.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
-  }, [weeks, month, setMonth, scrollRef, startMonth, weeksShown]);
+  }, [weeks, month, setMonth, scrollRef, startMonth, weeksShown, isMobile]);
 
   // Cuộn tới ĐẦU tháng `m` (tuần chứa ngày 1) để thấy trọn tháng, chừa chỗ cho hàng thứ dính trên.
   const HEADER_OFFSET = 56;
@@ -775,6 +864,15 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
     const el = document.querySelector<HTMLElement>(`[data-week-of="${mondayOf(`${m}-01`)}"]`);
     if (!el) return;
     window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - HEADER_OFFSET, behavior });
+  };
+
+  // Điện thoại (agenda): đưa hàng HÔM NAY ra GIỮA màn hình — thấy luôn vài ngày trước/sau,
+  // hợp lý hơn là canh đầu tháng vì danh sách dọc không có khái niệm "nhìn trọn tháng".
+  const scrollToTodayCentered = (behavior: ScrollBehavior = 'auto') => {
+    const el = document.querySelector<HTMLElement>(`[data-day="${today}"]`);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    window.scrollTo({ top: r.top + window.scrollY - (window.innerHeight / 2 - r.height / 2), behavior });
   };
 
   // Quay lại từ trang chi tiết → cuộn về ĐÚNG chỗ đang đọc (neo theo tuần + offset đã lưu).
@@ -791,7 +889,13 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
     didInit.current = true;
     const cur = initialMonth;
     setMonth(cur);
-    const jump = restore ? () => scrollToAnchor(restore) : () => scrollToMonthStart(cur);
+    // Ưu tiên: vị trí cũ (quay lại từ chi tiết) → hôm nay ở giữa (mobile, đang mở đúng tháng này)
+    // → đầu tháng (desktop, hoặc mobile khi mở ở tháng của dự án vừa tạo).
+    const jump = restore
+      ? () => scrollToAnchor(restore)
+      : isMobile && cur === currentMonth()
+        ? () => scrollToTodayCentered()
+        : () => scrollToMonthStart(cur);
     // Cuộn NGAY trong layout effect (trước lượt vẽ đầu tiên) để không chớp qua tháng khác —
     // quay lại từ trang chi tiết thì dữ liệu đã nằm sẵn trong context nên vị trí đã đúng luôn.
     jump();
@@ -808,7 +912,10 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
     const cur = currentMonth();
     setStartMonth(shiftMonth(cur, -1));
     setWeeksShown(18);
-    requestAnimationFrame(() => requestAnimationFrame(() => scrollToMonthStart(cur, 'smooth')));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (isMobile) scrollToTodayCentered('smooth');
+      else scrollToMonthStart(cur, 'smooth');
+    }));
   };
 
   return (
@@ -825,8 +932,9 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
         </div>
       </div>
 
-      {/* Chú thích màu — đặt ngoài danh sách tháng để luôn thấy khi cuộn */}
-      <Card className="p-3 space-y-2">
+      {/* Chú thích màu — đặt ngoài danh sách tháng để luôn thấy khi cuộn.
+          Trên điện thoại ẩn đi: chiếm gần nửa màn hình mà mỗi mục đã ghi rõ loại bằng chữ. */}
+      <Card className="hidden md:block p-3 space-y-2">
         <div className="flex flex-wrap gap-3 items-center text-[11px] text-muted">
           <span className="font-bold text-dim uppercase text-[10px] tracking-wide">Loại</span>
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500/50" /> Content</span>
@@ -845,11 +953,14 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
       </Card>
       {/* Dải TUẦN liên tục kiểu Apple Calendar — thứ dính trên đầu, tháng phân cách bằng nhãn */}
       <Card className="p-3 sm:p-4">
-        <div className="sticky top-0 z-30 -mx-3 sm:-mx-4 -mt-3 sm:-mt-4 px-3 sm:px-4 pt-3 sm:pt-4 pb-2 bg-surface/95 backdrop-blur-sm rounded-t-xl">
-          <div className="grid grid-cols-7 gap-2">
-            {DAY_LABELS.map((d) => <div key={d} className="text-center text-xs font-bold text-dim py-1">{d}</div>)}
+        {/* Hàng thứ chỉ có nghĩa với lưới 7 cột — bản agenda đã ghi thứ ngay cạnh mỗi ngày */}
+        {!isMobile && (
+          <div className="sticky top-0 z-30 -mx-3 sm:-mx-4 -mt-3 sm:-mt-4 px-3 sm:px-4 pt-3 sm:pt-4 pb-2 bg-surface/95 backdrop-blur-sm rounded-t-xl">
+            <div className="grid grid-cols-7 gap-2">
+              {DAY_LABELS.map((d) => <div key={d} className="text-center text-xs font-bold text-dim py-1">{d}</div>)}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="flex justify-center py-2">
           <Button variant="ghost" onClick={loadEarlier} className="!text-xs !py-1.5">
@@ -867,7 +978,10 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
             const weekMonth = (firstOfMonth ?? week[0]).slice(0, 7);
             return (
               <div key={week[0]} data-month={weekMonth} data-week-of={week[0]} ref={(el) => { weekRefs.current[wi] = el; }}>
-                {firstOfMonth && (() => {
+                {/* Desktop: nhãn tháng đặt ở đầu khối TUẦN (lưới ngang, cả tuần nằm cùng hàng).
+                    Mobile: nhãn chèn ngay trước hàng ngày mùng 1 (bên dưới) — đặt ở đầu tuần thì
+                    nó nằm phía trên cả mấy ngày cuối tháng trước, gây hiểu nhầm ranh giới tháng. */}
+                {firstOfMonth && !isMobile && (() => {
                   const lm = firstOfMonth.slice(0, 7);
                   const isActive = lm === month;
                   return (
@@ -879,6 +993,81 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
                     </div>
                   );
                 })()}
+                {/* ĐIỆN THOẠI: mỗi ngày một hàng. Vẫn nằm trong cùng khối tuần (data-week-of)
+                    nên cuộn liên tục, nạp thêm tuần và khôi phục vị trí dùng chung code với desktop. */}
+                {isMobile ? (
+                  <div className="space-y-1.5">
+                    {week.map((date) => {
+                      const list = byDay[date] || [];
+                      const isToday = date === today;
+                      const off = isDayOff(date);
+                      const dayNum = Number(date.slice(8));
+                      const inActiveMonth = date.slice(0, 7) === month;
+                      // Ngày trống chiếm 1 dòng mảnh thôi — không thì cuộn cả tháng toàn ô rỗng
+                      const empty = list.length === 0;
+                      const monthOfDay = date.slice(0, 7);
+                      return (
+                        <div key={date}>
+                        {dayNum === 1 && (
+                          <div className={`flex items-center gap-3 pt-3 pb-1.5 transition-opacity ${monthOfDay === month ? '' : 'opacity-45'}`}>
+                            <h3 className={`text-sm font-extrabold tracking-tight ${monthOfDay === today.slice(0, 7) ? 'text-indigo-300' : 'text-ink'}`}>
+                              {monthLabel(monthOfDay)}
+                            </h3>
+                            <div className="flex-1 h-px bg-line" />
+                          </div>
+                        )}
+                        <div
+                          data-day={date}
+                          className={`flex gap-2.5 rounded-xl border transition-opacity ${empty ? 'items-center py-1 px-2' : 'p-2'} ${
+                            isToday ? 'border-accent/60 bg-accent/10' : off ? 'border-line/60 bg-black/40' : 'border-line'
+                          } ${inActiveMonth || isToday ? '' : 'opacity-45'}`}
+                        >
+                          {empty ? (
+                            <div className="flex-1 flex items-baseline gap-2 min-w-0">
+                              <span className="text-[10px] font-bold text-dim w-6">{DAY_LABELS[dayIndexMon(date)]}</span>
+                              <span className={`text-sm font-extrabold ${isToday ? 'text-indigo-300' : 'text-muted'}`}>{dayNum}</span>
+                              {dayNum === 1 && <span className="text-[9px] font-bold text-dim">Th{Number(date.slice(5, 7))}</span>}
+                              {off && <span className="text-[10px] text-dim">Ngày nghỉ</span>}
+                            </div>
+                          ) : (
+                            <>
+                              <div className="w-9 shrink-0 text-center pt-0.5">
+                                <div className="text-[10px] font-bold text-dim">{DAY_LABELS[dayIndexMon(date)]}</div>
+                                <div className={`text-lg font-extrabold leading-tight ${isToday ? 'text-indigo-300' : off ? 'text-dim' : 'text-ink'}`}>{dayNum}</div>
+                                {dayNum === 1 && <div className="text-[9px] font-bold text-dim">Th{Number(date.slice(5, 7))}</div>}
+                              </div>
+                              <div className="flex-1 min-w-0 space-y-1.5">
+                                {list.map((entry, j) => (
+                                  <AgendaChip
+                                    key={j}
+                                    entry={entry}
+                                    today={today}
+                                    assigneeName={(id) => memberOf(id)?.username}
+                                    onDetail={(d) => onOpenContent(d.id)}
+                                    onOpenProject={onOpenProject}
+                                    onNote={(n) => setNoteModal({ note: n, date: n.date })}
+                                    tagColor={tagColorOf}
+                                  />
+                                ))}
+                              </div>
+                            </>
+                          )}
+                          {canEditDaily && (
+                            <button
+                              type="button"
+                              onClick={() => startCreate(date)}
+                              title="Thêm vào ngày này"
+                              className={`shrink-0 rounded-lg border border-line text-dim active:bg-surface-2 flex items-center justify-center cursor-pointer ${empty ? 'w-7 h-7' : 'self-start w-8 h-8'}`}
+                            >
+                              <Plus size={15} />
+                            </button>
+                          )}
+                        </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
                 <div className="relative">
                   <div className="grid grid-cols-7 gap-2">
                     {week.map((date, c) => {
@@ -973,6 +1162,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
                     </div>
                   )}
                 </div>
+                )}
               </div>
             );
           })}
@@ -1230,13 +1420,13 @@ export function ContentDetailPage({
 
   return (
     <div className="fade-up space-y-5">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      {/* Header DÍNH TRÊN — cuộn xuống vẫn thấy tên nội dung + nút quay lại (xem ProjectDetail) */}
+      <div className="sticky top-0 z-40 -mx-4 lg:-mx-8 px-4 lg:px-8 -mt-4 lg:-mt-8 pt-4 lg:pt-8 pb-3 bg-bg/95 backdrop-blur border-b border-line flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">
-          <Button variant="ghost" onClick={onBack} className="!px-2"><ArrowLeft size={17} /></Button>
+          <Button variant="ghost" onClick={onBack} className="!px-2 shrink-0"><ArrowLeft size={17} /></Button>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl font-extrabold tracking-tight break-words">{item.title}</h1>
+              <h1 className="text-lg sm:text-xl font-extrabold tracking-tight break-words">{item.title}</h1>
               <Badge color={STATUS_BADGE[item.status]}>{STATUS_LABEL[item.status]}</Badge>
             </div>
             <p className={`text-xs mt-1 ${overdue ? 'text-red-400 font-bold' : 'text-muted'}`}>
@@ -1245,8 +1435,8 @@ export function ContentDetailPage({
           </div>
         </div>
         {canEditDaily && (
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setEditOpen(true)}><Pencil size={14} /> Sửa</Button>
+          <div className="flex gap-2 shrink-0">
+            <Button variant="outline" onClick={() => setEditOpen(true)}><Pencil size={14} /> <span className="hidden xs:inline">Sửa</span></Button>
             <Button variant="danger" onClick={() => setConfirmDel(true)}><Trash2 size={14} /></Button>
           </div>
         )}
@@ -1308,7 +1498,7 @@ export function ContentDetailPage({
                           </span>
                         )}
                         {canEditDaily && (
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                             <button onClick={() => setEditItem({ id: v.id, title: v.title, link: v.link || '' })} className="text-muted hover:text-ink cursor-pointer p-1"><Pencil size={13} /></button>
                             <button onClick={() => removeItem(v.id)} className="text-muted hover:text-red-400 cursor-pointer p-1"><Trash2 size={13} /></button>
                           </div>

@@ -3,6 +3,10 @@
 @theme {
   --font-sans: "Be Vietnam Pro", system-ui, sans-serif;
 
+  /* Điện thoại nhỏ (iPhone SE ~375px) vẫn dưới ngưỡng này; từ 420px trở lên mới đủ chỗ
+     cho các cột phụ (ngày đăng, badge trạng thái…) ở danh sách. */
+  --breakpoint-xs: 420px;
+
   --color-bg: #0a0a0b;
   --color-surface: #131316;
   --color-surface-2: #1a1a1f;
@@ -24,6 +28,15 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* iOS tự phóng to trang khi focus vào ô nhập có cỡ chữ < 16px → ép 16px trên màn cảm ứng hẹp.
+   Từ 768px trở lên vẫn dùng 14px cho gọn như thiết kế desktop. */
+@media (max-width: 767px) {
+  input, select, textarea { font-size: 16px !important; }
+}
+
+/* Bỏ mảng xám nhấp nháy khi chạm trên Android/iOS — đã có state :active riêng */
+* { -webkit-tap-highlight-color: transparent; }
+
 * { scrollbar-width: thin; scrollbar-color: #33333b transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-thumb { background: #33333b; border-radius: 4px; }
@@ -44,6 +57,12 @@ input[type="month"]::-webkit-calendar-picker-indicator {
   to { opacity: 1; transform: translateX(0); }
 }
 .slide-in-left { animation: slideInLeft 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.slide-up { animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
 
 @keyframes slideInRight {
   from { opacity: 0; transform: translateX(24px); }

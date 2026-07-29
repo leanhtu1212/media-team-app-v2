@@ -91,6 +91,8 @@ export function ProjectsPage({
   const [editing, setEditing] = useState<Project | null>(null);
   const [search, setSearch] = useState('');
   const [dragOverCol, setDragOverCol] = useState<ProjectStatus | null>(null);
+  // Điện thoại xem từng cột một (không có kanban) — trạng thái đang chọn
+  const [mobileStatus, setMobileStatus] = useState<ProjectStatus>('plan');
 
   // Legacy data may have projectType 'photo' | 'video' | undefined — treat everything
   // that is not explicitly 'outsource' as inhouse so no project is hidden.
@@ -109,6 +111,12 @@ export function ProjectsPage({
     () => filtered.filter((p) => p.status === 'done').sort((a, b) => (b.deadline || '').localeCompare(a.deadline || '')),
     [filtered],
   );
+
+  // Dự án thuộc một cột. Status lạ/thiếu (dữ liệu cũ) rơi về "Kế hoạch"; 'done' lấy danh sách riêng.
+  const projectsIn = (status: ProjectStatus) =>
+    status === 'done'
+      ? doneProjects
+      : filtered.filter((p) => (status === 'plan' ? p.status === 'plan' || !ALL_STATUS.includes(p.status) : p.status === status));
 
   const handleDrop = async (projectId: string, status: ProjectStatus) => {
     const p = projects.find((x) => x.id === projectId);
@@ -139,15 +147,16 @@ export function ProjectsPage({
             {typeFilter === 'content' ? 'Kanban nội dung hằng ngày' : `${filtered.length} dự án ${typeFilter}`}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Mobile: mỗi nhóm điều khiển chiếm trọn 1 hàng cho dễ chạm; desktop xếp ngang như cũ */}
+        <div className="w-full sm:w-auto flex flex-wrap items-center gap-2">
           {typeFilter !== 'content' && (
-            <div className="relative">
+            <div className="relative order-2 sm:order-none w-full sm:w-auto">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Tìm dự án..."
-                className="!w-44 sm:!w-56 !pl-8 !pr-7"
+                className="w-full sm:!w-56 !pl-8 !pr-7"
               />
               {search && (
                 <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-ink cursor-pointer">
@@ -156,12 +165,12 @@ export function ProjectsPage({
               )}
             </div>
           )}
-          <div className="flex bg-surface border border-line rounded-xl p-1">
+          <div className="order-1 sm:order-none flex-1 sm:flex-none flex bg-surface border border-line rounded-xl p-1">
             {(['inhouse', 'outsource', 'content'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => onTypeFilterChange(t)}
-                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${
+                className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${
                   typeFilter === t ? 'bg-accent text-white' : 'text-muted hover:text-ink'
                 }`}
               >
@@ -170,12 +179,12 @@ export function ProjectsPage({
             ))}
           </div>
           {typeFilter !== 'content' && isEditor && (
-            <Button onClick={() => { setEditing(null); setModalOpen(true); }}>
+            <Button onClick={() => { setEditing(null); setModalOpen(true); }} className="order-3 sm:order-none w-full sm:w-auto">
               <Plus size={15} /> Dự án mới
             </Button>
           )}
           {typeFilter === 'content' && canEditDaily && (
-            <Button onClick={() => contentNewRef.current?.()}>
+            <Button onClick={() => contentNewRef.current?.()} className="order-3 sm:order-none w-full sm:w-auto">
               <Plus size={15} /> Nội dung
             </Button>
           )}
@@ -187,12 +196,46 @@ export function ProjectsPage({
       {typeFilter !== 'content' && (
       <>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      {/* ĐIỆN THOẠI: kanban 4 cột không đọc được trên màn hẹp (mà kéo-thả cũng không dùng được
+          bằng ngón tay) → đổi thành chọn 1 trạng thái, xem 1 cột. Đổi trạng thái làm ở trang chi tiết. */}
+      <div className="md:hidden space-y-3">
+        <div className="flex gap-1.5 overflow-x-auto -mx-4 px-4 pb-1">
+          {[...COLUMNS, 'done' as ProjectStatus].map((s) => {
+            const n = projectsIn(s).length;
+            return (
+              <button
+                key={s}
+                onClick={() => setMobileStatus(s)}
+                className={`shrink-0 px-3 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer border ${
+                  mobileStatus === s ? 'bg-accent text-white border-accent' : 'bg-surface text-muted border-line'
+                }`}
+              >
+                {STATUS_LABEL[s]} <span className={mobileStatus === s ? 'text-white/70' : 'text-dim'}>{n}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="space-y-3">
+          {projectsIn(mobileStatus).map((p) => (
+            <ProjectCard
+              key={p.id}
+              p={p}
+              prog={progressOf(p)}
+              draggable={false}
+              assignees={assigneesOf(p)}
+              onOpen={() => onOpenProject(p.id)}
+              onDragStart={() => {}}
+            />
+          ))}
+          {projectsIn(mobileStatus).length === 0 && (
+            <div className="border border-dashed border-line rounded-xl py-10 text-center text-xs text-dim">Trống</div>
+          )}
+        </div>
+      </div>
+
+      <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-4 gap-4">
         {COLUMNS.map((status) => {
-          // Unknown/legacy status → cột "Kế hoạch" (trừ 'done' đã tách ra ô riêng)
-          const colProjects = filtered.filter((p) =>
-            status === 'plan' ? p.status === 'plan' || !ALL_STATUS.includes(p.status) : p.status === status,
-          );
+          const colProjects = projectsIn(status);
           return (
             <div
               key={status}
@@ -234,7 +277,7 @@ export function ProjectsPage({
       {/* Ô ngang "Done" — dự án đã thanh toán xong. Kéo card vào đây để đánh dấu done.
           mt-auto đẩy ô sát xuống đáy màn hình. */}
       <div
-        className={`mt-auto rounded-xl border transition-colors ${dragOverCol === 'done' ? 'border-accent bg-accent/5 outline-2 outline-dashed outline-accent/40' : 'border-line'}`}
+        className={`hidden md:block mt-auto rounded-xl border transition-colors ${dragOverCol === 'done' ? 'border-accent bg-accent/5 outline-2 outline-dashed outline-accent/40' : 'border-line'}`}
         onDragOver={(e) => { if (isEditor) { e.preventDefault(); setDragOverCol('done'); } }}
         onDragLeave={(e) => { if (e.currentTarget === e.target || !e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCol(null); }}
         onDrop={(e) => {

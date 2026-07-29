@@ -60,18 +60,20 @@ export function Modal({
   // input mất focus sau 1 ký tự. Render thẳng <form>/<div> ngay tại chỗ.
   return (
     // KHÔNG đóng khi bấm ra nền ngoài (tránh lỡ tay mất form đang nhập) — đóng qua nút X / Huỷ.
-    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+    // Điện thoại: dán đáy màn hình kiểu bottom sheet (ngón cái với tới được, bàn phím đẩy lên gọn).
+    // Máy tính: hộp thoại giữa màn hình như cũ.
+    <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm">
       <div
-        className={`fade-up bg-surface border border-line rounded-2xl w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} max-h-[90vh] flex flex-col`}
+        className={`slide-up sm:fade-up bg-surface border border-line rounded-t-2xl sm:rounded-2xl w-full ${wide ? 'sm:max-w-3xl' : 'sm:max-w-lg'} max-h-[92vh] sm:max-h-[90vh] flex flex-col`}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <h3 className="font-bold text-base">{title}</h3>
-          <button type="button" onClick={onClose} className="text-muted hover:text-ink transition-colors cursor-pointer"><X size={18} /></button>
+          <button type="button" onClick={onClose} className="text-muted hover:text-ink transition-colors cursor-pointer p-1 -m-1"><X size={20} /></button>
         </div>
         {onSubmit ? (
-          <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="p-5 overflow-y-auto">{children}</form>
+          <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5 overflow-y-auto">{children}</form>
         ) : (
-          <div className="p-5 overflow-y-auto">{children}</div>
+          <div className="p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5 overflow-y-auto">{children}</div>
         )}
       </div>
     </div>
@@ -88,15 +90,16 @@ export function Drawer({
   return (
     <div className={`fixed inset-0 z-[140] flex ${isLeft ? 'justify-start' : 'justify-end'} bg-black/60 backdrop-blur-sm`} onClick={onClose}>
       <div
-        className={`${isLeft ? 'slide-in-left border-r' : 'slide-in-right border-l'} w-full max-w-md h-full bg-surface border-line overflow-y-auto`}
+        className={`${isLeft ? 'slide-in-left sm:border-r' : 'slide-in-right sm:border-l'} w-full sm:max-w-md h-full bg-surface border-line overflow-y-auto`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 bg-surface border-b border-line px-5 py-4 flex items-center gap-3 z-10">
           <div className="flex-1 min-w-0">{title}</div>
           {headerExtra}
-          <button type="button" onClick={onClose} className="text-muted hover:text-ink cursor-pointer p-1 shrink-0"><X size={18} /></button>
+          <button type="button" onClick={onClose} className="text-muted hover:text-ink cursor-pointer p-1 -m-1 shrink-0"><X size={20} /></button>
         </div>
-        <div className="p-5">{children}</div>
+        {/* chừa đáy cho thanh tab điện thoại + vùng an toàn */}
+        <div className="p-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-5">{children}</div>
       </div>
     </div>
   );

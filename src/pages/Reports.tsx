@@ -158,13 +158,23 @@ export function ReportsPage({ user }: { user: User }) {
               <button
                 key={date}
                 onClick={() => setSelectedDay(isSelected ? null : date)}
-                className={`min-h-28 rounded-lg border p-1.5 text-left transition-all cursor-pointer overflow-hidden ${
+                className={`min-h-14 sm:min-h-28 rounded-lg border p-1 sm:p-1.5 text-left transition-all cursor-pointer overflow-hidden ${
                   isSelected ? 'border-accent bg-accent/10' : isToday ? 'border-indigo-500/40 bg-surface-2' : 'border-line hover:border-line-2'
                 }`}
               >
                 <span className={`text-sm font-bold ${isToday ? 'text-indigo-300' : 'text-muted'}`}>{Number(date.slice(8))}</span>
+                {/* Điện thoại: ô quá hẹp để đọc chữ → chỉ hiện chấm màu người báo cáo + số lượng,
+                    chạm vào ngày là ra bảng chi tiết ngay bên dưới. */}
                 {list.length > 0 && (
-                  <div className="mt-1 space-y-1">
+                  <div className="sm:hidden mt-1 flex gap-0.5 items-center">
+                    {list.slice(0, 2).map((r) => (
+                      <span key={r.id} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: colorOf(r) }} />
+                    ))}
+                    <span className="text-[9px] font-bold text-dim ml-0.5">{list.length}</span>
+                  </div>
+                )}
+                {list.length > 0 && (
+                  <div className="hidden sm:block mt-1 space-y-1">
                     {list.slice(0, 3).map((r) => {
                       const isAuto = isAutoReport(r);
                       const name = memberOf(r)?.username || r.userEmail?.split('@')[0] || '?';
@@ -243,7 +253,7 @@ export function ReportsPage({ user }: { user: User }) {
                     {isAuto ? 'Tự động' : 'Thủ công'}
                   </Badge>
                   {canEdit && (
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                       <button onClick={() => { setEditing(r); setModalOpen(true); }} className="text-muted hover:text-ink cursor-pointer p-1"><Pencil size={13} /></button>
                       <button onClick={() => setConfirmDel(r)} className="text-muted hover:text-red-400 cursor-pointer p-1"><Trash2 size={13} /></button>
                     </div>

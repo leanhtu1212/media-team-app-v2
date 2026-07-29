@@ -219,7 +219,7 @@ function GeneralTab({ user }: { user: User }) {
             <Avatar name={currentMember?.username} url={currentMember?.avatarUrl} size={64} />
             <button
               onClick={() => fileRef.current?.click()}
-              className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-full cursor-pointer"
+              className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity rounded-full cursor-pointer"
             >
               {uploading ? <Loader2 size={18} className="animate-spin text-white" /> : <Camera size={18} className="text-white" />}
             </button>
@@ -306,7 +306,7 @@ function MembersTab({ user }: { user: User }) {
               <p className="text-[11px] text-muted">{m.email} · <span className="uppercase font-bold">{m.role}</span>{m.title ? ` · ${m.title}` : ''}</p>
             </div>
             {isAdmin && (
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                 <button onClick={() => setEditMember(m)} className="text-muted hover:text-ink cursor-pointer p-1"><Pencil size={14} /></button>
                 {(m.uid || m.id) !== user.uid && (
                   <button onClick={() => setConfirmDel(m)} className="text-muted hover:text-red-400 cursor-pointer p-1"><Trash2 size={14} /></button>
@@ -498,7 +498,7 @@ function ProductsTab() {
           <div key={t.id} className="flex items-center gap-3 px-5 py-3 group">
             <span className="text-[10px] font-bold uppercase text-dim w-20">{t.category}</span>
             <p className="flex-1 text-sm font-medium">{t.name}</p>
-            <button onClick={() => setConfirmDel({ id: t.id, name: t.name })} className="text-muted hover:text-red-400 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity p-1">
+            <button onClick={() => setConfirmDel({ id: t.id, name: t.name })} className="text-muted hover:text-red-400 cursor-pointer opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-1">
               <Trash2 size={13} />
             </button>
           </div>
