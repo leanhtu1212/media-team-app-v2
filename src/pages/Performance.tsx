@@ -56,9 +56,11 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
     () => calculateTeamKpi(members, month, allTasks, projects, reports),
     [members, month, allTasks, projects, reports],
   );
-  // Bảng xếp hạng chỉ gồm KPI cá nhân; dòng admin là tổng-team nên tách ra hiển thị riêng.
+  // Bảng xếp hạng gồm mọi thành viên (admin cũng có chỉ tiêu riêng); dòng tổng-team hiển thị riêng.
   const kpi = useMemo(() => individualKpi(allKpi), [allKpi]);
   const teamRow = useMemo(() => teamAggregate(allKpi), [allKpi]);
+  // Có sản lượng mà chưa có chỉ tiêu = sản lượng vào tử số nhưng chỉ tiêu không vào mẫu số → KPI team ảo cao.
+  const untargeted = useMemo(() => kpi.filter((k) => !k.hasTarget && k.outputCount > 0), [kpi]);
   const prevByUid = useMemo(() => {
     const prev = calculateTeamKpi(members, shiftMonth(month, -1), allTasks, projects, reports);
     return new Map(prev.map((k) => [k.uid, k]));
@@ -178,10 +180,15 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
           <div className="flex items-center gap-2 font-bold text-sm"><Crown size={15} className="text-amber-300" /> Bảng KPI thành viên</div>
           <div className="flex items-center gap-3 flex-wrap">
             {teamRow && (
-              <span className="inline-flex items-center gap-1.5 text-xs bg-bg border border-line rounded-lg px-2.5 py-1" title="KPI của admin = tổng sản lượng cả team / tổng chỉ tiêu team">
+              <span className="inline-flex items-center gap-1.5 text-xs bg-bg border border-line rounded-lg px-2.5 py-1" title="KPI team = tổng sản lượng mọi thành viên / tổng chỉ tiêu mọi thành viên">
                 <span className="font-bold text-muted uppercase tracking-wide text-[10px]">KPI Team</span>
                 <span className="font-extrabold tabular-nums text-amber-300">{teamRow.hasTarget ? `${teamRow.finalKPI}%` : '—'}</span>
                 <span className="text-dim tabular-nums">{fmtScore(teamRow.outputCount)}/{teamRow.kpiOutputTarget}</span>
+              </span>
+            )}
+            {untargeted.length > 0 && (
+              <span className="text-[11px] text-amber-300/90 font-semibold" title="Sản lượng của họ vẫn cộng vào tử số, nhưng chỉ tiêu chưa có ở mẫu số → KPI team bị đội lên">
+                ⚠ {untargeted.map((k) => k.username).join(', ')} có sản lượng nhưng chưa đặt chỉ tiêu — KPI team đang bị đội lên
               </span>
             )}
             <span className="text-xs text-muted">KPI = Sản lượng / Chỉ tiêu · nhấp đúp dòng hoặc ô để xem chi tiết</span>

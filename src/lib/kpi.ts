@@ -193,7 +193,7 @@ export interface MemberKpi {
   finalKPI: number;
   projectCount: number;
   projectIds: string[];
-  isTeamAggregate: boolean; // true = dòng admin (KPI = tổng cả team, không phải sản lượng cá nhân)
+  isTeamAggregate: boolean; // true = dòng TỔNG TEAM tổng hợp (do teamAggregate tạo), không phải người thật
 }
 
 /**
@@ -329,6 +329,11 @@ export function calculateMemberKpi(
   };
 }
 
+/**
+ * KPI của MỌI thành viên tính việc (admin + editor) — ai cũng là 1 dòng cá nhân với chỉ tiêu riêng.
+ * Admin cũng phải được đặt `kpiOutput` ở Settings → KPI: sản lượng admin nằm ở tử số thì chỉ tiêu
+ * admin phải nằm ở mẫu số, không thì KPI team luôn vượt 100% một cách giả tạo.
+ */
 export function calculateTeamKpi(
   members: Member[],
   month: string,
@@ -336,39 +341,49 @@ export function calculateTeamKpi(
   projects: Project[],
   reports: Report[],
 ): MemberKpi[] {
-  const list = members
+  return members
     .filter((m) => m.role === 'admin' || m.role === 'editor')
-    .map((m) => calculateMemberKpi(m, month, allTasks, projects, reports));
-
-  // Admin KHÔNG có chỉ tiêu riêng → dòng admin = TỔNG sản lượng & thành tích của CẢ TEAM.
-  // Tổng lấy từ giá trị GỐC của mọi người; chỉ tiêu team = tổng chỉ tiêu các EDITOR (admin không góp chỉ tiêu).
-  const teamPhoto = round2(list.reduce((s, k) => s + k.photoScore, 0));
-  const teamVideo = list.reduce((s, k) => s + k.videoCount, 0);
-  const teamOutsource = round2(list.reduce((s, k) => s + k.outsourceScore, 0));
-  const teamOutput = round2(list.reduce((s, k) => s + k.outputCount, 0));
-  const teamTarget = list.filter((k) => k.role !== 'admin').reduce((s, k) => s + k.kpiOutputTarget, 0);
-  const teamKPI = teamTarget > 0 ? round1((teamOutput / teamTarget) * 100) : 0;
-
-  return list
-    .map((k) => (k.role !== 'admin' ? k : {
-      ...k,
-      photoScore: teamPhoto,
-      videoCount: teamVideo,
-      outsourceScore: teamOutsource,
-      outputCount: teamOutput,
-      kpiOutputTarget: teamTarget,
-      hasTarget: teamTarget > 0,
-      outputKPI: teamKPI,
-      finalKPI: teamKPI,
-      isTeamAggregate: true,
-    }))
+    .map((m) => calculateMemberKpi(m, month, allTasks, projects, reports))
     .sort((a, b) => b.finalKPI - a.finalKPI);
 }
 
-/** Chỉ các dòng KPI cá nhân (bỏ dòng tổng-team của admin) — dùng cho bảng xếp hạng & cộng dồn. */
+/** Chỉ các dòng KPI cá nhân (loại dòng tổng-team nếu lỡ lẫn vào) — dùng cho xếp hạng & cộng dồn. */
 export const individualKpi = (list: MemberKpi[]) => list.filter((k) => !k.isTeamAggregate);
-/** Dòng tổng-team (admin). Không có admin nào thì undefined. */
-export const teamAggregate = (list: MemberKpi[]) => list.find((k) => k.isTeamAggregate);
+
+/**
+ * Dòng TỔNG TEAM — cộng mọi thành viên (admin + editor), KPI = tổng sản lượng / tổng chỉ tiêu.
+ * Tử số và mẫu số cùng phạm vi người nên con số này so được với 100%.
+ */
+export function teamAggregate(list: MemberKpi[]): MemberKpi | undefined {
+  const rows = individualKpi(list);
+  if (rows.length === 0) return undefined;
+  const sum = (f: (k: MemberKpi) => number) => rows.reduce((s, k) => s + f(k), 0);
+  const outputCount = round2(sum((k) => k.outputCount));
+  const kpiOutputTarget = sum((k) => k.kpiOutputTarget);
+  const teamKPI = kpiOutputTarget > 0 ? round1((outputCount / kpiOutputTarget) * 100) : 0;
+  const projectIds = Array.from(new Set(rows.flatMap((k) => k.projectIds)));
+  return {
+    uid: '__team__',
+    username: 'Cả team',
+    email: '',
+    role: 'team',
+    photoCount: sum((k) => k.photoCount),
+    photoScore: round2(sum((k) => k.photoScore)),
+    photoProjects: rows.flatMap((k) => k.photoProjects),
+    videoCount: sum((k) => k.videoCount),
+    outsourceScore: round2(sum((k) => k.outsourceScore)),
+    outsourceProjects: rows.flatMap((k) => k.outsourceProjects),
+    dnttCount: sum((k) => k.dnttCount),
+    outputCount,
+    kpiOutputTarget,
+    hasTarget: kpiOutputTarget > 0,
+    outputKPI: teamKPI,
+    finalKPI: teamKPI,
+    projectCount: projectIds.length,
+    projectIds,
+    isTeamAggregate: true,
+  };
+}
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;

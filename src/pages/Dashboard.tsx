@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Camera, Video, Wallet, Trophy, ArrowRight, Crown, FolderKanban, CheckCircle2, Circle, AlertTriangle, CalendarClock, FileText, CalendarDays } from 'lucide-react';
+import { Camera, Video, Wallet, ArrowRight, FolderKanban, CheckCircle2, Circle, AlertTriangle, CalendarClock, FileText, CalendarDays } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Avatar, Input } from '../components/ui';
-import { calculateTeamKpi, individualKpi, teamAggregate } from '../lib/kpi';
 import { toggleDntt } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
 import { currentMonth, monthRange, shiftMonth, formatVND, formatDate, todayStr, isProjectFinished, tsToDateStr } from '../lib/utils';
@@ -45,9 +44,6 @@ export function DashboardPage({ user, onOpenProject, onOpenContent }: { user: Us
     return [...map.entries()];
   }, [unpaidTasks]);
 
-  const allKpi = useMemo(() => calculateTeamKpi(members, month, allTasks, projects, reports), [members, month, allTasks, projects, reports]);
-  const kpi = useMemo(() => individualKpi(allKpi), [allKpi]); // xếp hạng: chỉ KPI cá nhân
-  const teamRow = useMemo(() => teamAggregate(allKpi), [allKpi]); // dòng tổng-team (admin)
 
   // A project "belongs" to a month by its deadline, falling back to createdAt.
   // Dùng tsToDateStr (giờ local) để tránh lệch tháng ở mốc cuối/đầu tháng theo UTC.
@@ -123,9 +119,9 @@ export function DashboardPage({ user, onOpenProject, onOpenContent }: { user: Us
         </div>
       </Card>
 
-      {/* Row 3 — deadline watchlist + KPI ranking */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <Card className="lg:col-span-3">
+      {/* Row 3 — deadline watchlist (xếp hạng KPI đã bỏ, xem ở trang Hiệu suất) */}
+      <div className="grid grid-cols-1 gap-4">
+        <Card>
           <div className="px-4 py-3 border-b border-line flex items-center justify-between">
             <h2 className="font-bold text-sm flex items-center gap-2"><CalendarClock size={15} className="text-amber-300" /> Deadline sắp tới</h2>
             {overdueProjects.length > 0 && <span className="text-xs text-red-400 font-bold">{overdueProjects.length} quá hạn</span>}
@@ -159,41 +155,6 @@ export function DashboardPage({ user, onOpenProject, onOpenContent }: { user: Us
           </div>
         </Card>
 
-        <Card className="lg:col-span-2">
-          <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-            <h2 className="font-bold text-sm flex items-center gap-2"><Trophy size={15} className="text-amber-300" /> Xếp hạng KPI</h2>
-            <span className="text-xs text-muted">{kpi.length} thành viên</span>
-          </div>
-          {/* Dòng tổng-team (KPI của admin) tách riêng để không tranh hạng với cá nhân */}
-          {teamRow && (
-            <div className="px-4 py-2.5 border-b border-line flex items-center gap-3 bg-surface-2/50">
-              <span className="text-[10px] font-black uppercase tracking-widest text-muted">KPI Team</span>
-              <span className="text-[11px] text-dim tabular-nums flex-1">
-                {teamRow.outputCount}{teamRow.hasTarget ? `/${teamRow.kpiOutputTarget}` : ''} SP · {teamRow.photoCount}A {teamRow.videoCount}V
-              </span>
-              <span className="text-sm font-extrabold tabular-nums text-amber-300">{teamRow.hasTarget ? `${teamRow.finalKPI}%` : '—'}</span>
-            </div>
-          )}
-          <div className="divide-y divide-line">
-            {kpi.length === 0 && <p className="text-sm text-dim py-8 text-center">Chưa có dữ liệu</p>}
-            {kpi.map((m, i) => (
-              <div key={m.uid} className="flex items-center gap-3 px-4 py-3">
-                <span className="w-5 text-center text-xs font-extrabold text-dim tabular-nums">{i + 1}</span>
-                <div className="relative">
-                  <Avatar name={m.username} url={m.avatarUrl} size={32} />
-                  {i === 0 && m.finalKPI > 0 && <Crown size={13} className="absolute -top-1.5 -right-1 text-amber-400 rotate-12" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold truncate">{m.username}</p>
-                  <p className="text-[11px] text-muted tabular-nums">{m.outputCount}{m.hasTarget ? `/${m.kpiOutputTarget}` : ''} SP · {m.photoCount}A {m.videoCount}V</p>
-                </div>
-                <span className={`text-sm font-extrabold tabular-nums ${!m.hasTarget ? 'text-dim' : m.finalKPI >= 100 ? 'text-emerald-400' : m.finalKPI >= 60 ? 'text-indigo-300' : 'text-muted'}`}>
-                  {m.hasTarget ? `${m.finalKPI}%` : '—'}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Card>
       </div>
 
       {/* Row 4 — recent reports + upcoming daily content */}

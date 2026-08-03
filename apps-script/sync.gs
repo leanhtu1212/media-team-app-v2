@@ -35,16 +35,67 @@ function doPost(e) {
       var block = data.sheets[name];
       var sh = ss.getSheetByName(name) || ss.insertSheet(name);
       sh.clearContents();
-      sh.getRange(1, 1, 1, block.headers.length).setValues([block.headers]);
-      if (block.rows.length > 0) {
-        sh.getRange(2, 1, block.rows.length, block.headers.length).setValues(block.rows);
+      sh.clearFormats();
+      // clearFormats KHÔNG bỏ merge — còn ô merge cũ của dòng tiêu đề thì setValues sẽ lỗi.
+      sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart();
+
+      // 1 tab có thể chứa NHIỀU bảng (section) xếp dọc, cách nhau 2 dòng trống.
+      // Bản cũ gửi {headers, rows} → bọc lại thành 1 section không tiêu đề cho tương thích.
+      var sections = block.sections || [{ title: '', headers: block.headers, rows: block.rows }];
+      var row = 1;
+      var maxCol = 1;
+      sh.setFrozenRows(0); // đặt lại, chỉ khoá khi bảng đầu nằm ngay dòng 1
+      for (var s = 0; s < sections.length; s++) {
+        var sec = sections[s];
+        var nCol = sec.headers.length;
+        if (nCol > maxCol) maxCol = nCol;
+        ensureRows_(sh, row + sec.rows.length + 4);
+
+        if (sec.title) {
+          sh.getRange(row, 1, 1, nCol).merge()
+            .setValue(sec.title)
+            .setFontWeight('bold').setFontSize(12).setBackground('#e8eaed');
+          row++;
+        }
+        sh.getRange(row, 1, 1, nCol).setValues([sec.headers])
+          .setFontWeight('bold').setBackground('#f1f3f4');
+        // Chỉ khoá dòng đầu khi bảng đầu tiên bắt đầu ngay từ dòng 1 (tab báo cáo app cũ).
+        if (s === 0 && row === 1) sh.setFrozenRows(1);
+        row++;
+
+        if (sec.rows.length > 0) {
+          sh.getRange(row, 1, sec.rows.length, nCol).setValues(sec.rows);
+          boldSummaryRows_(sh, sec.rows, nCol, row);
+          row += sec.rows.length;
+        } else {
+          sh.getRange(row, 1).setValue('(không có dữ liệu)').setFontStyle('italic');
+          row++;
+        }
+        row += 2; // chừa 2 dòng trống trước bảng kế tiếp
+        totalRows += sec.rows.length;
       }
-      sh.getRange(sh.getLastRow() + 2, 1).setValue('Cập nhật: ' + data.syncedAt);
-      totalRows += block.rows.length;
+      sh.autoResizeColumns(1, maxCol);
+      sh.getRange(row, 1).setValue('Cập nhật: ' + data.syncedAt);
     }
     return json_({ ok: true, rows: totalRows });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
+  }
+}
+
+/** Nới thêm dòng nếu bảng dài hơn số dòng sẵn có (mặc định 1000) — không thì setValues lỗi. */
+function ensureRows_(sh, needed) {
+  var have = sh.getMaxRows();
+  if (needed > have) sh.insertRowsAfter(have, needed - have);
+}
+
+/** In đậm các dòng tổng kết (TỔNG TEAM / KPI TEAM) cho dễ đọc. `startRow` = dòng của rows[0]. */
+function boldSummaryRows_(sh, rows, nCol, startRow) {
+  for (var r = 0; r < rows.length; r++) {
+    var label = String(rows[r][1] || rows[r][0] || '');
+    if (label.indexOf('TỔNG') === 0 || label.indexOf('KPI TEAM') === 0 || label.indexOf('TB KPI') === 0) {
+      sh.getRange(startRow + r, 1, 1, nCol).setFontWeight('bold').setBackground('#fff8e1');
+    }
   }
 }
 

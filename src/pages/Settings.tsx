@@ -1,11 +1,11 @@
-import { useRef, useState } from 'react';
-import { Bell, Camera, Loader2, LogOut, Pencil, Plus, RefreshCw, Save, Trash2, UserPlus, Link2, Sheet, CalendarDays, Copy } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Bell, Camera, Loader2, LogOut, Pencil, Plus, RefreshCw, Save, Trash2, UserPlus, Link2, Sheet, CalendarDays, Copy, Table2, Wallet, Video, Crown } from 'lucide-react';
 import { setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, signOut, updatePassword, createNewUser, type User } from '../lib/firebase';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Input, Select, Field, ConfirmDialog, Avatar, Modal } from '../components/ui';
 import { ref as dbRef, deleteOrphans } from '../lib/actions';
-import { buildSheetsPayload, postToWebhook } from '../lib/sheets';
+import { buildSheetsPayload, sheetsPreview, postToWebhook, blockRowCount } from '../lib/sheets';
 import { sendTestNotify } from '../lib/notify';
 import { buildInhouseICS, pushICS } from '../lib/ics';
 import { currentMonth, formatVND } from '../lib/utils';
@@ -423,7 +423,7 @@ function KpiTab() {
     <Card>
       <div className="px-5 py-4 border-b border-line">
         <h2 className="font-bold">Chỉ tiêu sản lượng thành viên</h2>
-        <p className="text-xs text-muted mt-0.5">Số sản phẩm cần đạt mỗi tháng (project ảnh + video + project outsource quản lý). KPI = sản lượng thực / chỉ tiêu. Admin không cần chỉ tiêu — KPI của admin là tổng sản lượng cả team.</p>
+        <p className="text-xs text-muted mt-0.5">Số sản phẩm cần đạt mỗi tháng (project ảnh + video + project outsource quản lý). KPI = sản lượng thực / chỉ tiêu. <b>Admin cũng cần đặt chỉ tiêu</b>: sản lượng admin có tính vào KPI team nên chỉ tiêu admin phải có, không thì KPI team luôn vượt 100%.</p>
       </div>
       <div className="divide-y divide-line">
         {members.filter((m) => m.role === 'admin' || m.role === 'editor').map((m) => {
@@ -434,9 +434,9 @@ function KpiTab() {
                 <Avatar name={m.username} url={m.avatarUrl} size={30} />
                 <div className="min-w-0">
                   <p className="font-bold text-sm truncate">{m.username}</p>
-                  {m.role === 'admin'
-                    ? <p className="text-[11px] text-dim">Admin · KPI = tổng cả team</p>
-                    : output <= 0 && <p className="text-[11px] text-amber-300/90 font-semibold">Chưa đặt chỉ tiêu</p>}
+                  {output <= 0
+                    ? <p className="text-[11px] text-amber-300/90 font-semibold">Chưa đặt chỉ tiêu{m.role === 'admin' ? ' · admin cũng cần đặt' : ''}</p>
+                    : <p className="text-[11px] text-dim">{m.role === 'admin' ? 'Admin' : 'Editor'}</p>}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -607,6 +607,22 @@ function NotifyCard() {
 
 /* ---------- Google Sheets sync ---------- */
 
+/** Ô số liệu xem trước — cùng kiểu StatCell của trang Hiệu suất để hai nơi nhìn giống nhau. */
+function SyncStat({ icon, tint, label, value, sub, small }: {
+  icon: React.ReactNode; tint: string; label: string; value: React.ReactNode; sub?: string; small?: boolean;
+}) {
+  return (
+    <div className="rounded-xl bg-bg border border-line p-2.5 overflow-hidden">
+      <div className="flex items-center justify-between gap-1 mb-1.5">
+        <span className="text-[10px] font-bold text-muted uppercase tracking-wide">{label}</span>
+        <span className={`${tint} shrink-0`}>{icon}</span>
+      </div>
+      <p className={`${small ? 'text-[11px] sm:text-sm' : 'text-lg'} font-extrabold tabular-nums leading-none break-all`}>{value}</p>
+      {sub && <p className="text-[10px] text-dim tabular-nums mt-1 leading-none">{sub}</p>}
+    </div>
+  );
+}
+
 function SheetsTab() {
   const { team, members, projects, allTasks, reports, tags } = useAppData();
   const toast = useToast();
@@ -616,6 +632,20 @@ function SheetsTab() {
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [calBusy, setCalBusy] = useState(false);
   const [calResult, setCalResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // Xem trước ngay trên web đúng những con số sẽ đẩy lên sheet (cùng công thức trang Hiệu suất).
+  const payload = useMemo(
+    () => buildSheetsPayload(month, members, projects, allTasks, reports, tags),
+    [month, members, projects, allTasks, reports, tags],
+  );
+  const preview = useMemo(
+    () => sheetsPreview(month, members, projects, allTasks, reports, tags),
+    [month, members, projects, allTasks, reports, tags],
+  );
+  const totalRows = useMemo(
+    () => Object.values(payload.sheets).reduce((s, b) => s + blockRowCount(b), 0),
+    [payload],
+  );
 
   // URL để subscribe trên Apple Calendar = chính webhook URL nhưng scheme webcal:// (Apple tự fetch qua https)
   const savedUrl = (team?.sheetsWebhookUrl || '').trim();
@@ -659,8 +689,7 @@ function SheetsTab() {
     setBusy(true);
     setResult(null);
     try {
-      const payload = buildSheetsPayload(month, members, projects, allTasks, reports, tags);
-      const res = await postToWebhook(target, payload);
+      const res = await postToWebhook(target, { ...payload, syncedAt: new Date().toLocaleString('vi-VN') });
       setResult(res);
       if (res.ok) toast(res.message);
       else toast(res.message, 'error');
@@ -678,24 +707,77 @@ function SheetsTab() {
       <Card className="p-6">
         <h2 className="font-bold mb-1 flex items-center gap-2"><Sheet size={16} className="text-emerald-400" /> Đồng bộ Google Sheet</h2>
         <p className="text-xs text-muted mb-5">
-          Xuất KPI, danh sách project và task theo tháng vào Google Sheet. Cần cài Apps Script webhook một lần
+          Đẩy <b>đúng các thông số ở tab Hiệu suất</b> — gom chung vào 1 tab <b>Tổng quan</b> gồm 3 bảng xếp dọc:
+          sản lượng theo loại, KPI thành viên, phân tích chi phí (kèm tab báo cáo tháng cho dashboard Data Media).
+          Cần cài Apps Script webhook một lần
           (xem file <code className="text-indigo-300">apps-script/sync.gs</code> trong source code — có hướng dẫn từng bước).
         </p>
-        <div className="space-y-3">
+        <div className="space-y-4">
           <Field label="Webhook URL (Apps Script Web App)">
             <div className="flex gap-2">
               <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/..../exec" />
               <Button variant="outline" onClick={saveUrl} disabled={!url}><Link2 size={14} /> Lưu</Button>
             </div>
           </Field>
-          <div className="flex items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             <Field label="Tháng dữ liệu">
               <Input type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} className="!w-40" />
             </Field>
             <Button disabled={busy} onClick={sync}>
               {busy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={14} />} Đồng bộ ngay
             </Button>
+            <span className="text-xs text-dim pb-2.5 tabular-nums">
+              {Object.keys(payload.sheets).length} tab · {totalRows} dòng
+            </span>
           </div>
+
+          {/* Xem trước số liệu — cùng công thức với trang Hiệu suất */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <SyncStat icon={<Camera size={13} />} tint="text-indigo-300" label="Tổng ảnh" value={preview.photos} />
+            <SyncStat icon={<Video size={13} />} tint="text-violet-300" label="Tổng video" value={preview.videos} />
+            <SyncStat icon={<Wallet size={13} />} tint="text-amber-300" label="Chi phí" value={formatVND(preview.cost)} small />
+            <SyncStat
+              icon={<Crown size={13} />}
+              tint="text-emerald-300"
+              label="KPI team"
+              value={preview.teamKpi !== null ? `${preview.teamKpi}%` : '—'}
+              sub={`${preview.teamOutput} / ${preview.teamTarget || '—'} · ${preview.memberCount} thành viên`}
+            />
+          </div>
+
+          {/* Các tab sẽ được ghi đè trên Google Sheet */}
+          <div className="rounded-xl border border-line overflow-hidden">
+            <div className="flex items-center gap-2 px-3 py-2 bg-bg border-b border-line">
+              <Table2 size={13} className="text-emerald-400" />
+              <span className="text-[11px] font-bold uppercase tracking-wide text-muted">Các tab sẽ được ghi đè</span>
+            </div>
+            <div className="divide-y divide-line">
+              {Object.entries(payload.sheets).map(([name, block]) => (
+                <div key={name} className="px-3 py-2">
+                  <div className="flex items-baseline gap-2">
+                    <p className="text-xs font-bold truncate flex-1">{name}</p>
+                    <span className="text-[11px] text-muted tabular-nums shrink-0">{blockRowCount(block)} dòng</span>
+                  </div>
+                  <div className="mt-1 space-y-1">
+                    {block.sections.map((sec, i) => (
+                      <div key={i} className="flex items-start gap-2 pl-2.5 border-l border-line">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-semibold text-muted truncate">{sec.title || '(bảng duy nhất, header ở dòng 1)'}</p>
+                          {sec.note && <p className="text-[11px] text-dim leading-snug">{sec.note}</p>}
+                        </div>
+                        <span className="text-[11px] text-dim tabular-nums shrink-0">{sec.rows.length}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="text-[11px] text-dim">
+            Mỗi lần đồng bộ, Apps Script <b>xoá sạch nội dung cũ</b> của các tab trên rồi ghi lại — đừng thêm công thức
+            trực tiếp vào các tab này, hãy tạo tab riêng rồi tham chiếu sang.
+          </p>
+
           {result && (
             <p className={`text-sm px-4 py-3 rounded-lg ${result.ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'}`}>
               {result.message}

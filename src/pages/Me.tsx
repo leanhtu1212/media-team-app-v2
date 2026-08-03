@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Camera, Video, Gauge, FolderKanban, ArrowRight, CalendarClock, ListTodo, CalendarDays, ClipboardList } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Avatar, EmptyState } from '../components/ui';
-import { calculateMemberKpi, calculateTeamKpi } from '../lib/kpi';
+import { calculateMemberKpi } from '../lib/kpi';
 import { currentMonth, formatDate, todayStr, isProjectFinished } from '../lib/utils';
 import { useContentModals } from './DailyContent';
 import type { Project } from '../types';
@@ -17,7 +17,7 @@ const PLATFORM_COLOR: Record<string, string> = {
 };
 
 export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onOpenProject: (id: string) => void; onOpenContent: (id: string) => void }) {
-  const { currentMember, members, projects, allTasks, dailyContent, reports } = useAppData();
+  const { currentMember, projects, allTasks, dailyContent, reports } = useAppData();
   const { modals } = useContentModals(user);
   const today = todayStr();
   const month = currentMonth();
@@ -28,15 +28,11 @@ export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onO
     return (id?: string) => !!id && ids.has(id);
   }, [currentMember]);
 
-  const kpi = useMemo(() => {
-    if (!currentMember) return null;
-    // Admin: KPI = tổng sản lượng cả team (dùng calculateTeamKpi để lấy đúng dòng đã gộp).
-    if (currentMember.role === 'admin') {
-      const uid = currentMember.uid || currentMember.id;
-      return calculateTeamKpi(members, month, allTasks, projects, reports).find((k) => k.uid === uid) || null;
-    }
-    return calculateMemberKpi(currentMember, month, allTasks, projects, reports);
-  }, [currentMember, members, month, allTasks, projects, reports]);
+  // Admin cũng có chỉ tiêu riêng như editor → KPI cá nhân, không còn là tổng cả team.
+  const kpi = useMemo(
+    () => (currentMember ? calculateMemberKpi(currentMember, month, allTasks, projects, reports) : null),
+    [currentMember, month, allTasks, projects, reports],
+  );
 
   const progressOf = (p: Project) => {
     const pTasks = allTasks.filter((t) => t.projectId === p.id);
@@ -147,9 +143,6 @@ export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onO
           <h2 className="font-bold text-sm flex items-center gap-2 mb-3"><Gauge size={15} className="text-indigo-300" /> KPI tháng {Number(month.slice(5))}/{month.slice(0, 4)}</h2>
           {kpi && (
             <>
-              {kpi.isTeamAggregate && (
-                <p className="text-[11px] text-amber-300/90 font-semibold mb-2">Bạn là admin — KPI tính bằng tổng sản lượng cả team.</p>
-              )}
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <KpiStat icon={<Camera size={14} className="text-sky-300" />} label="Project ảnh" value={kpi.photoScore} />
                 <KpiStat icon={<Video size={14} className="text-violet-300" />} label="Video" value={kpi.videoCount} />
