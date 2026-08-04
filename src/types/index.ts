@@ -36,10 +36,17 @@ export interface Project {
   photoPoint?: number; // default 1
   videoPoint?: number; // default 3
   qualityScore?: number; // 0-10 when done
+  // Tag của dự án: `tagIds` là nguồn sự thật (thứ tự [Loại, Mảng, …dùng chung]).
+  // `tagId` là field CŨ 1-tag, chỉ còn để đọc dữ liệu cũ + ghi mirror cho bundle cũ còn cache.
+  // ĐỪNG đọc thẳng 2 field này ở UI — luôn qua projectTagIds() trong lib/tags.ts.
+  tagIds?: string[];
   tagId?: string;
   assigneeIds?: string[]; // người phụ trách (1 hoặc nhiều) — lưu uid/member id
   createdAt?: unknown;
   createdBy?: string;
+  // Thời điểm dự án chuyển sang 'done' — chỉ để sắp xếp danh sách "Đã hoàn thành".
+  // Dự án done từ trước khi có field này thì rỗng → xếp theo deadline/createdAt.
+  completedAt?: unknown;
 }
 
 export type TaskCategory = 'photo' | 'video' | 'pre-production';
@@ -121,6 +128,14 @@ export interface ContentItem {
   usedBy?: string;   // uid người đánh dấu
 }
 
+/**
+ * Dạng content — KHÔNG phải tag, chỉ quy đổi sản lượng video:
+ *   'full-video' (mặc định) 1 video trả = 1 video sản lượng
+ *   'thumb-sub'             2 video trả = 1 video sản lượng (mỗi video = 0,5)
+ * Doc cũ không có field này ⇒ hiểu là 'full-video', không cần migrate.
+ */
+export type ContentFormat = 'full-video' | 'thumb-sub';
+
 export interface DailyContent {
   id: string;
   title: string;
@@ -132,6 +147,7 @@ export interface DailyContent {
   notes?: string;
   points?: number;
   quantity?: number; // số lượng nội dung (mặc định 1)
+  contentFormat?: ContentFormat; // dạng content — chỉ đổi hệ số quy đổi sản lượng, không phải tag
   items?: ContentItem[]; // danh sách video con; tiến độ = số video done / tổng
   status: DailyStatus;
   projectId?: string;
@@ -150,15 +166,30 @@ export interface Note {
   createdBy?: string;
 }
 
-/** Loại mục mà tag áp dụng. Rỗng = dùng chung (hiện ở mọi form). */
-export type TagScope = 'inhouse-photo' | 'inhouse-video' | 'ecom' | 'outsource' | 'note' | 'content';
+/**
+ * Cấp áp dụng của tag (field `scope` trong Firestore). Rỗng = dùng chung (hiện ở mọi form).
+ * 3 giá trị GHI MỚI: 'loai' (Ảnh/Video) · 'mang' (Ecom/Content/Trade/Brand) · 'note'.
+ * 5 giá trị LEGACY chỉ để ĐỌC doc cũ — đừng ghi mới, tagLevel() trong lib/tags.ts tự quy đổi.
+ * ('content' là cấp riêng cho Daily Content thời trước, nay quy đổi thành 'mang'.)
+ */
+export type TagScope =
+  | 'loai' | 'mang' | 'note'
+  | 'content' | 'inhouse-photo' | 'inhouse-video' | 'ecom' | 'outsource';
+
+/**
+ * Ngữ cảnh dùng được của tag cấp Mảng — Mảng khác nhau theo loại dự án và Ảnh/Video:
+ * inhouse (Ecom, Content, Trade, Brand) · outsource-Ảnh (Nền trắng, Flatlay…) · outsource-Video.
+ * Tag Mảng không khai báo ctx (dữ liệu cũ) = dùng được ở MỌI ngữ cảnh.
+ */
+export type TagCtx = 'inhouse' | 'os-photo' | 'os-video';
 
 /** Tag màu tuỳ chỉnh gán cho mục trên lịch (collection teams/{id}/tags). */
 export interface Tag {
   id: string;
   name: string;
   color: string; // hex, vd "#f97316"
-  scope?: TagScope; // loại mục áp dụng; rỗng = dùng chung mọi nơi
+  scope?: TagScope; // cấp áp dụng; rỗng = dùng chung mọi nơi
+  ctx?: TagCtx[]; // chỉ dùng cho tag cấp 'mang'
   createdAt?: unknown;
   createdBy?: string;
 }

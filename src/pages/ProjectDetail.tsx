@@ -198,22 +198,38 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 items-start">
         {/* Main column — các danh sách task, full width như bản cũ */}
         <div className="space-y-4 min-w-0">
-          <TaskSection
-            icon={<Camera size={15} className="text-indigo-300" />}
-            title="Ảnh"
-            category="photo"
-            done={photoDone}
-            target={project.photoTarget || 0}
-            list={photoTasks}
-          />
-          <TaskSection
-            icon={<Video size={15} className="text-violet-300" />}
-            title="Video"
-            category="video"
-            done={videoDone}
-            target={project.videoTarget || 0}
-            list={videoTasks}
-          />
+          {/* Dự án chỉ làm video thì không hiện khối Ảnh và ngược lại.
+              Khi CẢ HAI đều chưa có chỉ tiêu lẫn task (dự án mới) thì vẫn hiện đủ 2 khối,
+              không thì không còn chỗ nào để thêm task đầu tiên. */}
+          {(() => {
+            const hasPhoto = (project.photoTarget || 0) > 0 || photoTasks.length > 0;
+            const hasVideo = (project.videoTarget || 0) > 0 || videoTasks.length > 0;
+            const blank = !hasPhoto && !hasVideo;
+            return (
+              <>
+                {(hasPhoto || blank) && (
+                  <TaskSection
+                    icon={<Camera size={15} className="text-indigo-300" />}
+                    title="Ảnh"
+                    category="photo"
+                    done={photoDone}
+                    target={project.photoTarget || 0}
+                    list={photoTasks}
+                  />
+                )}
+                {(hasVideo || blank) && (
+                  <TaskSection
+                    icon={<Video size={15} className="text-violet-300" />}
+                    title="Video"
+                    category="video"
+                    done={videoDone}
+                    target={project.videoTarget || 0}
+                    list={videoTasks}
+                  />
+                )}
+              </>
+            );
+          })()}
           {isAdmin && (
             <Card>
               <SectionHeader

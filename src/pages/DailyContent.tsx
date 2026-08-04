@@ -7,10 +7,11 @@ import { notify, displayName } from '../lib/notify';
 import { ProjectFormModal } from './Projects';
 import { Linkify } from './ProjectDetail';
 import { TagManagerModal, TagSelect, hexA } from '../components/tags';
-import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr, isDayOff } from '../lib/utils';
+import { primaryTagId, projectTagColor, projectTagIds, tagLevel } from '../lib/tags';
+import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr, isDayOff, normalize } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { useIsMobile } from '../hooks/useIsMobile';
-import type { DailyContent, DailyStatus, Project, Task, Note, ContentItem } from '../types';
+import type { DailyContent, DailyStatus, Project, Task, Note, ContentItem, ContentFormat } from '../types';
 import type { User } from '../lib/firebase';
 
 const STATUSES: DailyStatus[] = ['planned', 'in-progress', 'done'];
@@ -40,6 +41,16 @@ const newItemId = () =>
   (typeof crypto !== 'undefined' && 'randomUUID' in crypto) ? crypto.randomUUID() : `v_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const TYPES = ['Reels', 'Short', 'Viral / Trending', 'Brand Content', 'Lịch đăng'];
 const PLATFORMS = ['Instagram', 'TikTok', 'Facebook', 'YouTube', 'Đa kênh'];
+
+// Dạng content: KHÔNG phải tag, chỉ đổi hệ số quy đổi sản lượng (xem contentVideoWeight ở kpi.ts)
+const CONTENT_FORMATS: { value: ContentFormat; label: string }[] = [
+  { value: 'full-video', label: 'Full Video' },
+  { value: 'thumb-sub', label: 'Thumb Sub' },
+];
+const CONTENT_FORMAT_HINT: Record<ContentFormat, string> = {
+  'full-video': '1 video trả = 1 video sản lượng',
+  'thumb-sub': '2 video trả = 1 video sản lượng (mỗi video tính 0,5)',
+};
 const DAY_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 /** Chỉ số thứ trong tuần bắt đầu từ THỨ 2 (getDay() trả 0 = Chủ nhật). */
 const dayIndexMon = (date: string) => (new Date(`${date}T00:00:00`).getDay() + 6) % 7;
@@ -114,7 +125,7 @@ export type CalendarScroll = {
   offset: number;       // khoảng cách từ đỉnh khung nhìn tới tuần đó (px, thường âm)
 };
 
-const BAR_UNIT = 24; // chiều cao mỗi lane thanh (px)
+const BAR_UNIT = 24; // chiều cao mỗi lane thanh (px) — thanh dài chỉ 1 dòng: tên · loại · trạng thái
 const BAR_TOP = 26;  // chừa chỗ số ngày ở đầu ô
 const MAX_WEEKS = 160; // chặn trên số tuần render (~3 năm) — tránh cuộn vô hạn ăn hết bộ nhớ
 
@@ -196,19 +207,26 @@ function layoutWeek(week: (string | null)[], spans: SpanProject[], laneOf: Map<s
       lane: laneOf.get(s.project.id) ?? -1, // -1 = thanh ngắn, xếp lấp chỗ trống sau
     });
   }
-  // Thanh ngắn: đặt vào lane thấp nhất không đụng thanh nào khác trong tuần
+  // XẾP LẠI LANE THEO TỪNG TUẦN: mỗi thanh tụt xuống lane thấp nhất còn trống trong tuần này.
+  // Lane toàn cục chỉ còn dùng để SẮP THỨ TỰ (giữ nếp cam trên, xanh dưới khi hai thanh cùng
+  // tranh chỗ). Nếu dùng thẳng lane toàn cục thì thanh xanh bị đẩy xuống lane 1 cả tuần chỉ vì
+  // một thanh cam nằm ở lane 0 của tuần khác — trên lịch nhìn như dòng trống vô cớ.
+  // Đổi lại: một dự án dài có thể ở lane khác nhau giữa các tuần.
   const overlap = (a: Bar, b: Bar) => a.colStart < b.colStart + b.span && b.colStart < a.colStart + a.span;
-  for (const b of bars.filter((x) => x.lane < 0).sort((a, x) => a.colStart - x.colStart)) {
+  const ordered = [...bars].sort((a, b) =>
+    (a.lane < 0 ? 99 : a.lane) - (b.lane < 0 ? 99 : b.lane)
+    || a.colStart - b.colStart
+    || a.project.title.localeCompare(b.project.title));
+  const placed: Bar[] = [];
+  for (const b of ordered) {
     let lane = 0;
-    while (bars.some((o) => o !== b && o.lane === lane && overlap(o, b))) lane++;
+    while (placed.some((o) => o.lane === lane && overlap(o, b))) lane++;
     b.lane = lane;
+    placed.push(b);
   }
-  // Số lane chiếm chỗ ở TỪNG cột — ô không có thanh đi qua thì chip nằm sát trên
-  const colLanes = week.map((_, c) => {
-    let m = 0;
-    for (const b of bars) if (c >= b.colStart && c < b.colStart + b.span) m = Math.max(m, b.lane + 1);
-    return m;
-  });
+  // Chừa chỗ ĐỀU NHAU cho cả tuần (không theo từng cột) → chip mọi ô trong hàng thẳng hàng nhau
+  const laneCount = placed.reduce((m, b) => Math.max(m, b.lane + 1), 0);
+  const colLanes = week.map(() => laneCount);
   return { bars, colLanes };
 }
 
@@ -441,8 +459,21 @@ function dragPayload(entry: CalEntry): string {
 /** Chip trong ô lịch. PHẢI là component cấp module (không định nghĩa inline trong
  *  DailyContentPage) — nếu inline, mỗi lần re-render (vd click chọn ngày) React coi
  *  là component mới → remount chip → cú double-click bị gián đoạn giữa 2 lần click. */
+
+/** Vạch màu các tag MẢNG của dự án, kẻ dọc ở ĐẦU chip (nhiều mảng thì chia đều chiều cao).
+ *  Vạch mảng bên trái mảnh (4px), vạch tiến độ bên phải dày (8px, là border-r của chip).
+ *  Chip cha phải có `relative` + chừa padding trái, không thì chữ chạy dưới vạch. */
+function MangStripe({ colors, wide }: { colors: string[]; wide?: boolean }) {
+  if (colors.length === 0) return null;
+  return (
+    <span className={`absolute left-0 top-0 bottom-0 flex flex-col ${wide ? 'w-1.5' : 'w-1'}`} title="Mảng">
+      {colors.map((c, i) => <span key={i} className="flex-1" style={{ backgroundColor: c }} />)}
+    </span>
+  );
+}
+
 function CalChip({
-  entry, today, canEditDaily, isEditor, assigneeName, onDetail, onOpenProject, onNote, tagColor,
+  entry, today, canEditDaily, isEditor, assigneeName, onDetail, onOpenProject, onNote, tagColor, mangColors,
 }: {
   entry: CalEntry;
   today: string;
@@ -453,11 +484,12 @@ function CalChip({
   onOpenProject: (id: string) => void;
   onNote: (n: Note) => void;
   tagColor: (id?: string) => string | undefined;
+  mangColors: (p: Project) => string[];
 }) {
   const stripe = stripeFor(entry, today);
   const canDrag = entry.kind === 'daily' || entry.kind === 'note' ? canEditDaily : isEditor;
   // Nếu mục được gán tag → nền chip đổi sang màu tag (giữ nguyên vạch tiến độ bên trái)
-  const tagIdOf = entry.kind === 'daily' ? entry.daily.tagId : entry.kind === 'project' ? entry.project.tagId : entry.kind === 'task' ? entry.task.tagId : entry.note.tagId;
+  const tagIdOf = entry.kind === 'daily' ? entry.daily.tagId : entry.kind === 'project' ? primaryTagId(entry.project) : entry.kind === 'task' ? entry.task.tagId : entry.note.tagId;
   const tagCol = tagColor(tagIdOf);
   const tagStyle = tagCol ? { backgroundColor: hexA(tagCol, 0.32), color: '#fff' } : undefined;
   const dragProps = canDrag ? {
@@ -475,7 +507,8 @@ function CalChip({
         onDoubleClick={(e) => { e.stopPropagation(); onNote(n); }}
         title={`Ghi chú — nhấn đúp để sửa${canDrag ? ', kéo để đổi ngày' : ''}`}
         style={tagStyle}
-        className={`rounded-md px-1.5 py-1 border-l-4 ${dragCls} ${stripe} ${TYPE_TINT.note}`}
+        /* Ghi chú không có tiến độ → không có vạch phải, khác mọi loại chip còn lại */
+        className={`rounded-md px-1.5 py-1 ${dragCls} ${TYPE_TINT.note}`}
       >
         <p className="text-[11px] font-semibold leading-tight line-clamp-3 flex items-start gap-1"><StickyNote size={10} className="mt-0.5 shrink-0" />{n.text || '(trống)'}</p>
       </div>
@@ -491,11 +524,13 @@ function CalChip({
         onDoubleClick={(e) => { e.stopPropagation(); onDetail(d); }}
         title={`Nội dung — nhấn đúp để xem chi tiết${canDrag ? ', kéo để đổi ngày' : ''}`}
         style={tagStyle}
-        className={`rounded-md px-1.5 py-1 border-l-4 ${dragCls} ${stripe} ${TYPE_TINT.content}`}
+        className={`rounded-md px-1.5 py-1 border-r-8 ${dragCls} ${stripe} ${TYPE_TINT.content}`}
       >
         <p className="text-[11px] font-bold leading-tight line-clamp-2">{d.title}</p>
         <div className="flex items-center gap-1 mt-0.5">
           <span className={`text-[9px] px-1 rounded font-bold ${PLATFORM_COLOR[d.platform] || PLATFORM_COLOR['Đa kênh']}`}>{d.platform}</span>
+          {/* Số video đã trả / cần trả — cùng cách đếm với vạch tiến độ và trang DS Content */}
+          <span className="text-[9px] font-bold tabular-nums flex items-center gap-0.5 shrink-0"><Video size={9} />{itemsDone(d)}/{contentTarget(d)}</span>
           {name && <span className="text-[9px] text-dim truncate">{name}</span>}
         </div>
       </div>
@@ -504,17 +539,28 @@ function CalChip({
   if (entry.kind === 'project') {
     const p = entry.project;
     const isOut = p.projectType === 'outsource';
+    // Dự án INHOUSE gói trong 1 ngày tô ĐẶC như thanh dài ngày (cùng dự án, cùng cách đọc màu);
+    // outsource giữ nền mờ như cũ để phân biệt ngay từ xa.
+    const overdueP = !!p.deadline && p.deadline < today;
+    const solid = !isOut;
     return (
       <div
         {...dragProps}
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
         title={`Dự án ${isOut ? 'outsource' : 'inhouse'} — nhấn đúp để mở${canDrag ? ', kéo để đổi deadline' : ''}`}
-        style={tagStyle}
-        className={`rounded-md px-1.5 py-1 border-l-4 ${dragCls} ${stripe} ${isOut ? TYPE_TINT.outsource : TYPE_TINT.inhouse}`}
+        style={solid ? (tagCol ? { backgroundColor: tagCol, color: '#fff' } : undefined) : tagStyle}
+        className={`relative rounded-md pl-2.5 pr-1.5 py-1 border-r-8 overflow-hidden ${dragCls} ${stripe} ${
+          solid
+            ? `text-white ${tagCol ? '' : overdueP ? 'bg-red-600' : 'bg-sky-600'}`
+            : TYPE_TINT.outsource
+        }`}
       >
         <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><FolderKanban size={10} className="mt-0.5 shrink-0" />{p.title}</p>
-        <span className="text-[9px] font-bold uppercase opacity-80">{isOut ? 'Outsource' : 'Inhouse'} · {STATUS_LABEL[p.status]}</span>
+        {/* block + leading cố định: để inline thì dòng này ăn line-height 1.5 của chip (≈21px)
+            → chip dự án cao hơn chip nội dung dù cùng 2 dòng */}
+        <span className="block mt-0.5 text-[9px] font-bold uppercase opacity-80 leading-[13px] truncate">{isOut ? 'Outsource' : 'Inhouse'} · {STATUS_LABEL[p.status]}</span>
+        <MangStripe colors={mangColors(p)} />
       </div>
     );
   }
@@ -526,7 +572,7 @@ function CalChip({
       onDoubleClick={(e) => { e.stopPropagation(); if (project) onOpenProject(project.id); }}
       title={`Task tiền kỳ — nhấn đúp để mở dự án${canDrag ? ', kéo để đổi deadline' : ''}`}
       style={tagStyle}
-      className={`rounded-md px-1.5 py-1 border-l-4 ${dragCls} ${stripe} ${TYPE_TINT.task}`}
+      className={`rounded-md px-1.5 py-1 border-r-8 ${dragCls} ${stripe} ${TYPE_TINT.task}`}
     >
       <p className="text-[11px] font-bold leading-tight line-clamp-2 flex items-start gap-1"><Wallet size={10} className="mt-0.5 shrink-0" />{task.title}</p>
       {project && <span className="text-[9px] text-dim truncate block">{project.title}</span>}
@@ -539,7 +585,7 @@ function CalChip({
  * mỗi ngày một hàng ngang: cột ngày hẹp bên trái, các mục xếp dọc bên phải.
  * Chạm MỘT lần là mở (nhấn đúp không hợp với cảm ứng), đổi ngày làm trong form thay vì kéo-thả. */
 function AgendaChip({
-  entry, today, assigneeName, onDetail, onOpenProject, onNote, tagColor,
+  entry, today, assigneeName, onDetail, onOpenProject, onNote, tagColor, mangColors,
 }: {
   entry: CalEntry;
   today: string;
@@ -548,17 +594,19 @@ function AgendaChip({
   onOpenProject: (id: string) => void;
   onNote: (n: Note) => void;
   tagColor: (id?: string) => string | undefined;
+  mangColors: (p: Project) => string[];
 }) {
   const stripe = stripeFor(entry, today);
-  const tagIdOf = entry.kind === 'daily' ? entry.daily.tagId : entry.kind === 'project' ? entry.project.tagId : entry.kind === 'task' ? entry.task.tagId : entry.note.tagId;
+  const tagIdOf = entry.kind === 'daily' ? entry.daily.tagId : entry.kind === 'project' ? primaryTagId(entry.project) : entry.kind === 'task' ? entry.task.tagId : entry.note.tagId;
   const tagCol = tagColor(tagIdOf);
-  const style = tagCol ? { backgroundColor: hexA(tagCol, 0.32), color: '#fff' } : undefined;
+  let style = tagCol ? { backgroundColor: hexA(tagCol, 0.32), color: '#fff' } : undefined;
 
   let tint: string = TYPE_TINT.note;
   let icon: ReactNode = <StickyNote size={12} className="mt-0.5 shrink-0" />;
   let label = '';
   let sub: ReactNode = null;
   let onTap = () => {};
+  let mang: string[] = [];
 
   if (entry.kind === 'note') {
     const n = entry.note;
@@ -573,6 +621,7 @@ function AgendaChip({
     sub = (
       <span className="flex items-center gap-1.5 mt-1">
         <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${PLATFORM_COLOR[d.platform] || PLATFORM_COLOR['Đa kênh']}`}>{d.platform}</span>
+        <span className="text-[10px] font-bold tabular-nums flex items-center gap-0.5"><Video size={10} />{itemsDone(d)}/{contentTarget(d)}</span>
         {name && <span className="text-[10px] text-dim">{name}</span>}
       </span>
     );
@@ -580,10 +629,16 @@ function AgendaChip({
   } else if (entry.kind === 'project') {
     const p = entry.project;
     const isOut = p.projectType === 'outsource';
-    tint = isOut ? TYPE_TINT.outsource : TYPE_TINT.inhouse;
+    // Inhouse: tô ĐẶC như thanh dự án dài ngày; outsource giữ nền mờ
+    if (isOut) tint = TYPE_TINT.outsource;
+    else {
+      tint = tagCol ? 'text-white' : (p.deadline && p.deadline < today ? 'bg-red-600 text-white' : 'bg-sky-600 text-white');
+      style = tagCol ? { backgroundColor: tagCol, color: '#fff' } : undefined;
+    }
     icon = <FolderKanban size={12} className="mt-0.5 shrink-0" />;
     label = p.title;
     sub = <span className="block text-[10px] font-bold uppercase opacity-80 mt-0.5">{isOut ? 'Outsource' : 'Inhouse'} · {STATUS_LABEL[p.status]}</span>;
+    mang = mangColors(p);
     onTap = () => onOpenProject(p.id);
   } else {
     const { task, project } = entry;
@@ -599,10 +654,12 @@ function AgendaChip({
       type="button"
       onClick={onTap}
       style={style}
-      className={`w-full text-left rounded-lg px-2.5 py-2 border-l-4 cursor-pointer active:opacity-70 ${stripe} ${tint}`}
+      /* Ghi chú không có tiến độ → bỏ luôn vạch phải, giống chip ở lưới tháng */
+      className={`relative w-full text-left rounded-lg py-2 pr-2.5 overflow-hidden cursor-pointer active:opacity-70 ${mang.length ? 'pl-3.5' : 'pl-2.5'} ${entry.kind === 'note' ? '' : `border-r-8 ${stripe}`} ${tint}`}
     >
       <span className="text-[13px] font-bold leading-snug flex items-start gap-1.5">{icon}<span className="line-clamp-2">{label}</span></span>
       {sub}
+      <MangStripe colors={mang} />
     </button>
   );
 }
@@ -639,7 +696,7 @@ function NoteFormModal({
           <Textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Nhập ghi chú… (dán link cũng được)" />
         </Field>
         <Field label="Tag màu">
-          <TagSelect value={tagId} onChange={setTagId} scope="note" autoSelect />
+          <TagSelect value={tagId} onChange={setTagId} level="note" autoSelect />
         </Field>
         {state?.note && (
           <div className="flex items-center gap-2 text-[11px] text-dim">
@@ -669,8 +726,31 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
 
+  // Khối tiêu đề dính trên đầu → hàng thứ (Th2…CN) phải dính NGAY DƯỚI nó.
+  // Đo bằng ResizeObserver vì chiều cao đổi theo số nút / chiều rộng màn hình.
+  const headRef = useRef<HTMLDivElement>(null);
+  const [headH, setHeadH] = useState(0);
+  useEffect(() => {
+    const el = headRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setHeadH(el.offsetHeight));
+    ro.observe(el);
+    setHeadH(el.offsetHeight);
+    return () => ro.disconnect();
+  }, []);
+
   // Màu tag theo id (dùng tô nền chip & thanh dự án)
   const tagColorOf = (id?: string) => (id ? tags.find((t) => t.id === id)?.color : undefined);
+  // Tag theo cấp — dùng cho bảng chú thích (liệt kê rõ từng Loại / từng Mảng)
+  const loaiTags = useMemo(() => tags.filter((t) => tagLevel(t) === 'loai').sort((a, b) => a.name.localeCompare(b.name, 'vi')), [tags]);
+  const mangTags = useMemo(() => tags.filter((t) => tagLevel(t) === 'mang').sort((a, b) => a.name.localeCompare(b.name, 'vi')), [tags]);
+
+  // Màu các tag MẢNG của dự án → vạch kẻ sát đáy chip (nền chip đã là màu tag Loại)
+  const mangColorsOf = (p: Project) =>
+    projectTagIds(p)
+      .map((id) => tags.find((t) => t.id === id))
+      .filter((t) => t && tagLevel(t) === 'mang')
+      .map((t) => t!.color);
 
   // Chọn loại khi tạo mới từ lịch (inhouse / outsource / content / ghi chú).
   // Vai trò content (canEditDaily nhưng không phải editor) → bỏ qua bước chọn, tạo thẳng content.
@@ -744,14 +824,17 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
     [rangeStart, weeksShown],
   );
 
-  // Dự án inhouse → thanh nối liền từ startDate (fallback createdAt) đến deadline.
+  // Dự án inhouse KÉO DÀI ≥2 ngày → thanh nối liền từ startDate (fallback createdAt) đến deadline.
   // Không giới hạn theo tháng nữa: layoutWeek tự cắt theo từng tuần của dải.
+  // Dự án gói gọn trong 1 ngày KHÔNG làm thanh: thanh mỏng 1 dòng, còn chip trong ô hiện
+  // đủ 2 dòng (tên + loại · trạng thái) mà vẫn vừa chỗ.
   const spanProjects = useMemo<SpanProject[]>(
     () => projects.flatMap((p) => {
       if (p.projectType === 'outsource') return [];
       const start = p.startDate || tsToDateStr(p.createdAt);
       if (!start) return [];
       const end = p.deadline && p.deadline >= start ? p.deadline : start;
+      if (end === start) return [];
       return [{ project: p, start, end }];
     }),
     [projects],
@@ -763,7 +846,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
   const globalLanes = useMemo(
     () => assignGlobalLanes(
       spanProjects.filter((s) => weekIndexAbs(s.start) !== weekIndexAbs(s.end)),
-      (p) => tagColorOf(p.tagId) || (!!p.deadline && p.deadline < today ? '#dc2626' : '#0284c7'),
+      (p) => projectTagColor(p, tags) || (!!p.deadline && p.deadline < today ? '#dc2626' : '#0284c7'),
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [spanProjects, today, tags],
@@ -923,6 +1006,10 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
 
   return (
     <div className="fade-up space-y-5">
+      {/* Tiêu đề + chú thích DÍNH TRÊN ĐẦU khi cuộn lịch (máy tính).
+          Âm margin/padding để khi dính không hở khoảng trống của <main> phía trên.
+          Đo chiều cao để đẩy hàng thứ (Th2…CN) xuống đúng dưới khối này. */}
+      <div ref={headRef} className="md:sticky md:top-0 md:z-40 md:-mx-4 md:px-4 md:-mt-4 md:pt-4 lg:-mx-8 lg:px-8 lg:-mt-8 lg:pt-8 md:pb-3 md:bg-bg/95 md:backdrop-blur-sm space-y-5 md:space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-extrabold tracking-tight">Lịch tháng</h1>
@@ -935,30 +1022,45 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
         </div>
       </div>
 
-      {/* Chú thích màu — đặt ngoài danh sách tháng để luôn thấy khi cuộn.
+      {/* Chú thích màu — dính cùng tiêu đề để luôn thấy khi cuộn.
           Trên điện thoại ẩn đi: chiếm gần nửa màn hình mà mỗi mục đã ghi rõ loại bằng chữ. */}
-      <Card className="hidden md:block p-3 space-y-2">
-        <div className="flex flex-wrap gap-3 items-center text-[11px] text-muted">
-          <span className="font-bold text-dim uppercase text-[10px] tracking-wide">Loại</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500/50" /> Content</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-sky-500/50" /> Dự án inhouse</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/50" /> Dự án outsource</span>
-          {isAdmin && <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500/50" /> Chi phí</span>}
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500/50" /> Ghi chú</span>
-        </div>
-        <div className="flex flex-wrap gap-3 items-center text-[11px] text-muted">
-          <span className="font-bold text-dim uppercase text-[10px] tracking-wide">Tiến độ (vạch)</span>
-          <span className="flex items-center gap-1.5"><span className="w-1 h-3 bg-slate-500 rounded" /> Chưa bắt đầu</span>
-          <span className="flex items-center gap-1.5"><span className="w-1 h-3 bg-amber-400 rounded" /> Đang làm</span>
-          <span className="flex items-center gap-1.5"><span className="w-1 h-3 bg-emerald-500 rounded" /> Xong</span>
-          <span className="flex items-center gap-1.5"><span className="w-1 h-3 bg-red-500 rounded" /> Quá hạn</span>
+      {/* Gộp cả 3 nhóm vào MỘT hàng cuộn ngang cho đỡ tốn chiều cao; mỗi nhóm cách nhau bằng vạch dọc */}
+      <Card className="hidden md:block px-3 py-2">
+        <div className="flex gap-x-3 items-center text-[11px] text-muted overflow-x-auto">
+          {/* Nhóm 1 — NỀN chip: mục không phải dự án dùng màu cố định, dự án lấy màu tag Loại */}
+          <span className="font-bold text-dim uppercase text-[10px] tracking-wide shrink-0 whitespace-nowrap">Nền chip</span>
+          {loaiTags.map((t) => (
+            <span key={t.id} className="flex items-center gap-1.5 whitespace-nowrap">
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: t.color }} /> {t.name}
+            </span>
+          ))}
+          <span className="flex items-center gap-1.5 whitespace-nowrap"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500/50" /> Nội dung</span>
+          <span className="flex items-center gap-1.5 whitespace-nowrap"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500/50" /> Ghi chú</span>
+
+          {/* Nhóm 2 — vạch PHẢI dày = tiến độ */}
+          <span className="w-px h-3.5 bg-line-2 shrink-0" />
+          <span className="font-bold text-dim uppercase text-[10px] tracking-wide shrink-0 whitespace-nowrap">Vạch phải · tiến độ</span>
+          <span className="flex items-center gap-1.5 whitespace-nowrap"><span className="w-2 h-3 bg-slate-500 rounded-sm" /> Chưa bắt đầu</span>
+          <span className="flex items-center gap-1.5 whitespace-nowrap"><span className="w-2 h-3 bg-amber-400 rounded-sm" /> Đang làm</span>
+          <span className="flex items-center gap-1.5 whitespace-nowrap"><span className="w-2 h-3 bg-emerald-500 rounded-sm" /> Xong</span>
+          <span className="flex items-center gap-1.5 whitespace-nowrap"><span className="w-2 h-3 bg-red-500 rounded-sm" /> Quá hạn</span>
+
+          {/* Nhóm 3 — vạch TRÁI mảnh = mảng, liệt kê đúng các tag Mảng đang có */}
+          {mangTags.length > 0 && <span className="w-px h-3.5 bg-line-2 shrink-0" />}
+          {mangTags.length > 0 && <span className="font-bold text-dim uppercase text-[10px] tracking-wide shrink-0 whitespace-nowrap">Vạch trái · mảng</span>}
+          {mangTags.map((t) => (
+            <span key={t.id} className="flex items-center gap-1.5 whitespace-nowrap">
+              <span className="w-1 h-3 rounded-sm" style={{ backgroundColor: t.color }} /> {t.name}
+            </span>
+          ))}
         </div>
       </Card>
+      </div>
       {/* Dải TUẦN liên tục kiểu Apple Calendar — thứ dính trên đầu, tháng phân cách bằng nhãn */}
       <Card className="p-3 sm:p-4">
         {/* Hàng thứ chỉ có nghĩa với lưới 7 cột — bản agenda đã ghi thứ ngay cạnh mỗi ngày */}
         {!isMobile && (
-          <div className="sticky top-0 z-30 -mx-3 sm:-mx-4 -mt-3 sm:-mt-4 px-3 sm:px-4 pt-3 sm:pt-4 pb-2 bg-surface/95 backdrop-blur-sm rounded-t-xl">
+          <div style={{ top: headH }} className="sticky z-30 -mx-3 sm:-mx-4 -mt-3 sm:-mt-4 px-3 sm:px-4 pt-3 sm:pt-4 pb-2 bg-surface/95 backdrop-blur-sm rounded-t-xl">
             <div className="grid grid-cols-7 gap-2">
               {DAY_LABELS.map((d) => <div key={d} className="text-center text-xs font-bold text-dim py-1">{d}</div>)}
             </div>
@@ -1050,6 +1152,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
                                     onOpenProject={onOpenProject}
                                     onNote={(n) => setNoteModal({ note: n, date: n.date })}
                                     tagColor={tagColorOf}
+                                    mangColors={mangColorsOf}
                                   />
                                 ))}
                               </div>
@@ -1123,6 +1226,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
                                 onOpenProject={onOpenProject}
                                 onNote={(n) => setNoteModal({ note: n, date: n.date })}
                                 tagColor={tagColorOf}
+                                mangColors={mangColorsOf}
                               />
                             ))}
                             {list.length > 4 && <span className="text-[10px] text-dim block pl-1">+{list.length - 4} mục khác</span>}
@@ -1137,28 +1241,39 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
                     <div className="absolute inset-0 grid grid-cols-7 gap-2 pointer-events-none" style={{ paddingTop: BAR_TOP }}>
                       {bars.map((bar) => {
                         const p = bar.project;
+                        const isOut = p.projectType === 'outsource';
                         const overdue = !!p.deadline && p.deadline < today;
-                        const tagCol = tagColorOf(p.tagId);
+                        const tagCol = projectTagColor(p, tags);
                         const stripe = stripeFor({ kind: 'project', project: p }, today);
+                        // Thanh dự án nằm ở lớp overlay (ngoài ô ngày) nên KHÔNG tự mờ theo ô —
+                        // phải tự tính: đoạn thanh nào không chạm tháng đang xem (và không chứa hôm nay) thì mờ
+                        const barDays = week.slice(bar.colStart, bar.colStart + bar.span);
+                        const barActive = barDays.some((d) => d.slice(0, 7) === month || d === today);
                         return (
                           <div
                             key={p.id}
                             style={{ gridColumn: `${bar.colStart + 1} / span ${bar.span}`, gridRow: 1, alignSelf: 'start', marginTop: bar.lane * BAR_UNIT, height: BAR_UNIT - 4, ...(tagCol ? { backgroundColor: tagCol } : {}) }}
                             onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
                             title={`${p.title}${p.deadline ? ` · deadline ${formatDate(p.deadline)}` : ''}`}
-                            className={`pointer-events-auto cursor-pointer flex items-center gap-1 px-2 overflow-hidden select-none shadow-sm text-white ${
+                            className={`relative pointer-events-auto cursor-pointer flex items-center gap-1 pr-2 ${bar.roundLeft && mangColorsOf(p).length ? 'pl-3.5' : 'pl-2'} overflow-hidden select-none shadow-sm text-white transition-opacity ${barActive ? '' : 'opacity-35 hover:opacity-70'} ${
                               bar.roundLeft ? 'justify-start' : 'justify-end'
-                            } ${tagCol ? '' : overdue ? 'bg-red-600' : 'bg-sky-600'} ${bar.roundLeft ? `border-l-4 ${stripe} rounded-l-md ml-0.5` : ''} ${bar.roundRight ? 'rounded-r-md mr-0.5' : ''}`}
+                            } ${tagCol ? '' : overdue ? 'bg-red-600' : 'bg-sky-600'} ${bar.roundLeft ? 'rounded-l-md ml-[9px]' : ''} ${bar.roundRight ? `border-r-8 ${stripe} rounded-r-md mr-[9px]` : ''}`}
                           >
                             {bar.roundLeft ? (
+                              // Đoạn đầu: đủ thông tin nhưng gói trong MỘT dòng để thanh mỏng
                               <>
                                 <FolderKanban size={11} className="shrink-0" />
                                 <span className="truncate text-[11px] font-semibold">{p.title}</span>
+                                <span className="truncate text-[9px] font-bold uppercase opacity-75">
+                                  · {isOut ? 'Outsource' : 'Inhouse'} · {STATUS_LABEL[p.status]}
+                                </span>
                               </>
                             ) : (
                               // Đoạn nối tiếp ở tuần sau → tên nhỏ & mờ ở cuối line, chỉ để nhận biết
                               <span className="truncate text-[10px] font-medium text-white/55">{p.title}</span>
                             )}
+                            {/* Mảng ở ĐẦU dự án, tiến độ (border-r) ở đoạn KẾT THÚC — đoạn giữa không có vạch nào */}
+                            {bar.roundLeft && <MangStripe colors={mangColorsOf(p)} wide />}
                           </div>
                         );
                       })}
@@ -1709,12 +1824,28 @@ function ContentFormModal({
   members: { uid?: string; id: string; username: string }[];
   onSave: (data: Partial<DailyContent>) => Promise<void>;
 }) {
+  const { tags } = useAppData();
   const [form, setForm] = useState<Partial<DailyContent>>({});
   const [busy, setBusy] = useState(false);
 
+  // Mảng của Daily Content LUÔN là tag Mảng tên "Content" — không cho chọn khác, nên chỉ hiện
+  // chip cho biết chứ không có ô select. Chưa tạo tag đó thì content lưu không tag (dòng
+  // "Chưa gắn tag" ở Hiệu suất) — hướng dẫn tạo ngay dưới ô.
+  const contentTag = useMemo(
+    () => tags.find((t) => tagLevel(t) === 'mang' && normalize(t.name) === 'content'),
+    [tags],
+  );
+
   const [lastOpen, setLastOpen] = useState(false);
   if (open && !lastOpen) {
-    setForm(editing ? { ...editing } : { type: 'Reels', platform: 'Đa kênh', status: 'planned', orderDate: todayStr(), dueDate: todayStr(), points: 3, quantity: 1 });
+    const base: Partial<DailyContent> = editing
+      ? { ...editing }
+      : { type: 'Reels', platform: 'Đa kênh', status: 'planned', orderDate: todayStr(), dueDate: todayStr(), points: 3, quantity: 1 };
+    // openNew(date) truyền editing = { dueDate } nên nhánh trên cũng là "tạo mới" → vẫn cần điền sẵn.
+    // Nội dung cũ gắn tag khác cũng được kéo về tag Content cho đồng nhất.
+    if (contentTag) base.tagId = contentTag.id;
+    if (!base.contentFormat) base.contentFormat = 'full-video';
+    setForm(base);
     setLastOpen(true);
   } else if (!open && lastOpen) {
     setLastOpen(false);
@@ -1722,9 +1853,12 @@ function ContentFormModal({
 
   const set = (k: keyof DailyContent, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const submit = async () => {
-    if (busy || !form.title || !form.tagId) return;
+    // Không còn bắt buộc tagId: tag do hệ thống gán, thiếu tag "Content" thì vẫn lưu được.
+    if (busy || !form.title) return;
     setBusy(true);
-    await onSave(form);
+    // Chốt tag ngay lúc lưu, không dựa vào lúc mở form: mở modal trước khi snapshot tags về tới
+    // (vào app là bấm thêm luôn) thì contentTag lúc đó còn undefined, content sẽ mất tag.
+    await onSave(contentTag ? { ...form, tagId: contentTag.id } : form);
     setBusy(false);
   };
 
@@ -1765,15 +1899,31 @@ function ContentFormModal({
             <Input type="number" min={1} value={form.quantity ?? 1} onChange={(e) => set('quantity', Math.max(1, Number(e.target.value)))} onFocus={(e) => e.target.select()} />
           </Field>
         </div>
-        <Field label="Tag màu">
-          <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} scope="content" autoSelect />
+        {/* Dạng content KHÔNG phải tag — chỉ đổi hệ số quy đổi sản lượng video ở trang Hiệu suất */}
+        <Field label="Dạng content">
+          <Select value={form.contentFormat || 'full-video'} onChange={(e) => set('contentFormat', e.target.value)}>
+            {CONTENT_FORMATS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </Select>
+          <p className="text-[11px] text-dim mt-1">{CONTENT_FORMAT_HINT[form.contentFormat || 'full-video']}</p>
+        </Field>
+        {/* Mảng CỐ ĐỊNH là tag "Content" — content luôn thuộc mảng này nên bỏ ô chọn cho gọn */}
+        <Field label="Mảng">
+          {contentTag ? (
+            <span className="inline-flex items-center gap-2 text-sm font-semibold">
+              <span className="w-3 h-3 rounded-full border border-line" style={{ backgroundColor: contentTag.color }} />
+              {contentTag.name}
+              <span className="text-[11px] text-dim font-normal">· gán tự động</span>
+            </span>
+          ) : (
+            <p className="text-[11px] text-amber-300">Chưa có tag Mảng tên "Content" — tạo ở Quản lý tag để nội dung vào đúng dòng ở Hiệu suất</p>
+          )}
         </Field>
         <Field label="Ghi chú">
           <Textarea rows={2} value={form.notes || ''} onChange={(e) => set('notes', e.target.value)} />
         </Field>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Huỷ</Button>
-          <Button type="submit" disabled={busy || !form.title || !form.tagId}>
+          <Button type="submit" disabled={busy || !form.title}>
             {editing?.id ? 'Lưu' : 'Thêm'}
           </Button>
         </div>

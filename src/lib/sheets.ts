@@ -1,15 +1,16 @@
-import type { Member, Project, Task, Report, Tag } from '../types';
+import type { Member, Project, Task, Report, Tag, DailyContent } from '../types';
 import {
-  calculateTeamKpi, ecomProjectIdSet, teamTypeTotals, individualKpi, teamAggregate,
+  calculateTeamKpi, teamTypeTotals, tagTypeTotals, individualKpi, teamAggregate,
   type MemberKpi, type ProjectClass, type TypeTotals,
 } from './kpi';
+import { levelLabel } from './tags';
 import { monthRange, formatDateTime, shiftMonth } from './utils';
 
 const CLASS_LABEL: Record<ProjectClass, string> = {
   inhouse: 'Inhouse',
   outsource: 'Outsource',
-  ecom: 'Ecom',
 };
+const CLASSES: ProjectClass[] = ['inhouse', 'outsource'];
 
 type Cell = string | number;
 
@@ -55,24 +56,24 @@ export function buildSheetsPayload(
   allTasks: Task[],
   reports: Report[],
   tags: Tag[] = [],
+  dailyContent: DailyContent[] = [],
 ): SheetsPayload {
-  const ecomIds = ecomProjectIdSet(projects, tags);
   const projById = new Map(projects.map((p) => [p.id, p]));
   const memberByUid = new Map(members.map((m) => [m.uid || m.id, m]));
   const [monthStart, monthEnd] = monthRange(month);
 
-  const allKpi = calculateTeamKpi(members, month, allTasks, projects, reports);
+  const allKpi = calculateTeamKpi(members, month, allTasks, projects, reports, dailyContent, tags);
   const kpi = individualKpi(allKpi); // mọi thành viên tính việc, admin cũng là 1 dòng như editor
   const teamRow = teamAggregate(allKpi);
   const prevByUid = new Map(
-    calculateTeamKpi(members, shiftMonth(month, -1), allTasks, projects, reports).map((k) => [k.uid, k]),
+    calculateTeamKpi(members, shiftMonth(month, -1), allTasks, projects, reports, dailyContent, tags).map((k) => [k.uid, k]),
   );
 
-  const typeTotals = teamTypeTotals(allTasks, projects, ecomIds, month);
+  const typeTotals = teamTypeTotals(allTasks, projects, month, reports, dailyContent, tags);
   const totalTotals: TypeTotals = {
-    photos: 0, videos: 0, cost: 0, photoTasks: [], videoTasks: [], costTasks: [],
+    photos: 0, videos: 0, cost: 0, photoTasks: [], videoTasks: [], costTasks: [], videoContents: [],
   };
-  (['inhouse', 'outsource', 'ecom'] as ProjectClass[]).forEach((cls) => {
+  CLASSES.forEach((cls) => {
     const t = typeTotals[cls];
     totalTotals.photos += t.photos;
     totalTotals.videos += t.videos;
@@ -80,16 +81,28 @@ export function buildSheetsPayload(
     totalTotals.photoTasks.push(...t.photoTasks);
     totalTotals.videoTasks.push(...t.videoTasks);
     totalTotals.costTasks.push(...t.costTasks);
+    totalTotals.videoContents.push(...t.videoContents);
   });
 
   // ── (1) Tổng quan sản lượng: đúng 4 ô ở đầu trang Hiệu suất ──
+  // "Mục video" = task video + video trả trong Daily Content (cả hai đều nằm trong cột Số video)
   const overviewRow = (label: string, t: TypeTotals): Cell[] => [
-    label, t.photoTasks.length, t.photos, t.videos, t.videoTasks.length, t.cost, t.costTasks.length,
+    label, t.photoTasks.length, t.photos, t.videos, t.videoTasks.length + t.videoContents.length, t.cost, t.costTasks.length,
   ];
   const overviewRows: Cell[][] = [
     overviewRow('Tổng team', totalTotals),
-    ...(['inhouse', 'outsource', 'ecom'] as ProjectClass[]).map((cls) => overviewRow(CLASS_LABEL[cls], typeTotals[cls])),
+    ...CLASSES.map((cls) => overviewRow(CLASS_LABEL[cls], typeTotals[cls])),
   ];
+
+  // ── (4) Sản lượng theo tag: bóc tách Loại (Ảnh/Video) + Mảng (Ecom/Content/Trade/Brand) ──
+  // Dùng thẳng tagTypeTotals của kpi.ts — KHÔNG tính lại công thức ở đây.
+  const tagRows: Cell[][] = tagTypeTotals(allTasks, projects, tags, month, reports, dailyContent)
+    .filter((r) => CLASSES.some((c) => r.byClass[c].photos || r.byClass[c].videos || r.byClass[c].cost))
+    .map((r) => [
+      r.tagId === '' ? 'Khác' : levelLabel(r.level),
+      r.name,
+      ...CLASSES.flatMap((c) => [r.projectCount[c], r.byClass[c].photos, r.byClass[c].videos, r.byClass[c].cost]),
+    ]);
 
   // ── (2) Bảng KPI thành viên: y hệt cột trên web + dòng tổng & KPI team ──
   const kpiRows: Cell[][] = kpi.map((m, i) => {
@@ -124,10 +137,10 @@ export function buildSheetsPayload(
     '', '', '',
   ]);
 
-  // ── (3) Phân tích chi phí: pre-production non-Ecom trong tháng, gom theo dự án ──
+  // ── (3) Phân tích chi phí: MỌI khoản pre-production trong tháng, gom theo dự án ──
   const costTasks = allTasks.filter(
     (t) => t.category === 'pre-production' && (t.reportDate || '').startsWith(month)
-      && !ecomIds.has(t.projectId) && projById.has(t.projectId),
+      && projById.has(t.projectId),
   );
   const costByProject = new Map<string, Task[]>();
   costTasks.forEach((t) => {
@@ -186,14 +199,14 @@ export function buildSheetsPayload(
     syncedAt: new Date().toLocaleString('vi-VN'),
     month,
     sheets: {
-      // Cả 3 bảng của tab Hiệu suất nằm CHUNG 1 tab, xếp dọc.
+      // Cả 4 bảng của tab Hiệu suất nằm CHUNG 1 tab, xếp dọc.
       [`Tổng quan ${month}`]: {
         sections: [
           {
             title: `1. SẢN LƯỢNG THEO LOẠI DỰ ÁN — Tháng ${Number(mm)}/${yyyy}`,
-            headers: ['Nhóm', 'Task ảnh', 'Số ảnh', 'Số video', 'Task video', 'Chi phí (VND)', 'Số khoản chi'],
+            headers: ['Nhóm', 'Task ảnh', 'Số ảnh', 'Số video', 'Mục video', 'Chi phí (VND)', 'Số khoản chi'],
             rows: overviewRows,
-            note: 'Sản lượng sản xuất thô của cả team, tách Inhouse / Outsource / Ecom (khớp 4 ô đầu trang Hiệu suất)',
+            note: 'Sản lượng sản xuất thô của cả team, tách Inhouse / Outsource (khớp 4 ô đầu trang Hiệu suất)',
           },
           {
             title: '2. KPI THÀNH VIÊN',
@@ -205,7 +218,17 @@ export function buildSheetsPayload(
             title: '3. PHÂN TÍCH CHI PHÍ',
             headers: ['Ngày', 'Dự án', 'Khoản chi', 'Số tiền (VND)', 'DNTT', 'Người tạo'],
             rows: costRows,
-            note: 'Chi phí tiền kỳ non-Ecom trong tháng, xếp theo dự án tốn nhiều nhất',
+            note: 'Chi phí tiền kỳ trong tháng, xếp theo dự án tốn nhiều nhất',
+          },
+          {
+            title: '4. SẢN LƯỢNG THEO TAG',
+            headers: [
+              'Cấp', 'Tag',
+              'Dự án (Inhouse)', 'Ảnh (Inhouse)', 'Video (Inhouse)', 'Chi phí Inhouse (VND)',
+              'Dự án (Outsource)', 'Ảnh (Outsource)', 'Video (Outsource)', 'Chi phí Outsource (VND)',
+            ],
+            rows: tagRows,
+            note: 'Bóc tách theo tag Loại/Mảng — dự án gắn nhiều tag được đếm ở nhiều dòng nên tổng dòng ≠ tổng team',
           },
         ],
       },
@@ -238,19 +261,19 @@ export function sheetsPreview(
   projects: Project[],
   allTasks: Task[],
   reports: Report[],
+  dailyContent: DailyContent[] = [],
   tags: Tag[] = [],
 ): SheetsPreview {
-  const ecomIds = ecomProjectIdSet(projects, tags);
-  const tt = teamTypeTotals(allTasks, projects, ecomIds, month);
-  const allKpi = calculateTeamKpi(members, month, allTasks, projects, reports);
+  const tt = teamTypeTotals(allTasks, projects, month, reports, dailyContent, tags);
+  const allKpi = calculateTeamKpi(members, month, allTasks, projects, reports, dailyContent, tags);
   const kpi = individualKpi(allKpi);
   const team: MemberKpi | undefined = teamAggregate(allKpi);
   const teamOutput = team ? team.outputCount : round2(kpi.reduce((s, k) => s + k.outputCount, 0));
   const teamTarget = team ? team.kpiOutputTarget : kpi.reduce((s, k) => s + k.kpiOutputTarget, 0);
   return {
-    photos: tt.inhouse.photos + tt.outsource.photos + tt.ecom.photos,
-    videos: tt.inhouse.videos + tt.outsource.videos + tt.ecom.videos,
-    cost: tt.inhouse.cost + tt.outsource.cost + tt.ecom.cost,
+    photos: tt.inhouse.photos + tt.outsource.photos,
+    videos: tt.inhouse.videos + tt.outsource.videos,
+    cost: tt.inhouse.cost + tt.outsource.cost,
     teamOutput,
     teamTarget,
     teamKpi: teamTarget > 0 ? round1((teamOutput / teamTarget) * 100) : null,

@@ -1,19 +1,21 @@
-import { useMemo, useState } from 'react';
-import { Crown, X, Camera, Video, Wallet, FolderKanban, TrendingUp, ArrowUp, ArrowDown, Minus, ShoppingBag, Building2, Users } from 'lucide-react';
+import { Fragment, useMemo, useState } from 'react';
+import { Crown, X, Camera, Video, Wallet, FolderKanban, TrendingUp, ArrowUp, ArrowDown, Minus, Tags, Building2, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, Avatar, Input, EmptyState, Drawer } from '../components/ui';
-import { calculateTeamKpi, ecomProjectIdSet, teamTypeTotals, individualKpi, teamAggregate, type MemberKpi, type ProjectClass, type TypeTotals } from '../lib/kpi';
+import { calculateTeamKpi, teamTypeTotals, tagTypeTotals, individualKpi, teamAggregate, contentVideoEntries, type MemberKpi, type ProjectClass, type TypeTotals, type TagTotals } from '../lib/kpi';
+import { levelLabel } from '../lib/tags';
 import { currentMonth, shiftMonth, formatVND, formatDate } from '../lib/utils';
 import type { Task, Project } from '../types';
 
 const isDone = (t: Task) => t.status === 'completed' || !!t.dntt;
 const fmtScore = (n: number) => (Math.round(n * 100) / 100).toString();
 
+// Chỉ còn 2 loại — "Ecom" giờ là TAG (mảng), không phải một loại dự án riêng.
 const CLASS_META: Record<ProjectClass, { label: string; tint: string; icon: (s: number) => React.ReactNode }> = {
-  inhouse: { label: 'Inhouse', tint: 'text-sky-300', icon: (s) => <Building2 size={s} /> },
-  outsource: { label: 'Outsource', tint: 'text-fuchsia-300', icon: (s) => <Users size={s} /> },
-  ecom: { label: 'Ecom', tint: 'text-teal-300', icon: (s) => <ShoppingBag size={s} /> },
+  inhouse: { label: 'Inhouse', tint: 'text-sky-300', icon: (s: number) => <Building2 size={s} /> },
+  outsource: { label: 'Outsource', tint: 'text-fuchsia-300', icon: (s: number) => <Users size={s} /> },
 };
+const CLASSES: ProjectClass[] = ['inhouse', 'outsource'];
 
 type MemberTab = 'photo' | 'video' | 'dntt' | 'projects';
 
@@ -44,17 +46,16 @@ function taskItem(t: Task, projById: Map<string, Project>): DrawerItem {
 }
 
 export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string) => void }) {
-  const { members, projects, allTasks, reports, tags, isAdmin } = useAppData();
+  const { members, projects, allTasks, reports, tags, dailyContent, isAdmin } = useAppData();
   const [month, setMonth] = useState(currentMonth());
   const [selected, setSelected] = useState<MemberKpi | null>(null);
   const [detailTab, setDetailTab] = useState<MemberTab>('photo');
   const [drawer, setDrawer] = useState<MetricDrawerData | null>(null);
 
-  const ecomIds = useMemo(() => ecomProjectIdSet(projects, tags), [projects, tags]);
   const projById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const allKpi = useMemo(
-    () => calculateTeamKpi(members, month, allTasks, projects, reports),
-    [members, month, allTasks, projects, reports],
+    () => calculateTeamKpi(members, month, allTasks, projects, reports, dailyContent, tags),
+    [members, month, allTasks, projects, reports, dailyContent, tags],
   );
   // Bảng xếp hạng gồm mọi thành viên (admin cũng có chỉ tiêu riêng); dòng tổng-team hiển thị riêng.
   const kpi = useMemo(() => individualKpi(allKpi), [allKpi]);
@@ -62,15 +63,19 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
   // Có sản lượng mà chưa có chỉ tiêu = sản lượng vào tử số nhưng chỉ tiêu không vào mẫu số → KPI team ảo cao.
   const untargeted = useMemo(() => kpi.filter((k) => !k.hasTarget && k.outputCount > 0), [kpi]);
   const prevByUid = useMemo(() => {
-    const prev = calculateTeamKpi(members, shiftMonth(month, -1), allTasks, projects, reports);
+    const prev = calculateTeamKpi(members, shiftMonth(month, -1), allTasks, projects, reports, dailyContent, tags);
     return new Map(prev.map((k) => [k.uid, k]));
-  }, [members, month, allTasks, projects, reports]);
+  }, [members, month, allTasks, projects, reports, dailyContent, tags]);
   const typeTotals = useMemo(
-    () => teamTypeTotals(allTasks, projects, ecomIds, month),
-    [allTasks, projects, ecomIds, month],
+    () => teamTypeTotals(allTasks, projects, month, reports, dailyContent, tags),
+    [allTasks, projects, month, reports, dailyContent],
+  );
+  const tagTotals = useMemo(
+    () => tagTypeTotals(allTasks, projects, tags, month, reports, dailyContent),
+    [allTasks, projects, tags, month, reports, dailyContent],
   );
   const totalTotals = useMemo<TypeTotals>(() => {
-    const parts = [typeTotals.inhouse, typeTotals.outsource, typeTotals.ecom];
+    const parts = [typeTotals.inhouse, typeTotals.outsource];
     return {
       photos: parts.reduce((s, x) => s + x.photos, 0),
       videos: parts.reduce((s, x) => s + x.videos, 0),
@@ -78,6 +83,7 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
       photoTasks: parts.flatMap((x) => x.photoTasks),
       videoTasks: parts.flatMap((x) => x.videoTasks),
       costTasks: parts.flatMap((x) => x.costTasks),
+      videoContents: parts.flatMap((x) => x.videoContents),
     };
   }, [typeTotals]);
 
@@ -86,22 +92,22 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
     const months = Array.from({ length: 6 }, (_, i) => shiftMonth(month, i - 5));
     return months.map((mo) => {
       // Dòng admin là tổng-team → loại ra khi cộng dồn/tính trung bình để không cộng trùng.
-      const eds = individualKpi(calculateTeamKpi(members, mo, allTasks, projects, reports));
+      const eds = individualKpi(calculateTeamKpi(members, mo, allTasks, projects, reports, dailyContent, tags));
       const photo = Math.round(eds.reduce((s, k) => s + k.photoScore, 0) * 10) / 10;
       const video = eds.reduce((s, k) => s + k.videoCount, 0);
       // Trung bình KPI chỉ tính người ĐÃ được đặt chỉ tiêu (người chưa đặt luôn 0% sẽ kéo tụt số liệu).
       const rated = eds.filter((k) => k.hasTarget);
       const avgKpi = rated.length ? rated.reduce((s, k) => s + k.finalKPI, 0) / rated.length : 0;
-      const tt = teamTypeTotals(allTasks, projects, ecomIds, mo);
-      const cost = tt.inhouse.cost + tt.outsource.cost; // chi phí non-ecom (Ecom xem ở bảng loại)
+      const tt = teamTypeTotals(allTasks, projects, mo, [], [], tags);
+      const cost = tt.inhouse.cost + tt.outsource.cost;
       return { month: mo, label: `T${Number(mo.slice(5))}`, photo, video, cost, avgKpi: Math.round(avgKpi * 10) / 10 };
     });
-  }, [month, allTasks, members, projects, reports, ecomIds]);
+  }, [month, allTasks, members, projects, reports, dailyContent, tags]);
 
-  // ── Phân tích chi phí (giữ như cũ): pre-production non-ecom trong tháng, gom theo project ──
+  // ── Phân tích chi phí: MỌI khoản pre-production trong tháng, gom theo project ──
   const costTasks = useMemo(
-    () => allTasks.filter((t) => t.category === 'pre-production' && (t.reportDate || '').startsWith(month) && !ecomIds.has(t.projectId) && projById.has(t.projectId)),
-    [allTasks, month, ecomIds, projById],
+    () => allTasks.filter((t) => t.category === 'pre-production' && (t.reportDate || '').startsWith(month) && projById.has(t.projectId)),
+    [allTasks, month, projById],
   );
   const costByProject = useMemo(() => {
     const m = new Map<string, Task[]>();
@@ -117,8 +123,22 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
   const openMember = (m: MemberKpi, tab: MemberTab = 'photo') => { setDetailTab(tab); setSelected(m); };
 
   const openMetric = (tt: TypeTotals, label: string, metric: 'photos' | 'videos' | 'cost') => {
-    if (metric === 'photos') setDrawer({ title: `${label} · Ảnh`, subtitle: `${tt.photos} ảnh · ${tt.photoTasks.length} task`, items: tt.photoTasks.map((t) => taskItem(t, projById)) });
-    else if (metric === 'videos') setDrawer({ title: `${label} · Video`, subtitle: `${tt.videos} video · ${tt.videoTasks.length} task`, items: tt.videoTasks.map((t) => taskItem(t, projById)) });
+    if (metric === 'photos') setDrawer({ title: `${label} · Ảnh`, subtitle: `${fmtScore(tt.photos)} ảnh · ${tt.photoTasks.length} task`, items: tt.photoTasks.map((t) => taskItem(t, projById)) });
+    else if (metric === 'videos') setDrawer({
+      title: `${label} · Video`,
+      // Video content không phải task → liệt kê kèm, không thì bấm vào thấy thiếu đúng bằng số đó
+      subtitle: `${fmtScore(tt.videos)} video · ${tt.videoTasks.length} task${tt.videoContents.length ? ` · ${tt.videoContents.length} video nội dung` : ''}`,
+      items: [
+        ...tt.videoTasks.map((t) => taskItem(t, projById)),
+        ...tt.videoContents.map((c) => ({
+          id: c.reportId,
+          date: c.date,
+          title: c.title,
+          sub: c.projectId ? (projById.get(c.projectId)?.title || 'Daily Content') : 'Daily Content',
+          right: `×${fmtScore(c.qty)}`,
+        })),
+      ].sort((a, b) => (a.date || '').localeCompare(b.date || '')),
+    });
     else setDrawer({ title: `${label} · Chi phí`, subtitle: `${formatVND(tt.cost)} · ${tt.costTasks.length} khoản`, items: tt.costTasks.map((t) => taskItem(t, projById)) });
   };
   const openTypeMetric = (cls: ProjectClass, metric: 'photos' | 'videos' | 'cost') => openMetric(typeTotals[cls], CLASS_META[cls].label, metric);
@@ -131,12 +151,12 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
   };
   const openCostMonth = (mo: string) => {
     const items = allTasks
-      .filter((t) => t.category === 'pre-production' && (t.reportDate || '').startsWith(mo) && !ecomIds.has(t.projectId) && projById.has(t.projectId))
+      .filter((t) => t.category === 'pre-production' && (t.reportDate || '').startsWith(mo) && projById.has(t.projectId))
       .map((t) => taskItem(t, projById));
     setDrawer({ title: `Chi phí · T${Number(mo.slice(5))}`, subtitle: `${items.length} khoản`, items });
   };
   const openKpiMonth = (mo: string) => {
-    const k = individualKpi(calculateTeamKpi(members, mo, allTasks, projects, reports));
+    const k = individualKpi(calculateTeamKpi(members, mo, allTasks, projects, reports, dailyContent, tags));
     setDrawer({ title: `KPI · T${Number(mo.slice(5))}`, subtitle: 'KPI từng thành viên', items: k.map((m) => ({ id: m.uid, title: m.username, sub: m.hasTarget ? `Sản lượng ${fmtScore(m.outputCount)}/${m.kpiOutputTarget}` : `Sản lượng ${fmtScore(m.outputCount)} · chưa đặt chỉ tiêu`, right: m.hasTarget ? `${m.finalKPI}%` : '—' })) });
   };
 
@@ -147,32 +167,63 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
           <h1 className="text-xl font-extrabold tracking-tight">Hiệu suất</h1>
           <p className="text-sm text-muted">KPI = Sản lượng (project ảnh + số video) / chỉ tiêu · nhấp đúp mọi số để xem chi tiết</p>
         </div>
-        <Input type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} className="!w-auto" />
+        {/* Chuyển tháng nhanh — nút lùi/tiến quanh ô chọn tháng */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMonth(shiftMonth(month, -1))}
+            title="Tháng trước"
+            className="p-2 rounded-lg border border-line text-muted hover:text-ink hover:border-line-2 cursor-pointer"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <Input type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} className="!w-auto" />
+          <button
+            type="button"
+            onClick={() => setMonth(shiftMonth(month, 1))}
+            title="Tháng sau"
+            className="p-2 rounded-lg border border-line text-muted hover:text-ink hover:border-line-2 cursor-pointer"
+          >
+            <ChevronRight size={16} />
+          </button>
+          {month !== currentMonth() && (
+            <button
+              type="button"
+              onClick={() => setMonth(currentMonth())}
+              className="px-2.5 py-1.5 rounded-lg border border-line text-xs font-bold text-muted hover:text-ink hover:border-line-2 cursor-pointer"
+            >
+              Tháng này
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tổng sản lượng cả team (tổng của tất cả loại) */}
       <Card className="p-4 border-indigo-500/30 bg-indigo-500/[0.04]">
         <div className="flex items-center gap-2 mb-3">
           <span className="text-indigo-300"><TrendingUp size={16} /></span>
-          <h3 className="font-bold text-sm">Tổng sản lượng team <span className="text-xs text-muted font-normal">· gộp Inhouse + Outsource + Ecom</span></h3>
+          <h3 className="font-bold text-sm">Tổng sản lượng team <span className="text-xs text-muted font-normal">· gộp Inhouse + Outsource</span></h3>
         </div>
         <p className="text-[11px] text-dim mb-3 -mt-1">
           Đây là sản lượng SẢN XUẤT thực tế. Riêng Outsource team chỉ quản lý nên số ảnh/video ở đây
           <span className="text-muted font-semibold"> không tính vào KPI</span> — KPI chỉ tính theo % tiến độ project outsource.
         </p>
         <div className="grid grid-cols-3 gap-2 md:gap-3">
-          <StatCell icon={<Camera size={14} />} tint="text-indigo-300" label="Tổng ảnh" value={totalTotals.photoTasks.length} sub={`${totalTotals.photos} ảnh`} onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'photos')} />
-          <StatCell icon={<Video size={14} />} tint="text-violet-300" label="Tổng video" value={totalTotals.videos} onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'videos')} />
+          <StatCell icon={<Camera size={14} />} tint="text-indigo-300" label="Tổng ảnh" value={totalTotals.photoTasks.length} sub={`${fmtScore(totalTotals.photos)} ảnh`} onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'photos')} />
+          <StatCell icon={<Video size={14} />} tint="text-violet-300" label="Tổng video" value={fmtScore(totalTotals.videos)} onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'videos')} />
           <StatCell icon={<Wallet size={14} />} tint="text-amber-300" label="Tổng chi phí" value={formatVND(totalTotals.cost)} small onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'cost')} />
         </div>
       </Card>
 
-      {/* 3 bảng theo loại */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {(['inhouse', 'outsource', 'ecom'] as ProjectClass[]).map((cls) => (
+      {/* 2 bảng theo loại (cấp 1) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {CLASSES.map((cls) => (
           <TypePanel key={cls} cls={cls} totals={typeTotals[cls]} onMetric={(metric) => openTypeMetric(cls, metric)} />
         ))}
       </div>
+
+      {/* Bóc tách theo tag (cấp 2 Loại + cấp 3 Mảng) — thay panel Ecom cứng ngày trước */}
+      <TagOutputTable rows={tagTotals} onMetric={openMetric} />
 
       {/* Bảng KPI thành viên */}
       <Card>
@@ -232,7 +283,7 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
                       </div>
                     </td>
                     <td className="text-center tabular-nums font-semibold hover:text-indigo-300" title={`${m.photoCount} ảnh · ${m.photoProjects.length} project`} onDoubleClick={(e) => { e.stopPropagation(); openMember(m, 'photo'); }}>{fmtScore(m.photoScore)}</td>
-                    <td className="text-center tabular-nums font-semibold hover:text-indigo-300" onDoubleClick={(e) => { e.stopPropagation(); openMember(m, 'video'); }}>{m.videoCount}</td>
+                    <td className="text-center tabular-nums font-semibold hover:text-indigo-300" onDoubleClick={(e) => { e.stopPropagation(); openMember(m, 'video'); }}>{fmtScore(m.videoCount)}</td>
                     <td className="text-center tabular-nums font-semibold" title={`${m.outsourceProjects.length} project outsource quản lý · tính theo % tiến độ trong tháng`}>{fmtScore(m.outsourceScore)}</td>
                     <td className="px-3 py-3" onDoubleClick={(e) => { e.stopPropagation(); openMember(m, 'projects'); }}>
                       <div className="flex items-baseline justify-between text-[11px] mb-1">
@@ -271,7 +322,7 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
                   <td />
                   <td className="px-2 py-2.5 font-bold text-muted uppercase tracking-wide text-[11px]">Tổng team</td>
                   <td className="text-center tabular-nums font-bold">{fmtScore(kpi.reduce((s, m) => s + m.photoScore, 0))}</td>
-                  <td className="text-center tabular-nums font-bold">{kpi.reduce((s, m) => s + m.videoCount, 0)}</td>
+                  <td className="text-center tabular-nums font-bold">{fmtScore(kpi.reduce((s, m) => s + m.videoCount, 0))}</td>
                   <td className="text-center tabular-nums font-bold">{fmtScore(kpi.reduce((s, m) => s + m.outsourceScore, 0))}</td>
                   <td className="px-3 py-2.5 tabular-nums font-bold">{fmtScore(kpi.reduce((s, m) => s + m.outputCount, 0))}<span className="text-dim font-normal">/{kpi.reduce((s, m) => s + m.kpiOutputTarget, 0)}</span></td>
                   <td className="px-3 py-2.5">
@@ -312,7 +363,7 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
               {trend[5].cost >= trend[4].cost ? '▲' : '▼'} {formatVND(Math.abs(trend[5].cost - trend[4].cost))} so tháng trước
             </span>
           </div>
-          <p className="text-xs text-muted mb-4">Tổng chi phí tiền kỳ non-Ecom 6 tháng gần nhất · nhấp đúp cột</p>
+          <p className="text-xs text-muted mb-4">Tổng chi phí tiền kỳ 6 tháng gần nhất · nhấp đúp cột</p>
           <CostBarChart data={trend.map((t) => ({ label: t.label, cost: t.cost }))} onBarDblClick={(i) => openCostMonth(trend[i].month)} />
         </Card>
       </div>
@@ -372,7 +423,86 @@ function sumAmt(list: Task[]) {
   return list.reduce((s, t) => s + (Number(t.amount) || 0), 0);
 }
 
-/* ---------- Bảng loại (inhouse/outsource/ecom) ---------- */
+/* ---------- Bảng sản lượng theo tag (cấp 2 Loại + cấp 3 Mảng) ---------- */
+function TagOutputTable({ rows, onMetric }: { rows: TagTotals[]; onMetric: (tt: TypeTotals, label: string, m: 'photos' | 'videos' | 'cost') => void }) {
+  // Dòng toàn 0 chỉ làm bảng dài — ẩn đi (tag chưa dùng tháng này)
+  const visible = rows.filter((r) => CLASSES.some((c) => r.byClass[c].photos || r.byClass[c].videos || r.byClass[c].cost));
+  const groupOf = (r: TagTotals) => (r.tagId === '' ? 'Khác' : levelLabel(r.level));
+
+  return (
+    <Card>
+      <div className="px-4 py-3 border-b border-line">
+        <div className="flex items-center gap-2 font-bold text-sm"><Tags size={15} className="text-teal-300" /> Sản lượng theo tag</div>
+        <p className="text-[11px] text-dim mt-1">
+          Bóc tách theo tag Loại (Ảnh/Video) và Mảng (Ecom, Content, Trade, Brand) — video Daily Content gộp chung theo tag Mảng · nhấp đúp ô để xem chi tiết ·
+          <span className="text-muted"> dự án gắn nhiều tag được đếm ở nhiều dòng nên tổng các dòng ≠ Tổng team</span>
+        </p>
+      </div>
+      {visible.length === 0 ? (
+        <p className="text-sm text-dim py-8 text-center">Chưa có sản lượng gắn tag trong tháng</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[760px]">
+            <thead>
+              <tr className="text-[11px] uppercase text-dim border-b border-line">
+                <th rowSpan={2} className="text-left font-bold px-4 py-2">Tag</th>
+                {CLASSES.map((c) => (
+                  <th key={c} colSpan={4} className={`text-center font-bold py-2 border-l border-line ${CLASS_META[c].tint}`}>{CLASS_META[c].label}</th>
+                ))}
+              </tr>
+              <tr className="text-[11px] uppercase text-dim border-b border-line">
+                {CLASSES.map((c) => (
+                  <Fragment key={c}>
+                    <th className="text-right font-bold px-2 py-1.5 border-l border-line">Dự án</th>
+                    <th className="text-right font-bold px-2 py-1.5">Ảnh</th>
+                    <th className="text-right font-bold px-2 py-1.5">Video</th>
+                    <th className="text-right font-bold px-2 py-1.5">Chi phí</th>
+                  </Fragment>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {visible.map((r, i) => {
+                const newGroup = i === 0 || groupOf(visible[i - 1]) !== groupOf(r);
+                return (
+                  <Fragment key={r.tagId || '__none__'}>
+                    {newGroup && (
+                      <tr className="bg-bg/60">
+                        <td colSpan={1 + CLASSES.length * 4} className="px-4 py-1 text-[10px] font-black uppercase tracking-widest text-dim">{groupOf(r)}</td>
+                      </tr>
+                    )}
+                    <tr className="hover:bg-surface-2/40">
+                      <td className="px-4 py-2">
+                        <span className="flex items-center gap-2 font-semibold">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0 border border-line" style={{ backgroundColor: r.color || 'transparent' }} />
+                          {r.name}
+                        </span>
+                      </td>
+                      {CLASSES.map((c) => {
+                        const tt = r.byClass[c];
+                        const label = `${r.name} · ${CLASS_META[c].label}`;
+                        return (
+                          <Fragment key={c}>
+                            <td className="text-right px-2 py-2 tabular-nums text-muted border-l border-line">{r.projectCount[c] || '—'}</td>
+                            <td className="text-right px-2 py-2 tabular-nums cursor-pointer" onDoubleClick={() => onMetric(tt, label, 'photos')}>{tt.photos ? fmtScore(tt.photos) : '—'}</td>
+                            <td className="text-right px-2 py-2 tabular-nums cursor-pointer" onDoubleClick={() => onMetric(tt, label, 'videos')}>{tt.videos ? fmtScore(tt.videos) : '—'}</td>
+                            <td className="text-right px-2 py-2 tabular-nums text-amber-300 cursor-pointer" onDoubleClick={() => onMetric(tt, label, 'cost')}>{tt.cost ? formatVND(tt.cost) : '—'}</td>
+                          </Fragment>
+                        );
+                      })}
+                    </tr>
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* ---------- Bảng loại (inhouse/outsource) ---------- */
 function TypePanel({ cls, totals, onMetric }: { cls: ProjectClass; totals: TypeTotals; onMetric: (m: 'photos' | 'videos' | 'cost') => void }) {
   const meta = CLASS_META[cls];
   return (
@@ -382,8 +512,8 @@ function TypePanel({ cls, totals, onMetric }: { cls: ProjectClass; totals: TypeT
         <h3 className="font-bold text-sm">{meta.label}</h3>
       </div>
       <div className="grid grid-cols-3 gap-2">
-        <StatCell icon={<Camera size={14} />} tint="text-indigo-300" label="Ảnh" value={totals.photoTasks.length} sub={`${totals.photos} ảnh`} onDoubleClick={() => onMetric('photos')} />
-        <StatCell icon={<Video size={14} />} tint="text-violet-300" label="Video" value={totals.videos} onDoubleClick={() => onMetric('videos')} />
+        <StatCell icon={<Camera size={14} />} tint="text-indigo-300" label="Ảnh" value={totals.photoTasks.length} sub={`${fmtScore(totals.photos)} ảnh`} onDoubleClick={() => onMetric('photos')} />
+        <StatCell icon={<Video size={14} />} tint="text-violet-300" label="Video" value={fmtScore(totals.videos)} onDoubleClick={() => onMetric('videos')} />
         <StatCell icon={<Wallet size={14} />} tint="text-amber-300" label="Chi phí" value={formatVND(totals.cost)} small onDoubleClick={() => onMetric('cost')} />
       </div>
     </Card>
@@ -549,19 +679,28 @@ function CostBarChart({ data, onBarDblClick }: { data: { label: string; cost: nu
 function MemberDetail({
   kpi, month, initialTab, onClose, onOpenProject,
 }: { kpi: MemberKpi; month: string; initialTab: MemberTab; onClose: () => void; onOpenProject: (id: string) => void }) {
-  const { allTasks, projects } = useAppData();
+  const { allTasks, projects, reports, dailyContent } = useAppData();
   const [tab, setTab] = useState<MemberTab>(initialTab);
 
   const userTasks = allTasks.filter((t) => t.createdBy === kpi.uid && (t.reportDate || '').startsWith(month));
   const photoTasks = userTasks.filter((t) => t.category === 'photo');
   const videoTasks = userTasks.filter((t) => t.category === 'video');
   const preTasks = userTasks.filter((t) => t.category === 'pre-production');
+  // Video trả trong Daily Content không phải task nhưng vẫn là sản lượng nằm trong cột Video
+  // → liệt kê cùng tab Video, `qty` đã nhân hệ số dạng content (Thumb Sub = 0,5).
+  // Lọc report theo ĐÚNG matcher của calculateMemberKpi (uid hoặc email) — lọc lệch thì danh sách
+  // thiếu/thừa so với cột Video.
+  const myReports = reports.filter(
+    (r) => r.createdBy === kpi.uid || (!!kpi.email && r.userEmail?.toLowerCase() === kpi.email.toLowerCase()),
+  );
+  const contentVideos = contentVideoEntries(myReports, dailyContent, month);
 
   const projOf = (id?: string) => projects.find((p) => p.id === id);
 
-  const TaskList = ({ list }: { list: Task[] }) => (
+  // `empty = null` để tắt dòng "Không có dữ liệu" khi phía dưới còn danh sách khác (video content)
+  const TaskList = ({ list, empty }: { list: Task[]; empty?: null }) => (
     <div className="divide-y divide-line">
-      {list.length === 0 && <p className="text-sm text-dim py-6 text-center">Không có dữ liệu</p>}
+      {list.length === 0 && empty !== null && <p className="text-sm text-dim py-6 text-center">Không có dữ liệu</p>}
       {list.map((t) => {
         const proj = projOf(t.projectId);
         return (
@@ -603,7 +742,7 @@ function MemberDetail({
         <div className="p-5 space-y-5">
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
             <MiniStat label="Ảnh (project)" value={fmtScore(kpi.photoScore)} />
-            <MiniStat label="Video" value={kpi.videoCount} />
+            <MiniStat label="Video" value={fmtScore(kpi.videoCount)} />
             <MiniStat label="Outsource" value={fmtScore(kpi.outsourceScore)} />
             <MiniStat label="Sản lượng" value={kpi.hasTarget ? `${fmtScore(kpi.outputCount)}/${kpi.kpiOutputTarget}` : fmtScore(kpi.outputCount)} />
             <MiniStat label="KPI" value={kpi.hasTarget ? `${kpi.finalKPI}%` : '—'} />
@@ -663,7 +802,26 @@ function MemberDetail({
           </div>
 
           {tab === 'photo' && <TaskList list={photoTasks} />}
-          {tab === 'video' && <TaskList list={videoTasks} />}
+          {tab === 'video' && (
+            <>
+              <TaskList list={videoTasks} empty={contentVideos.length > 0 ? null : undefined} />
+              {contentVideos.length > 0 && (
+                <div className="divide-y divide-line">
+                  {contentVideos.map((c) => (
+                    <div key={c.reportId} className="flex items-center gap-3 py-2.5 text-sm">
+                      <span className="text-[11px] text-dim tabular-nums w-16 shrink-0">{formatDate(c.date)}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate font-medium">{c.title}</p>
+                        <p className="text-[11px] text-dim truncate">{c.projectId ? (projOf(c.projectId)?.title || 'Daily Content') : 'Daily Content'}</p>
+                      </div>
+                      <span className="text-xs text-muted tabular-nums">×{fmtScore(c.qty)}</span>
+                      <Badge color={STATUS_BADGE.completed}>Đã trả</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
           {tab === 'dntt' && <TaskList list={preTasks} />}
           {tab === 'projects' && (
             <div className="space-y-2">

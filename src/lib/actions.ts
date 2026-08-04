@@ -33,10 +33,18 @@ export const ref = {
 
 /* ---------- Projects ---------- */
 
+/** Dedup tagIds + mirror sang field cũ `tagId` (bundle cũ còn cache vẫn thấy màu tag). */
+function tagFields(data: Partial<Project>): Partial<Project> {
+  if (!Array.isArray(data.tagIds)) return {};
+  const tagIds = Array.from(new Set(data.tagIds.filter(Boolean)));
+  return { tagIds, tagId: tagIds[0] || '' };
+}
+
 export async function createProject(data: Partial<Project>, user: User): Promise<string> {
   const id = genId();
   await setDoc(ref.project(id), {
     ...data,
+    ...tagFields(data),
     id,
     status: data.status || 'plan',
     projectType: data.projectType || 'inhouse',
@@ -60,7 +68,15 @@ export async function updateProject(
   data: Partial<Project>,
   info?: { title?: string; prevStatus?: Project['status'] },
 ): Promise<void> {
-  await updateDoc(ref.project(id), { ...data, updatedAt: serverTimestamp() });
+  // Đóng dấu thời điểm hoàn thành để ô "Đã hoàn thành" xếp mới nhất trước.
+  // Chỉ ghi khi thực sự vừa chuyển sang done (sửa lại dự án đã done không làm nó nhảy lên đầu).
+  const justDone = data.status === 'done' && info?.prevStatus !== 'done';
+  await updateDoc(ref.project(id), {
+    ...data,
+    ...tagFields(data),
+    ...(justDone ? { completedAt: serverTimestamp() } : {}),
+    updatedAt: serverTimestamp(),
+  });
   if (data.status && info?.title && data.status !== info.prevStatus) {
     if (data.status === 'payment') notify(`💵 Dự án "${info.title}" xong sản xuất → THANH TOÁN`);
     else if (data.status === 'done') notify(`🎉 Dự án "${info.title}" đã HOÀN THÀNH`);
@@ -320,6 +336,9 @@ export async function createDailyContent(data: Partial<DailyContent>, user: User
     notes: data.notes || '',
     points: Number(data.points) || 3,
     quantity: Math.max(1, Number(data.quantity) || 1),
+    // Dạng content quyết định hệ số quy đổi sản lượng (Thumb Sub = 0,5 video) — whitelist này
+    // lọc field nên thiếu dòng dưới là chọn Thumb Sub lúc tạo mới bị rơi mất, im lặng.
+    contentFormat: data.contentFormat || 'full-video',
     status: data.status || 'planned',
     projectId: data.projectId || '',
     tagId: data.tagId || '',
@@ -406,6 +425,8 @@ export async function createTag(data: Partial<Tag>, user: User): Promise<void> {
     name: data.name || '',
     color: data.color || '#6366f1',
     ...(data.scope ? { scope: data.scope } : {}),
+    // ctx = ngữ cảnh của tag Mảng; quên spread field này là tag tạo ra dùng được ở MỌI ngữ cảnh
+    ...(data.ctx?.length ? { ctx: data.ctx } : {}),
     createdAt: serverTimestamp(),
     createdBy: user.uid,
   });

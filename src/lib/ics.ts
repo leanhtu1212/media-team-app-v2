@@ -1,4 +1,5 @@
 import type { Project, Tag } from '../types';
+import { projectTagIds, photoVideoHint } from './tags';
 
 /* ================================================================
  * Sinh chuỗi iCalendar (.ics) từ dữ liệu lịch → phục vụ subscription
@@ -7,13 +8,15 @@ import type { Project, Tag } from '../types';
  * ================================================================ */
 
 // Icon tiêu đề sự kiện — đổi ở đây nếu muốn ký hiệu khác.
-const ICON_PHOTO = '📸'; // chụp ảnh (tag loại Inhouse·Ảnh)
-const ICON_VIDEO = '🎥'; // quay video (tag loại Inhouse·Video)
+const ICON_PHOTO = '📸'; // chụp ảnh (tag Loại "Ảnh")
+const ICON_VIDEO = '🎥'; // quay video (tag Loại "Video")
 
-/** Chọn icon theo loại tag; nếu tag không rõ loại thì đoán theo target ảnh/video. */
-function iconFor(p: Project, tag?: Tag): string {
-  if (tag?.scope === 'inhouse-video') return ICON_VIDEO;
-  if (tag?.scope === 'inhouse-photo') return ICON_PHOTO;
+/** Chọn icon theo tag Loại; tag không rõ ảnh/video thì đoán theo target ảnh/video. */
+function iconFor(p: Project, tags: Tag[]): string {
+  for (const t of tags) {
+    const hint = photoVideoHint(t);
+    if (hint) return hint === 'video' ? ICON_VIDEO : ICON_PHOTO;
+  }
   const hasVideo = (p.videoTarget || 0) > 0;
   const hasPhoto = (p.photoTarget || 0) > 0;
   if (hasVideo && !hasPhoto) return ICON_VIDEO;
@@ -71,12 +74,13 @@ export function buildInhouseICS(projects: Project[], tagOf?: (id?: string) => Ta
     .map((p) => {
       const start = p.startDate || p.deadline!;
       const end = p.deadline && p.deadline >= start ? p.deadline : start;
-      const tag = tagOf?.(p.tagId);
+      const tags = projectTagIds(p).map((id) => tagOf?.(id)).filter((t): t is Tag => !!t);
+      const names = tags.map((t) => t.name).join(' · ');
       return {
         uid: `project-${p.id}@media-team`,
         start,
         end,
-        summary: `${iconFor(p, tag)} ${p.title || 'Dự án'}${tag?.name ? ` · ${tag.name}` : ''}`,
+        summary: `${iconFor(p, tags)} ${p.title || 'Dự án'}${names ? ` · ${names}` : ''}`,
         desc: `Inhouse${p.productType ? ' · ' + p.productType : ''}`,
       };
     });

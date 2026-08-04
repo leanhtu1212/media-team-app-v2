@@ -4,10 +4,11 @@ import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, EmptyState, Modal, Input, Textarea, Field, Avatar } from '../components/ui';
 import { createProject, updateProject } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
-import { formatDate, todayStr, normalize, isProjectFinished } from '../lib/utils';
+import { formatDate, todayStr, normalize, isProjectFinished, tsToDate } from '../lib/utils';
 import { ContentKanban } from './DailyContent';
-import { TagSelect } from '../components/tags';
-import type { Project, ProjectStatus } from '../types';
+import { TagSelect, hexA } from '../components/tags';
+import { projectTagIds, tagLevel, tagContexts, mangContext } from '../lib/tags';
+import type { Project, ProjectStatus, TagCtx } from '../types';
 import type { User } from '../lib/firebase';
 
 // Luồng: Kế hoạch → Tiền kỳ → Hậu kỳ → Thanh toán → (Done, ở ô ngang riêng bên dưới).
@@ -31,6 +32,8 @@ function ProjectCard({
   onDragStart: (e: React.DragEvent) => void;
   assignees?: { username?: string; avatarUrl?: string }[];
 }) {
+  const { tags } = useAppData();
+  const tagChips = projectTagIds(p).map((id) => tags.find((t) => t.id === id)).filter((t): t is NonNullable<typeof t> => !!t);
   return (
     <Card
       draggable={draggable}
@@ -50,6 +53,15 @@ function ProjectCard({
           )}
         </div>
         {p.productType && <p className="text-[11px] text-muted mb-2">{p.productType}</p>}
+        {tagChips.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-2">
+            {tagChips.map((t) => (
+              <span key={t.id} className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: hexA(t.color, 0.18), color: t.color }}>
+                {t.name}
+              </span>
+            ))}
+          </div>
+        )}
         <div className="flex items-center gap-3 text-[11px] text-muted mb-3">
           {((p.photoTarget || 0) > 0 || prog.photoDone > 0) && (
             <span className="flex items-center gap-1"><Camera size={11} /> {prog.photoDone}/{p.photoTarget || 0}</span>
@@ -106,11 +118,21 @@ export function ProjectsPage({
     });
   }, [projects, typeFilter, search]);
 
-  // Dự án đã hoàn thành (status 'done') — hiển thị ở ô ngang riêng, mới nhất trước
-  const doneProjects = useMemo(
-    () => filtered.filter((p) => p.status === 'done').sort((a, b) => (b.deadline || '').localeCompare(a.deadline || '')),
-    [filtered],
-  );
+  // Dự án đã hoàn thành (status 'done') — ô ngang riêng, xếp theo THỜI ĐIỂM HOÀN THÀNH,
+  // vừa xong đứng đầu. Dự án done từ trước khi có `completedAt` thì lùi về deadline → createdAt.
+  const doneProjects = useMemo(() => {
+    const finishedAt = (p: Project) => {
+      const t = tsToDate(p.completedAt);
+      if (t) return t.getTime();
+      if (p.deadline) return new Date(`${p.deadline}T00:00:00`).getTime();
+      return tsToDate(p.createdAt)?.getTime() ?? 0;
+    };
+    return filtered
+      .filter((p) => p.status === 'done')
+      .map((p) => ({ p, at: finishedAt(p) }))
+      .sort((a, b) => b.at - a.at)
+      .map((x) => x.p);
+  }, [filtered]);
 
   // Dự án thuộc một cột. Status lạ/thiếu (dữ liệu cũ) rơi về "Kế hoạch"; 'done' lấy danh sách riêng.
   const projectsIn = (status: ProjectStatus) =>
@@ -361,10 +383,41 @@ export function ProjectFormModal({
   // Giá trị điền sẵn khi tạo MỚI (vd từ lịch tháng: projectType + deadline)
   preset?: Partial<Project>;
 }) {
-  const { members } = useAppData();
+  const { members, tags } = useAppData();
   const [form, setForm] = useState<Partial<Project>>({});
   const [busy, setBusy] = useState(false);
   const toast = useToast();
+
+  // Tag 3 cấp: cấp 1 là Inhouse/Outsource (projectType, không phải tag), cấp 2 Loại, cấp 3 Mảng.
+  // 2 ô select cùng ghi vào MỘT mảng tagIds; tag "dùng chung" đã gán trước đó được giữ nguyên.
+  const tagById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
+  const curTagIds = projectTagIds(form);
+  const loaiId = curTagIds.find((id) => tagLevel(tagById.get(id)) === 'loai') || '';
+  const mangIds = curTagIds.filter((id) => tagLevel(tagById.get(id)) === 'mang'); // NHIỀU mảng / dự án
+  const writeTags = (loai: string, mangs: string[]) => {
+    const others = curTagIds.filter((x) => x !== loaiId && !mangIds.includes(x));
+    setForm((f) => ({ ...f, tagIds: [loai, ...mangs, ...others].filter(Boolean) }));
+  };
+  // Mảng phụ thuộc loại dự án + Ảnh/Video → đổi 1 trong 2 thì bỏ những mảng không còn hợp lệ
+  const ctxOf = (type: string | undefined, loai: string) => mangContext(type, tagById.get(loai));
+  const keepMangs = (ctx: TagCtx | undefined) =>
+    mangIds.filter((id) => {
+      const t = tagById.get(id);
+      return !!ctx && !!t && tagContexts(t).includes(ctx);
+    });
+  const mangCtx = ctxOf(form.projectType, loaiId);
+  // Danh sách mảng chọn được ở ngữ cảnh hiện tại (chip bật/tắt như người phụ trách)
+  const mangOptions = mangCtx
+    ? tags.filter((t) => tagLevel(t) === 'mang' && tagContexts(t).includes(mangCtx)).sort((a, b) => a.name.localeCompare(b.name, 'vi'))
+    : [];
+  const setLoai = (id: string) => writeTags(id, keepMangs(ctxOf(form.projectType, id)));
+  const toggleMang = (id: string) =>
+    writeTags(loaiId, mangIds.includes(id) ? mangIds.filter((x) => x !== id) : [...mangIds, id]);
+  const setProjectType = (type: 'inhouse' | 'outsource') => {
+    const keep = keepMangs(ctxOf(type, loaiId));
+    const others = curTagIds.filter((x) => x !== loaiId && !mangIds.includes(x));
+    setForm((f) => ({ ...f, projectType: type, tagIds: [loaiId, ...keep, ...others].filter(Boolean) }));
+  };
 
   // Thành viên có thể gán làm người phụ trách: chỉ admin/editor (bỏ viewer & content)
   const assignable = members.filter((m) => m.role === 'admin' || m.role === 'editor');
@@ -385,7 +438,11 @@ export function ProjectFormModal({
 
   const set = (k: keyof Project, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const submit = async () => {
-    if (busy || !form.title || !form.tagId) return;
+    if (busy || !form.title) return;
+    if (curTagIds.length === 0) {
+      toast('Chọn ít nhất 1 tag (Loại hoặc Mảng)', 'error');
+      return;
+    }
     // Outsource hoàn thành theo status (không tính sản lượng in-house) → cho phép target = 0.
     // Chỉ bắt buộc khối lượng với dự án inhouse.
     if (form.projectType !== 'outsource' && (Number(form.photoTarget) || 0) < 1 && (Number(form.videoTarget) || 0) < 1) {
@@ -431,9 +488,63 @@ export function ProjectFormModal({
           </div>
           <p className="text-[11px] text-dim mt-1.5">* Cần khối lượng ở ít nhất 1 loại (ảnh hoặc video ≥ 1)</p>
         </div>
-        <Field label="Tag màu">
-          <TagSelect value={form.tagId} onChange={(id) => set('tagId', id)} scope={form.projectType === 'outsource' ? 'outsource' : ['inhouse-photo', 'inhouse-video', 'ecom']} autoSelect={form.projectType === 'outsource'} />
-        </Field>
+        <div>
+          {/* Cấp 1: Inhouse / Outsource — quyết định danh sách Mảng bên dưới */}
+          <Field label="Dự án">
+            <div className="grid grid-cols-2 gap-2">
+              {(['inhouse', 'outsource'] as const).map((type) => {
+                const on = (form.projectType || 'inhouse') === type;
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setProjectType(type)}
+                    className={`py-2 rounded-lg border text-sm font-bold transition-all cursor-pointer ${
+                      on ? 'border-accent bg-accent/15 text-ink' : 'border-line text-muted hover:border-line-2'
+                    }`}
+                  >
+                    {type === 'inhouse' ? 'Inhouse' : 'Outsource'}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+          <div className="mt-3">
+            <Field label="Loại">
+              <TagSelect level="loai" value={loaiId} onChange={setLoai} clearable />
+            </Field>
+          </div>
+          {/* Mảng: chọn NHIỀU như người phụ trách — 1 dự án có thể vừa Ecom vừa Trade */}
+          <div className="mt-3">
+            <Field label="Mảng (chọn 1 hoặc nhiều)">
+              {!mangCtx ? (
+                <p className="text-xs text-dim">Chọn Loại (Ảnh/Video) trước — mảng outsource khác nhau giữa ảnh và video</p>
+              ) : mangOptions.length === 0 ? (
+                <p className="text-xs text-dim">Chưa có tag mảng cho ngữ cảnh này — thêm ở Quản lý tag</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {mangOptions.map((t) => {
+                    const on = mangIds.includes(t.id);
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => toggleMang(t.id)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-sm font-medium transition-all cursor-pointer ${
+                          on ? 'border-accent bg-accent/15 text-ink' : 'border-line text-muted hover:border-line-2'
+                        }`}
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
+                        {t.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </Field>
+          </div>
+          <p className="text-[11px] text-dim mt-1.5">* Cần ít nhất 1 tag · Loại = Ảnh/Video · Mảng theo loại dự án</p>
+        </div>
         <Field label="Người phụ trách (chọn 1 hoặc nhiều)">
           {assignable.length === 0 ? (
             <p className="text-xs text-dim">Chưa có thành viên để gán</p>
@@ -466,7 +577,7 @@ export function ProjectFormModal({
         )}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>Huỷ</Button>
-          <Button type="submit" disabled={busy || !form.title || !form.tagId}>
+          <Button type="submit" disabled={busy || !form.title || curTagIds.length === 0}>
             {editing ? 'Lưu' : 'Tạo dự án'}
           </Button>
         </div>

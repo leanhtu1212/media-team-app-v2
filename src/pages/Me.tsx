@@ -17,7 +17,7 @@ const PLATFORM_COLOR: Record<string, string> = {
 };
 
 export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onOpenProject: (id: string) => void; onOpenContent: (id: string) => void }) {
-  const { currentMember, projects, allTasks, dailyContent, reports } = useAppData();
+  const { currentMember, projects, allTasks, dailyContent, reports, tags } = useAppData();
   const { modals } = useContentModals(user);
   const today = todayStr();
   const month = currentMonth();
@@ -30,8 +30,8 @@ export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onO
 
   // Admin cũng có chỉ tiêu riêng như editor → KPI cá nhân, không còn là tổng cả team.
   const kpi = useMemo(
-    () => (currentMember ? calculateMemberKpi(currentMember, month, allTasks, projects, reports) : null),
-    [currentMember, month, allTasks, projects, reports],
+    () => (currentMember ? calculateMemberKpi(currentMember, month, allTasks, projects, reports, dailyContent, tags) : null),
+    [currentMember, month, allTasks, projects, reports, dailyContent, tags],
   );
 
   const progressOf = (p: Project) => {

@@ -276,16 +276,6 @@ export function DashboardPage({ user, onOpenProject, onOpenContent }: { user: Us
   );
 }
 
-function EcomInline({ icon, tint, label, value }: { icon: React.ReactNode; tint: string; label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className={tint}>{icon}</span>
-      <span className="text-[11px] font-bold text-muted uppercase tracking-wide">{label}</span>
-      <span className="text-lg font-extrabold tabular-nums leading-none">{value}</span>
-    </div>
-  );
-}
-
 function StatCard({ icon, tint, label, value, sub, danger }: { icon: React.ReactNode; tint: string; label: string; value: React.ReactNode; sub?: string; danger?: boolean }) {
   return (
     <Card className={`p-4 ${danger ? 'border-red-500/30' : ''}`}>
