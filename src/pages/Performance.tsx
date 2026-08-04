@@ -33,6 +33,18 @@ interface MetricDrawerData {
   items: DrawerItem[];
 }
 
+/**
+ * Dòng phụ của ô Video: video Daily Content KHÔNG phải task (1 nội dung trả 3 video = 3 báo cáo
+ * auto), gộp chung vào số task là sai — đếm riêng theo số NỘI DUNG.
+ */
+function videoSourceSub(tt: TypeTotals): string {
+  const contents = new Set(tt.videoContents.map((c) => c.contentId)).size;
+  const parts: string[] = [];
+  if (tt.videoTasks.length) parts.push(`${tt.videoTasks.length} task`);
+  if (contents) parts.push(`${contents} nội dung`);
+  return parts.join(' · ') || '0 task';
+}
+
 function taskItem(t: Task, projById: Map<string, Project>): DrawerItem {
   const isCost = t.category === 'pre-production';
   return {
@@ -210,7 +222,7 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
         </p>
         <div className="grid grid-cols-3 gap-2 md:gap-3">
           <StatCell icon={<Camera size={14} />} tint="text-indigo-300" label="Tổng ảnh" value={fmtScore(totalTotals.photos)} sub={`${totalTotals.photoTasks.length} task`} onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'photos')} />
-          <StatCell icon={<Video size={14} />} tint="text-violet-300" label="Tổng video" value={fmtScore(totalTotals.videos)} sub={`${totalTotals.videoTasks.length + totalTotals.videoContents.length} task`} onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'videos')} />
+          <StatCell icon={<Video size={14} />} tint="text-violet-300" label="Tổng video" value={fmtScore(totalTotals.videos)} sub={videoSourceSub(totalTotals)} onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'videos')} />
           <StatCell icon={<Wallet size={14} />} tint="text-amber-300" label="Tổng chi phí" value={formatVND(totalTotals.cost)} small onDoubleClick={() => openMetric(totalTotals, 'Tổng team', 'cost')} />
         </div>
       </Card>
@@ -513,7 +525,7 @@ function TypePanel({ cls, totals, onMetric }: { cls: ProjectClass; totals: TypeT
       </div>
       <div className="grid grid-cols-3 gap-2">
         <StatCell icon={<Camera size={14} />} tint="text-indigo-300" label="Ảnh" value={fmtScore(totals.photos)} sub={`${totals.photoTasks.length} task`} onDoubleClick={() => onMetric('photos')} />
-        <StatCell icon={<Video size={14} />} tint="text-violet-300" label="Video" value={fmtScore(totals.videos)} sub={`${totals.videoTasks.length + totals.videoContents.length} task`} onDoubleClick={() => onMetric('videos')} />
+        <StatCell icon={<Video size={14} />} tint="text-violet-300" label="Video" value={fmtScore(totals.videos)} sub={videoSourceSub(totals)} onDoubleClick={() => onMetric('videos')} />
         <StatCell icon={<Wallet size={14} />} tint="text-amber-300" label="Chi phí" value={formatVND(totals.cost)} small onDoubleClick={() => onMetric('cost')} />
       </div>
     </Card>
