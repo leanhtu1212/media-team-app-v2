@@ -34,15 +34,12 @@ interface MetricDrawerData {
 }
 
 /**
- * Dòng phụ của ô Video: video Daily Content KHÔNG phải task (1 nội dung trả 3 video = 3 báo cáo
- * auto), gộp chung vào số task là sai — đếm riêng theo số NỘI DUNG.
+ * Dòng phụ của ô Video = số ĐẦU VIỆC. 1 nội dung Daily Content trả 3 video sinh 3 báo cáo auto
+ * nhưng vẫn chỉ là 1 đầu việc → gom theo contentId trước khi cộng với số task dự án.
  */
 function videoSourceSub(tt: TypeTotals): string {
   const contents = new Set(tt.videoContents.map((c) => c.contentId)).size;
-  const parts: string[] = [];
-  if (tt.videoTasks.length) parts.push(`${tt.videoTasks.length} task`);
-  if (contents) parts.push(`${contents} nội dung`);
-  return parts.join(' · ') || '0 task';
+  return `${tt.videoTasks.length + contents} task`;
 }
 
 function taskItem(t: Task, projById: Map<string, Project>): DrawerItem {
