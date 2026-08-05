@@ -1,5 +1,5 @@
 import type { Member, Project, Task, Report, Tag, DailyContent } from '../types';
-import { isProjectFinished, normalize } from './utils';
+import { isProjectFinished, normalize, projectMonth } from './utils';
 import { projectTagIds, tagLevel, type TagLevel } from './tags';
 
 /** Task ảnh/video được coi là đã xong (đã hoàn thành hoặc đã duyệt DNTT). */
@@ -275,6 +275,77 @@ export function teamTypeTotals(
     addContentVideo(res[contentClass(cv, projById)], cv);
   }
   return res;
+}
+
+/* ================= Video cần làm trong tháng ================= */
+
+export interface VideoDemandItem {
+  id: string;
+  kind: 'project' | 'content';
+  title: string;
+  date: string;   // deadline dự án / ngày đăng của content
+  need: number;
+  done: number;
+}
+
+export interface VideoDemand {
+  need: number;
+  done: number;
+  remain: number;
+  pct: number;    // % hoàn thành (0..100)
+  items: VideoDemandItem[];
+}
+
+/**
+ * Nhu cầu VIDEO của tháng — gộp 2 nguồn:
+ *   1. Dự án thuộc tháng (theo projectMonth) có `videoTarget > 0` → cần = videoTarget,
+ *      xong = số video đã giao của dự án đó (cả vòng đời, chặn trần ở target).
+ *   2. Daily Content có `dueDate` trong tháng → cần = quantity, xong = số video con đã tick.
+ * Phần Daily Content được NHÂN HỆ SỐ dạng content (contentVideoWeight): content Thumb Sub
+ * đặt 5 clip = 2,5 video cần làm, trả 2 clip = 1 video xong — cùng thước đo với sản lượng KPI
+ * nên "cần làm" và "đã làm" so được với nhau. Vì vậy các số ở đây CÓ THỂ LẺ 0,5 → hiển thị
+ * qua fmtScore. Task video của dự án không có hệ số, giữ nguyên số lượng.
+ */
+export function monthVideoDemand(
+  projects: Project[],
+  dailyContent: DailyContent[],
+  allTasks: Task[],
+  month: string,
+): VideoDemand {
+  const items: VideoDemandItem[] = [];
+
+  for (const p of projects) {
+    const need = Number(p.videoTarget) || 0;
+    if (need <= 0 || projectMonth(p) !== month) continue;
+    const delivered = allTasks
+      .filter((t) => t.projectId === p.id && t.category === 'video' && isDone(t))
+      .reduce((sum, t) => sum + (Number(t.quantity) || 1), 0);
+    items.push({
+      id: `project:${p.id}`, kind: 'project', title: p.title,
+      date: p.deadline || '', need, done: Math.min(need, delivered),
+    });
+  }
+
+  for (const d of dailyContent) {
+    if (!(d.dueDate || '').startsWith(month)) continue;
+    const w = contentVideoWeight(d);
+    const need = Math.max(1, Number(d.quantity) || 1) * w;
+    const done = (d.items || []).filter((i) => i.done).length * w;
+    items.push({
+      id: `content:${d.id}`, kind: 'content', title: d.title,
+      date: d.dueDate || '', need, done: Math.min(need, done),
+    });
+  }
+
+  const need = round2(items.reduce((s, i) => s + i.need, 0));
+  const done = round2(items.reduce((s, i) => s + i.done, 0));
+  return {
+    need,
+    done,
+    remain: Math.max(0, round2(need - done)),
+    pct: need > 0 ? round1((done / need) * 100) : 0,
+    items: items.sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999')),
+  };
 }
 
 export interface TagTotals {

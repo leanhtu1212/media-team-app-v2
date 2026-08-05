@@ -2,7 +2,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { Crown, X, Camera, Video, Wallet, FolderKanban, TrendingUp, ArrowUp, ArrowDown, Minus, Tags, Building2, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, Avatar, Input, EmptyState, Drawer } from '../components/ui';
-import { calculateTeamKpi, teamTypeTotals, tagTypeTotals, individualKpi, teamAggregate, contentVideoEntries, type MemberKpi, type ProjectClass, type TypeTotals, type TagTotals } from '../lib/kpi';
+import { calculateTeamKpi, teamTypeTotals, tagTypeTotals, individualKpi, teamAggregate, contentVideoEntries, monthVideoDemand, type MemberKpi, type ProjectClass, type TypeTotals, type TagTotals } from '../lib/kpi';
 import { levelLabel } from '../lib/tags';
 import { currentMonth, shiftMonth, formatVND, formatDate } from '../lib/utils';
 import type { Task, Project } from '../types';
@@ -79,6 +79,11 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
     () => teamTypeTotals(allTasks, projects, month, reports, dailyContent, tags),
     [allTasks, projects, month, reports, dailyContent],
   );
+  // Nhu cầu video của tháng — đếm ĐẦU VIDEO THẬT (không nhân hệ số dạng content)
+  const videoDemand = useMemo(
+    () => monthVideoDemand(projects, dailyContent, allTasks, month),
+    [projects, dailyContent, allTasks, month],
+  );
   const tagTotals = useMemo(
     () => tagTypeTotals(allTasks, projects, tags, month, reports, dailyContent),
     [allTasks, projects, tags, month, reports, dailyContent],
@@ -151,6 +156,18 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
     else setDrawer({ title: `${label} · Chi phí`, subtitle: `${formatVND(tt.cost)} · ${tt.costTasks.length} khoản`, items: tt.costTasks.map((t) => taskItem(t, projById)) });
   };
   const openTypeMetric = (cls: ProjectClass, metric: 'photos' | 'videos' | 'cost') => openMetric(typeTotals[cls], CLASS_META[cls].label, metric);
+
+  const openVideoDemand = () => setDrawer({
+    title: 'Video cần làm trong tháng',
+    subtitle: `${fmtScore(videoDemand.done)}/${fmtScore(videoDemand.need)} video · còn ${fmtScore(videoDemand.remain)} · ${videoDemand.items.length} đầu việc`,
+    items: videoDemand.items.map((i) => ({
+      id: i.id,
+      date: i.date,
+      title: i.title,
+      sub: i.kind === 'project' ? 'Dự án' : 'Daily Content',
+      right: `${fmtScore(i.done)}/${fmtScore(i.need)}`,
+    })),
+  });
 
   const openOutputMonth = (mo: string) => {
     const items = allTasks
@@ -229,6 +246,26 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
         {CLASSES.map((cls) => (
           <TypePanel key={cls} cls={cls} totals={typeTotals[cls]} onMetric={(metric) => openTypeMetric(cls, metric)} />
         ))}
+      </div>
+
+      {/* Video cần làm trong tháng — rộng 1/3, căn giữa, nhấp đúp ra danh sách */}
+      <div className="flex justify-center">
+        <Card
+          className="w-full md:w-1/3 p-4 cursor-pointer hover:border-line-2 transition-colors select-none"
+          onDoubleClick={openVideoDemand}
+          title="Nhấp đúp để xem danh sách"
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-violet-300"><Video size={16} /></span>
+            <h3 className="font-bold text-sm">Video cần làm trong tháng</h3>
+          </div>
+          <div className="grid grid-cols-4 gap-2 text-center">
+            <DemandCell label="Cần" value={fmtScore(videoDemand.need)} />
+            <DemandCell label="Xong" value={fmtScore(videoDemand.done)} tint="text-emerald-300" />
+            <DemandCell label="Còn" value={fmtScore(videoDemand.remain)} tint={videoDemand.remain > 0 ? 'text-amber-300' : 'text-dim'} />
+            <DemandCell label="%" value={`${videoDemand.pct}%`} tint={videoDemand.pct >= 100 ? 'text-emerald-300' : 'text-indigo-300'} />
+          </div>
+        </Card>
       </div>
 
       {/* Bóc tách theo tag (cấp 2 Loại + cấp 3 Mảng) — thay panel Ecom cứng ngày trước */}
@@ -526,6 +563,16 @@ function TypePanel({ cls, totals, onMetric }: { cls: ProjectClass; totals: TypeT
         <StatCell icon={<Wallet size={14} />} tint="text-amber-300" label="Chi phí" value={formatVND(totals.cost)} small onDoubleClick={() => onMetric('cost')} />
       </div>
     </Card>
+  );
+}
+
+/** Ô số nhỏ trong khối "Video cần làm" — không nhấp riêng, cả Card mới mở drawer. */
+function DemandCell({ label, value, tint = 'text-ink' }: { label: string; value: React.ReactNode; tint?: string }) {
+  return (
+    <div className="rounded-xl bg-bg border border-line p-2">
+      <p className={`text-lg font-extrabold tabular-nums ${tint}`}>{value}</p>
+      <p className="text-[10px] font-bold text-muted uppercase tracking-wide mt-0.5">{label}</p>
+    </div>
   );
 }
 

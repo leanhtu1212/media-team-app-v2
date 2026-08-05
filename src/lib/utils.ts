@@ -62,6 +62,16 @@ export function formatDate(d?: string): string {
   return `${day}/${m}/${y}`;
 }
 
+/**
+ * Dự án THUỘC tháng nào: theo `deadline`, không có thì lấy `createdAt`. Trả 'YYYY-MM'.
+ * Dùng tsToDateStr (giờ local) để không lệch tháng ở mốc đầu/cuối tháng theo UTC.
+ * Dashboard và khối "Video cần làm trong tháng" phải dùng CHUNG hàm này, không thì hai nơi
+ * gom dự án theo hai kiểu khác nhau.
+ */
+export function projectMonth(p: { deadline?: string; createdAt?: unknown }): string {
+  return p.deadline ? p.deadline.slice(0, 7) : (tsToDateStr(p.createdAt)?.slice(0, 7) || '');
+}
+
 /** "done" hoặc "payment" đều coi là đã xong sản xuất — dùng cho các chỗ tính overdue/active/KPI. */
 export function isProjectFinished(status: string): boolean {
   return status === 'done' || status === 'payment';

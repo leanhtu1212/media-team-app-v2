@@ -4,7 +4,7 @@ import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Avatar, Input } from '../components/ui';
 import { toggleDntt } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
-import { currentMonth, monthRange, shiftMonth, formatVND, formatDate, todayStr, isProjectFinished, tsToDateStr } from '../lib/utils';
+import { currentMonth, monthRange, shiftMonth, formatVND, formatDate, todayStr, isProjectFinished, projectMonth } from '../lib/utils';
 import type { Project } from '../types';
 import type { User } from '../lib/firebase';
 
@@ -45,10 +45,7 @@ export function DashboardPage({ user, onOpenProject, onOpenContent }: { user: Us
   }, [unpaidTasks]);
 
 
-  // A project "belongs" to a month by its deadline, falling back to createdAt.
-  // Dùng tsToDateStr (giờ local) để tránh lệch tháng ở mốc cuối/đầu tháng theo UTC.
-  const projectMonth = (p: Project): string =>
-    p.deadline ? p.deadline.slice(0, 7) : (tsToDateStr(p.createdAt)?.slice(0, 7) || '');
+  // projectMonth nằm ở lib/utils — dùng chung với khối "Video cần làm trong tháng" ở Hiệu suất
   const monthProjects = useMemo(() => projects.filter((p) => projectMonth(p) === month), [projects, month]);
 
   // Project stats
