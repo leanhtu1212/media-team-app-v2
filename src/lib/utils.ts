@@ -95,15 +95,16 @@ export function shiftMonth(month: string, delta: number): string {
 
 /**
  * Ngày nghỉ của công ty: Chủ nhật hàng tuần + thứ 7 nghỉ cách tuần.
- * Mốc chuẩn: thứ 7 của tuần 2026-07-25 là ngày ĐI LÀM (lấy "tuần này" làm chuẩn).
- * Các thứ 7 xen kẽ: lệch số tuần lẻ so với mốc → nghỉ, chẵn → đi làm.
+ * Thứ 7 tính THEO TỪNG THÁNG, không chạy liên tục theo mốc: thứ 7 thứ NHẤT của tháng nghỉ,
+ * thứ 7 thứ hai đi làm, thứ ba nghỉ… (thứ 7 lẻ = nghỉ, chẵn = đi làm).
+ * Hệ quả có chủ đích: chu kỳ reset đầu tháng nên đôi khi có 2 thứ 7 nghỉ liền nhau
+ * (thứ 7 cuối tháng này lẻ, thứ 7 đầu tháng sau lại là thứ nhất).
  */
-const WORKING_SATURDAY_ANCHOR = '2026-07-25';
 export function isDayOff(dateStr: string): boolean {
-  const wd = new Date(`${dateStr}T00:00:00`).getDay(); // 0=CN … 6=T7
+  const d = new Date(`${dateStr}T00:00:00`);
+  const wd = d.getDay(); // 0=CN … 6=T7
   if (wd === 0) return true; // Chủ nhật luôn nghỉ
   if (wd !== 6) return false; // chỉ còn xét thứ 7
-  const anchor = new Date(`${WORKING_SATURDAY_ANCHOR}T00:00:00`).getTime();
-  const weeks = Math.round((new Date(`${dateStr}T00:00:00`).getTime() - anchor) / (7 * 86400000));
-  return ((weeks % 2) + 2) % 2 === 1; // lệch lẻ tuần với thứ 7 đi làm → nghỉ
+  const nth = Math.floor((d.getDate() - 1) / 7) + 1; // thứ 7 thứ mấy trong tháng
+  return nth % 2 === 1;
 }
