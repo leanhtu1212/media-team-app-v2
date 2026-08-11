@@ -503,6 +503,7 @@ function CalChip({
     return (
       <div
         {...dragProps}
+        data-chip=""
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => { e.stopPropagation(); onNote(n); }}
         title={`Ghi chú — nhấn đúp để sửa${canDrag ? ', kéo để đổi ngày' : ''}`}
@@ -520,6 +521,7 @@ function CalChip({
     return (
       <div
         {...dragProps}
+        data-chip=""
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => { e.stopPropagation(); onDetail(d); }}
         title={`Nội dung — nhấn đúp để xem chi tiết${canDrag ? ', kéo để đổi ngày' : ''}`}
@@ -546,6 +548,7 @@ function CalChip({
     return (
       <div
         {...dragProps}
+        data-chip=""
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
         title={`Dự án ${isOut ? 'outsource' : 'inhouse'} — nhấn đúp để mở${canDrag ? ', kéo để đổi deadline' : ''}`}
@@ -568,6 +571,7 @@ function CalChip({
   return (
     <div
       {...dragProps}
+      data-chip=""
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => { e.stopPropagation(); if (project) onOpenProject(project.id); }}
       title={`Task tiền kỳ — nhấn đúp để mở dự án${canDrag ? ', kéo để đổi deadline' : ''}`}
@@ -726,6 +730,13 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
 
+  // Kéo chuột chọn khoảng ngày trên lưới → tạo dự án từ ngày đầu tới ngày cuối.
+  // `a` = ô bấm xuống, `b` = ô đang rê tới (b có thể trước a → tự đảo khi thả).
+  const [range, setRange] = useState<{ a: string; b: string } | null>(null);
+  const rangeLo = range ? (range.a <= range.b ? range.a : range.b) : '';
+  const rangeHi = range ? (range.a <= range.b ? range.b : range.a) : '';
+  const inRange = (d: string) => !!range && d >= rangeLo && d <= rangeHi;
+
   // Khối tiêu đề dính trên đầu → hàng thứ (Th2…CN) phải dính NGAY DƯỚI nó.
   // Đo bằng ResizeObserver vì chiều cao đổi theo số nút / chiều rộng màn hình.
   const headRef = useRef<HTMLDivElement>(null);
@@ -755,9 +766,23 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
   // Chọn loại khi tạo mới từ lịch (inhouse / outsource / content / ghi chú).
   // Vai trò content (canEditDaily nhưng không phải editor) → bỏ qua bước chọn, tạo thẳng content.
   const [pickerDate, setPickerDate] = useState<string | null>(null);
-  const [projModal, setProjModal] = useState<{ projectType: 'inhouse' | 'outsource'; startDate: string } | null>(null);
+  const [projModal, setProjModal] = useState<{ projectType: 'inhouse' | 'outsource'; startDate: string; deadline?: string } | null>(null);
   // Modal tạo/sửa ghi chú: { note } khi sửa, hoặc { date } khi tạo mới ở 1 ngày
   const [noteModal, setNoteModal] = useState<{ note: Note | null; date: string } | null>(null);
+
+  // Thả chuột ở BẤT KỲ đâu cũng kết thúc việc chọn khoảng (kéo ra ngoài lưới thì huỷ).
+  // Kéo qua ≥2 ngày mới mở form; kéo trong 1 ô coi như click thường (double-click vẫn là tạo mới).
+  useEffect(() => {
+    if (!range) return;
+    const done = () => {
+      const lo = range.a <= range.b ? range.a : range.b;
+      const hi = range.a <= range.b ? range.b : range.a;
+      setRange(null);
+      if (lo !== hi) setProjModal({ projectType: 'inhouse', startDate: lo, deadline: hi });
+    };
+    window.addEventListener('mouseup', done);
+    return () => window.removeEventListener('mouseup', done);
+  }, [range]);
 
   // Điểm vào duy nhất khi tạo mới ở một ngày. Ai tạo được nhiều hơn một thứ thì hiện bảng chọn;
   // chỉ tạo được đúng một thứ thì vào thẳng form đó cho đỡ một bước bấm.
@@ -1192,6 +1217,14 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
                           role="button"
                           tabIndex={0}
                           onDoubleClick={() => startCreate(date)}
+                          // Kéo chuột qua nhiều ô = chọn KHOẢNG ngày → thả ra mở form dự án
+                          // với sẵn ngày bắt đầu & deadline. Bỏ qua khi bấm trúng chip (chip có DnD riêng).
+                          onMouseDown={(e) => {
+                            if (!canCreateProject || e.button !== 0) return;
+                            if ((e.target as HTMLElement).closest('[data-chip]')) return;
+                            setRange({ a: date, b: date });
+                          }}
+                          onMouseEnter={() => setRange((r) => (r ? { ...r, b: date } : r))}
                           onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverDay !== date) setDragOverDay(date); }}
                           onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverDay((cur) => (cur === date ? null : cur)); }}
                           onDrop={(e) => {
@@ -1200,9 +1233,12 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
                             const payload = e.dataTransfer.getData('text/plain');
                             if (payload) handleDropOnDay(date, payload);
                           }}
-                          title={canEditDaily ? (isEditor ? `Nhấn đúp để tạo mới (dự án / nội dung)${off ? ' · Ngày nghỉ' : ''}` : `Nhấn đúp vào chỗ trống để tạo nội dung${off ? ' · Ngày nghỉ' : ''}`) : (off ? 'Ngày nghỉ' : undefined)}
+                          title={canEditDaily ? (isEditor ? `Nhấn đúp để tạo mới (dự án / nội dung)${canCreateProject ? ' · kéo qua nhiều ngày để tạo dự án theo khoảng' : ''}${off ? ' · Ngày nghỉ' : ''}` : `Nhấn đúp vào chỗ trống để tạo nội dung${off ? ' · Ngày nghỉ' : ''}`) : (off ? 'Ngày nghỉ' : undefined)}
                           className={`min-h-32 sm:min-h-40 rounded-lg border p-2 text-left transition-all cursor-pointer overflow-hidden flex flex-col select-none ${
-                            isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40' : isToday ? 'border-accent/60 bg-accent/10 ring-1 ring-accent/30' : off ? 'border-line/60 bg-black/40 hover:border-line-2' : 'border-line hover:border-line-2'
+                            inRange(date) ? 'border-accent bg-accent/20 ring-2 ring-accent/50'
+                              : isDragOver ? 'border-accent bg-accent/15 ring-2 ring-accent/40'
+                              : isToday ? 'border-accent/60 bg-accent/10 ring-1 ring-accent/30'
+                              : off ? 'border-line/60 bg-black/40 hover:border-line-2' : 'border-line hover:border-line-2'
                           } ${inActiveMonth || isToday ? '' : 'opacity-35 hover:opacity-70'}`}
                         >
                           <div className="flex items-center justify-between mb-1.5">
@@ -1255,7 +1291,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
                             style={{ gridColumn: `${bar.colStart + 1} / span ${bar.span}`, gridRow: 1, alignSelf: 'start', marginTop: bar.lane * BAR_UNIT, height: BAR_UNIT - 4, ...(tagCol ? { backgroundColor: tagCol } : {}) }}
                             onDoubleClick={(e) => { e.stopPropagation(); onOpenProject(p.id); }}
                             title={`${p.title}${p.deadline ? ` · deadline ${formatDate(p.deadline)}` : ''}`}
-                            className={`relative pointer-events-auto cursor-pointer flex items-center gap-1 pr-2 ${bar.roundLeft && mangColorsOf(p).length ? 'pl-3.5' : 'pl-2'} overflow-hidden select-none shadow-sm text-white transition-opacity ${barActive ? '' : 'opacity-35 hover:opacity-70'} ${
+                            className={`relative ${range ? '' : 'pointer-events-auto'} cursor-pointer flex items-center gap-1 pr-2 ${bar.roundLeft && mangColorsOf(p).length ? 'pl-3.5' : 'pl-2'} overflow-hidden select-none shadow-sm text-white transition-opacity ${barActive ? '' : 'opacity-35 hover:opacity-70'} ${
                               bar.roundLeft ? 'justify-start' : 'justify-end'
                             } ${tagCol ? '' : overdue ? 'bg-red-600' : 'bg-sky-600'} ${bar.roundLeft ? 'rounded-l-md ml-[9px]' : ''} ${bar.roundRight ? `border-r-8 ${stripe} rounded-r-md mr-[9px]` : ''}`}
                           >
@@ -1385,7 +1421,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
         open={!!projModal}
         onClose={() => setProjModal(null)}
         editing={null}
-        preset={projModal ? { projectType: projModal.projectType, startDate: projModal.startDate } : undefined}
+        preset={projModal ? { projectType: projModal.projectType, startDate: projModal.startDate, ...(projModal.deadline ? { deadline: projModal.deadline } : {}) } : undefined}
         onSave={async (data) => {
           try {
             await createProject(data, user);
