@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Search, X, CheckSquare, Square, ExternalLink, ListVideo, Calendar, ChevronRight, FolderKanban } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, EmptyState, Input, Avatar } from '../components/ui';
-import { formatDate, monthLabel, normalize, todayStr, tsToDateStr } from '../lib/utils';
+import { formatDate, monthLabel, normalize, todayStr, tsToDateStr, contentOwnerId } from '../lib/utils';
 import { setContentItemUsed, setTaskUsed } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
 import { PLATFORM_COLOR, itemsDone, contentTarget, contentProgress } from './DailyContent';
@@ -219,10 +219,10 @@ export function ContentListPage({ user, onOpenContent, onOpenProject }: {
                               <Calendar size={11} />{formatDate(d.dueDate)}{overdue && ' · quá hạn'}
                             </span>
                           )}
-                          {memberOf(d.assigneeId) && (
+                          {memberOf(contentOwnerId(d)) && (
                             <span className="flex items-center gap-1 text-[11px] text-dim">
-                              <Avatar name={memberOf(d.assigneeId)!.username} url={memberOf(d.assigneeId)!.avatarUrl} size={16} />
-                              {memberOf(d.assigneeId)!.username}
+                              <Avatar name={memberOf(contentOwnerId(d))!.username} url={memberOf(contentOwnerId(d))!.avatarUrl} size={16} />
+                              {memberOf(contentOwnerId(d))!.username}
                             </span>
                           )}
                         </div>

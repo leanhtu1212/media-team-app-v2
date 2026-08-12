@@ -108,3 +108,10 @@ export function isDayOff(dateStr: string): boolean {
   const nth = Math.floor((d.getDate() - 1) / 7) + 1; // thứ 7 thứ mấy trong tháng
   return nth % 2 === 1;
 }
+
+/** Người của 1 NỘI DUNG (Daily Content) = NGƯỜI DỰNG (`editorId`).
+ *  Ô "Người phụ trách" (`assigneeId`) đã gỡ khỏi form nội dung — content chỉ còn 1 người là
+ *  người dựng video. Doc cũ chưa có `editorId` thì đọc tạm `assigneeId` để không mất tên,
+ *  nhưng KHÔNG ghi mới vào field đó nữa. */
+export const contentOwnerId = (d: { editorId?: string; assigneeId?: string }): string =>
+  d.editorId || d.assigneeId || '';

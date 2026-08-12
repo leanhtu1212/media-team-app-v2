@@ -3,7 +3,7 @@ import { Camera, Video, Gauge, FolderKanban, ArrowRight, CalendarClock, ListTodo
 import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Avatar, EmptyState } from '../components/ui';
 import { calculateMemberKpi } from '../lib/kpi';
-import { currentMonth, formatDate, todayStr, isProjectFinished } from '../lib/utils';
+import { currentMonth, formatDate, todayStr, isProjectFinished, contentOwnerId } from '../lib/utils';
 import { useContentModals } from './DailyContent';
 import type { Project } from '../types';
 import type { User } from '../lib/firebase';
@@ -61,7 +61,7 @@ export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onO
   const todayContent = useMemo(
     () =>
       dailyContent
-        .filter((d) => isMine(d.assigneeId) && d.status !== 'done' && d.dueDate && d.dueDate <= today)
+        .filter((d) => isMine(contentOwnerId(d)) && d.status !== 'done' && d.dueDate && d.dueDate <= today)
         .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || '')),
     [dailyContent, isMine, today],
   );
@@ -94,7 +94,7 @@ export function MePage({ user, onOpenProject, onOpenContent }: { user: User; onO
   const upcomingContent = useMemo(
     () =>
       dailyContent
-        .filter((d) => isMine(d.assigneeId) && d.status !== 'done')
+        .filter((d) => isMine(contentOwnerId(d)) && d.status !== 'done')
         .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'))
         .slice(0, 6),
     [dailyContent, isMine],

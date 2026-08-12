@@ -8,7 +8,7 @@ import { ProjectFormModal } from './Projects';
 import { Linkify } from './ProjectDetail';
 import { TagManagerModal, TagSelect, hexA } from '../components/tags';
 import { primaryTagId, projectTagColor, projectTagIds, tagLevel } from '../lib/tags';
-import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr, isDayOff, normalize } from '../lib/utils';
+import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr, isDayOff, normalize, contentOwnerId } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { useIsMobile } from '../hooks/useIsMobile';
 import type { DailyContent, DailyStatus, Project, Task, Note, ContentItem, ContentFormat } from '../types';
@@ -298,10 +298,10 @@ function MonthNav({ month, onChange }: { month: string; onChange: (m: string) =>
 }
 
 function ItemCard({
-  item, assignee, editor, canEdit, toast, onEdit, onDelete, onDetail,
+  item, editor, canEdit, toast, onEdit, onDelete, onDetail,
 }: {
   item: DailyContent;
-  assignee?: { username?: string; avatarUrl?: string };
+  /** Người dựng video — content không còn "người phụ trách" riêng nữa */
   editor?: { username?: string; avatarUrl?: string };
   canEdit: boolean;
   toast: (m: string, t?: 'success' | 'error') => void;
@@ -343,10 +343,8 @@ function ItemCard({
       <ProgressBar value={contentProgress(item)} />
       <div className="flex items-center justify-between mt-2.5">
         <div className="flex items-center gap-1.5">
-          {assignee && <Avatar name={assignee.username} url={assignee.avatarUrl} size={20} />}
-          {/* Người dựng đứng cạnh người phụ trách — cùng lắm 2 avatar, không chật card */}
           {editor && (
-            <span title={`Người dựng: ${editor.username || ''}`} className="-ml-1">
+            <span title={`Người dựng: ${editor.username || ''}`}>
               <Avatar name={editor.username} url={editor.avatarUrl} size={20} />
             </span>
           )}
@@ -423,8 +421,7 @@ export function ContentKanban({ user, newRef, onOpenContent }: { user: User; new
                   <ItemCard
                     key={item.id}
                     item={item}
-                    assignee={memberOf(item.assigneeId)}
-                    editor={memberOf(item.editorId)}
+                    editor={memberOf(contentOwnerId(item))}
                     canEdit={canEditDaily}
                     toast={toast}
                     onEdit={() => openEdit(item)}
@@ -525,7 +522,7 @@ function CalChip({
   }
   if (entry.kind === 'daily') {
     const d = entry.daily;
-    const name = assigneeName(d.assigneeId);
+    const name = assigneeName(contentOwnerId(d));
     return (
       <div
         {...dragProps}
@@ -626,7 +623,7 @@ function AgendaChip({
     onTap = () => onNote(n);
   } else if (entry.kind === 'daily') {
     const d = entry.daily;
-    const name = assigneeName(d.assigneeId);
+    const name = assigneeName(contentOwnerId(d));
     tint = TYPE_TINT.content;
     icon = null;
     label = d.title;
@@ -1499,8 +1496,7 @@ export function ContentDetailPage({
   }
 
   const memberOf = (id?: string) => members.find((m) => m.uid === id || m.id === id);
-  const assignee = memberOf(item.assigneeId);
-  const editor = memberOf(item.editorId);
+  const editor = memberOf(contentOwnerId(item));
   const creator = memberOf(item.createdBy);
   const linkedProject = item.projectId ? projects.find((p) => p.id === item.projectId) : undefined;
   const tag = item.tagId ? tags.find((t) => t.id === item.tagId) : undefined;
@@ -1602,7 +1598,7 @@ export function ContentDetailPage({
               <Badge color={STATUS_BADGE[item.status]}>{STATUS_LABEL[item.status]}</Badge>
             </div>
             <p className={`text-xs mt-1 ${overdue ? 'text-red-400 font-bold' : 'text-muted'}`}>
-              <Calendar size={11} className="inline mr-1" />Ngày đăng: {formatDate(item.dueDate)}{overdue && ' — QUÁ HẠN'}
+              <Calendar size={11} className="inline mr-1" />Deadline: {formatDate(item.dueDate)}{overdue && ' — QUÁ HẠN'}
             </p>
           </div>
         </div>
@@ -1778,18 +1774,14 @@ export function ContentDetailPage({
             </div>
           </div>
 
-          {/* Grid: Số lượng / Ngày order / Ngày đăng */}
+          {/* Grid: Số lượng / Deadline — ngày order đã bỏ khỏi UI (luôn = ngày tạo) */}
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Số lượng</p>
               <p className="text-lg font-extrabold flex items-center gap-1.5 tabular-nums"><Hash size={14} className="text-muted" />{Number(item.quantity) || 1}</p>
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Ngày order</p>
-              <p className="text-sm font-bold">{formatDate(item.orderDate || tsToDateStr(item.createdAt) || undefined)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Ngày đăng</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Deadline</p>
               <p className={`text-sm font-bold ${overdue ? 'text-red-400' : ''}`}>{formatDate(item.dueDate)}</p>
             </div>
             {tag && (
@@ -1802,18 +1794,7 @@ export function ContentDetailPage({
             )}
           </div>
 
-          {/* Người phụ trách */}
-          <div className="mb-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Người phụ trách</p>
-            {assignee ? (
-              <span className="inline-flex items-center gap-1.5 bg-bg border border-line rounded-full pl-1 pr-2.5 py-0.5">
-                <Avatar name={assignee.username} url={assignee.avatarUrl} size={20} />
-                <span className="text-xs font-bold">{assignee.username}</span>
-              </span>
-            ) : <p className="text-sm text-dim">Chưa gán</p>}
-          </div>
-
-          {/* Người dựng */}
+          {/* Người dựng — thay hẳn mục "Người phụ trách" cũ */}
           <div className="mb-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Người dựng</p>
             {editor ? (
@@ -1938,16 +1919,9 @@ function ContentFormModal({
             </Select>
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Người phụ trách">
-            <Select value={form.assigneeId || ''} onChange={(e) => set('assigneeId', e.target.value)}>
-              <option value="">— Chưa gán —</option>
-              {members.map((m) => <option key={m.uid || m.id} value={m.uid || m.id}>{m.username}</option>)}
-            </Select>
-          </Field>
-        </div>
         {/* Người DỰNG — chỉ admin/editor mới dựng video, role 'content' không vào danh sách này.
-            Chọn bằng chip bấm (như ô người phụ trách của dự án), bấm lại chip đang chọn để bỏ. */}
+            Chọn bằng chip bấm (như ô người phụ trách của dự án), bấm lại chip đang chọn để bỏ.
+            Ô "Người phụ trách" (assigneeId) ĐÃ GỠ khỏi form — content chỉ còn 1 người là người dựng. */}
         <Field label="Người dựng (chọn 1)">
           {editors.length === 0 ? (
             <p className="text-xs text-dim">Chưa có editor để gán</p>
@@ -1973,17 +1947,16 @@ function ContentFormModal({
             </div>
           )}
         </Field>
+        {/* Ngày order = ngày tạo, tự đặt trong createDailyContent nên KHÔNG hiện ô nhập.
+            `dueDate` giờ gọi là Deadline cho đồng bộ với dự án — tên field giữ nguyên. */}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Ngày order">
-            <Input type="date" value={form.orderDate || ''} onChange={(e) => set('orderDate', e.target.value)} />
-          </Field>
-          <Field label="Ngày đăng">
+          <Field label="Deadline">
             <Input type="date" value={form.dueDate || ''} onChange={(e) => set('dueDate', e.target.value)} />
           </Field>
+          <Field label="Số lượng">
+            <Input type="number" min={1} value={form.quantity ?? 1} onChange={(e) => set('quantity', Math.max(1, Number(e.target.value)))} onFocus={(e) => e.target.select()} />
+          </Field>
         </div>
-        <Field label="Số lượng">
-          <Input type="number" min={1} value={form.quantity ?? 1} onChange={(e) => set('quantity', Math.max(1, Number(e.target.value)))} onFocus={(e) => e.target.select()} />
-        </Field>
         {/* Dạng content KHÔNG phải tag — chỉ đổi hệ số quy đổi sản lượng video ở trang Hiệu suất */}
         <Field label="Dạng content">
           <Select value={form.contentFormat || 'full-video'} onChange={(e) => set('contentFormat', e.target.value)}>

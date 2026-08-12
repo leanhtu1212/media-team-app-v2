@@ -4,7 +4,7 @@ import { useAppData } from '../store/AppDataContext';
 import { Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Avatar, Input } from '../components/ui';
 import { toggleDntt } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
-import { currentMonth, monthRange, shiftMonth, formatVND, formatDate, todayStr, isProjectFinished, projectMonth } from '../lib/utils';
+import { currentMonth, monthRange, shiftMonth, formatVND, formatDate, todayStr, isProjectFinished, projectMonth, contentOwnerId } from '../lib/utils';
 import type { Project } from '../types';
 import type { User } from '../lib/firebase';
 
@@ -190,7 +190,7 @@ export function DashboardPage({ user, onOpenProject, onOpenContent }: { user: Us
           <div className="divide-y divide-line">
             {upcomingDaily.length === 0 && <p className="text-sm text-dim py-8 text-center">Không có nội dung nào đang chờ</p>}
             {upcomingDaily.map((d) => {
-              const assignee = memberOf(d.assigneeId);
+              const assignee = memberOf(contentOwnerId(d));
               const overdue = !!d.dueDate && d.dueDate < today && d.status !== 'done';
               return (
                 <button key={d.id} type="button" onClick={() => onOpenContent(d.id)} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-surface-2 transition-colors text-left cursor-pointer group">
