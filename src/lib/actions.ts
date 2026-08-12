@@ -331,6 +331,7 @@ export async function createDailyContent(data: Partial<DailyContent>, user: User
     type: data.type || 'Reels',
     platform: data.platform || 'Đa kênh',
     assigneeId: data.assigneeId || '',
+    editorId: data.editorId || '',
     orderDate: data.orderDate || todayStr(),
     dueDate: data.dueDate || todayStr(),
     notes: data.notes || '',

@@ -298,10 +298,11 @@ function MonthNav({ month, onChange }: { month: string; onChange: (m: string) =>
 }
 
 function ItemCard({
-  item, assignee, canEdit, toast, onEdit, onDelete, onDetail,
+  item, assignee, editor, canEdit, toast, onEdit, onDelete, onDetail,
 }: {
   item: DailyContent;
   assignee?: { username?: string; avatarUrl?: string };
+  editor?: { username?: string; avatarUrl?: string };
   canEdit: boolean;
   toast: (m: string, t?: 'success' | 'error') => void;
   onEdit: () => void;
@@ -343,6 +344,12 @@ function ItemCard({
       <div className="flex items-center justify-between mt-2.5">
         <div className="flex items-center gap-1.5">
           {assignee && <Avatar name={assignee.username} url={assignee.avatarUrl} size={20} />}
+          {/* Người dựng đứng cạnh người phụ trách — cùng lắm 2 avatar, không chật card */}
+          {editor && (
+            <span title={`Người dựng: ${editor.username || ''}`} className="-ml-1">
+              <Avatar name={editor.username} url={editor.avatarUrl} size={20} />
+            </span>
+          )}
           <span className={`text-[11px] ${overdue ? 'text-red-400 font-bold' : 'text-dim'}`}>{formatDate(item.dueDate)}</span>
         </div>
         {canEdit && next && (
@@ -417,6 +424,7 @@ export function ContentKanban({ user, newRef, onOpenContent }: { user: User; new
                     key={item.id}
                     item={item}
                     assignee={memberOf(item.assigneeId)}
+                    editor={memberOf(item.editorId)}
                     canEdit={canEditDaily}
                     toast={toast}
                     onEdit={() => openEdit(item)}
@@ -1492,6 +1500,7 @@ export function ContentDetailPage({
 
   const memberOf = (id?: string) => members.find((m) => m.uid === id || m.id === id);
   const assignee = memberOf(item.assigneeId);
+  const editor = memberOf(item.editorId);
   const creator = memberOf(item.createdBy);
   const linkedProject = item.projectId ? projects.find((p) => p.id === item.projectId) : undefined;
   const tag = item.tagId ? tags.find((t) => t.id === item.tagId) : undefined;
@@ -1804,6 +1813,17 @@ export function ContentDetailPage({
             ) : <p className="text-sm text-dim">Chưa gán</p>}
           </div>
 
+          {/* Người dựng */}
+          <div className="mb-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Người dựng</p>
+            {editor ? (
+              <span className="inline-flex items-center gap-1.5 bg-bg border border-line rounded-full pl-1 pr-2.5 py-0.5">
+                <Avatar name={editor.username} url={editor.avatarUrl} size={20} />
+                <span className="text-xs font-bold">{editor.username}</span>
+              </span>
+            ) : <p className="text-sm text-dim">Chưa gán</p>}
+          </div>
+
           {/* Người tạo */}
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Người tạo</p>
@@ -1858,10 +1878,11 @@ function ContentFormModal({
   open: boolean;
   onClose: () => void;
   editing: DailyContent | null;
-  members: { uid?: string; id: string; username: string }[];
+  members: { uid?: string; id: string; username: string; role?: string; avatarUrl?: string }[];
   onSave: (data: Partial<DailyContent>) => Promise<void>;
 }) {
   const { tags } = useAppData();
+  const editors = members.filter((m) => m.role === 'admin' || m.role === 'editor');
   const [form, setForm] = useState<Partial<DailyContent>>({});
   const [busy, setBusy] = useState(false);
 
@@ -1924,18 +1945,45 @@ function ContentFormModal({
               {members.map((m) => <option key={m.uid || m.id} value={m.uid || m.id}>{m.username}</option>)}
             </Select>
           </Field>
+        </div>
+        {/* Người DỰNG — chỉ admin/editor mới dựng video, role 'content' không vào danh sách này.
+            Chọn bằng chip bấm (như ô người phụ trách của dự án), bấm lại chip đang chọn để bỏ. */}
+        <Field label="Người dựng (chọn 1)">
+          {editors.length === 0 ? (
+            <p className="text-xs text-dim">Chưa có editor để gán</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {editors.map((m) => {
+                const id = m.uid || m.id;
+                const on = form.editorId === id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => set('editorId', on ? '' : id)}
+                    className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-sm font-medium transition-all cursor-pointer ${
+                      on ? 'border-accent bg-accent/15 text-ink' : 'border-line text-muted hover:border-line-2'
+                    }`}
+                  >
+                    <Avatar name={m.username} url={m.avatarUrl} size={20} />
+                    {m.username}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
           <Field label="Ngày order">
             <Input type="date" value={form.orderDate || ''} onChange={(e) => set('orderDate', e.target.value)} />
           </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
           <Field label="Ngày đăng">
             <Input type="date" value={form.dueDate || ''} onChange={(e) => set('dueDate', e.target.value)} />
           </Field>
-          <Field label="Số lượng">
-            <Input type="number" min={1} value={form.quantity ?? 1} onChange={(e) => set('quantity', Math.max(1, Number(e.target.value)))} onFocus={(e) => e.target.select()} />
-          </Field>
         </div>
+        <Field label="Số lượng">
+          <Input type="number" min={1} value={form.quantity ?? 1} onChange={(e) => set('quantity', Math.max(1, Number(e.target.value)))} onFocus={(e) => e.target.select()} />
+        </Field>
         {/* Dạng content KHÔNG phải tag — chỉ đổi hệ số quy đổi sản lượng video ở trang Hiệu suất */}
         <Field label="Dạng content">
           <Select value={form.contentFormat || 'full-video'} onChange={(e) => set('contentFormat', e.target.value)}>

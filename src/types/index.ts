@@ -142,6 +142,10 @@ export interface DailyContent {
   type: string; // Reels | Short | Viral / Trending | Brand Content | Lịch đăng
   platform: string; // Instagram | TikTok | Facebook | YouTube | Đa kênh
   assigneeId?: string;
+  // Người DỰNG video (editor). Tách hẳn với assigneeId (bên content phụ trách nội dung) —
+  // chọn ngay lúc tạo content để biết trước ai dựng, khác `ContentItem.addedBy` (chỉ có sau
+  // khi video đã trả). Bot báo deadline Lark đọc field này để hiện tên người dựng.
+  editorId?: string;
   orderDate?: string; // ngày order/đặt nội dung — mặc định là ngày thêm content
   dueDate?: string;
   notes?: string;
