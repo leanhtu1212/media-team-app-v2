@@ -3,10 +3,51 @@ import {
 } from 'firebase/firestore';
 import { db, type User } from './firebase';
 import { MAIN_TEAM_ID, genId, todayStr, formatVND } from './utils';
-import { notify, displayName } from './notify';
+import { notify, displayName, diffLines, type DiffField } from './notify';
 import type { Project, Task, Report, DailyContent, Note, Tag, TaskCategory } from '../types';
 
 const teamPath = ['teams', MAIN_TEAM_ID] as const;
+
+/* ---------- Nhãn dùng để dựng thông báo "sửa từ gì thành gì" ---------- */
+const STATUS_LABEL_VI: Record<string, string> = {
+  plan: 'Kế hoạch', 'pre-production': 'Tiền kỳ', 'post-production': 'Hậu kỳ', payment: 'Thanh toán', done: 'Hoàn thành',
+};
+const PROJECT_TYPE_LABEL_VI: Record<string, string> = { inhouse: 'Inhouse', outsource: 'Outsource' };
+const CONTENT_STATUS_LABEL_VI: Record<string, string> = {
+  planned: 'Chưa làm', 'in-progress': 'Đang làm', done: 'Xong', published: 'Đã đăng',
+};
+const CATEGORY_LABEL_VI: Record<string, string> = { photo: 'Ảnh', video: 'Video', 'pre-production': 'Chi phí' };
+const enumFmt = (labels: Record<string, string>) => (v: unknown) => labels[v as string] || (v ? String(v) : '(trống)');
+const emptyFmt = (v: unknown) => (v === undefined || v === null || v === '' ? '(trống)' : String(v));
+
+const PROJECT_DIFF_FIELDS: DiffField<Project>[] = [
+  { key: 'title', label: 'Tên' },
+  { key: 'deadline', label: 'Deadline', fmt: emptyFmt },
+  { key: 'startDate', label: 'Ngày bắt đầu', fmt: emptyFmt },
+  { key: 'status', label: 'Trạng thái', fmt: enumFmt(STATUS_LABEL_VI) },
+  { key: 'projectType', label: 'Loại', fmt: enumFmt(PROJECT_TYPE_LABEL_VI) },
+  { key: 'photoTarget', label: 'Chỉ tiêu ảnh', fmt: emptyFmt },
+  { key: 'videoTarget', label: 'Chỉ tiêu video', fmt: emptyFmt },
+  { key: 'productType', label: 'Sản phẩm', fmt: emptyFmt },
+];
+
+const TASK_DIFF_FIELDS: DiffField<Task>[] = [
+  { key: 'title', label: 'Tên' },
+  { key: 'quantity', label: 'Số lượng', fmt: emptyFmt },
+  { key: 'deadline', label: 'Deadline', fmt: emptyFmt },
+  { key: 'link', label: 'Link', fmt: emptyFmt },
+  { key: 'amount', label: 'Chi phí', fmt: (v) => (Number(v) ? formatVND(Number(v)) : '(trống)') },
+  { key: 'status', label: 'Trạng thái', fmt: (v) => (v === 'completed' ? 'Xong' : v === 'in-progress' ? 'Đang làm' : 'Chưa làm') },
+];
+
+const CONTENT_DIFF_FIELDS: DiffField<DailyContent>[] = [
+  { key: 'title', label: 'Tên' },
+  { key: 'dueDate', label: 'Deadline', fmt: emptyFmt },
+  { key: 'platform', label: 'Nền tảng' },
+  { key: 'type', label: 'Loại' },
+  { key: 'quantity', label: 'Số lượng', fmt: emptyFmt },
+  { key: 'status', label: 'Trạng thái', fmt: enumFmt(CONTENT_STATUS_LABEL_VI) },
+];
 
 export const col = {
   members: () => collection(db, ...teamPath, 'members'),
@@ -57,29 +98,47 @@ export async function createProject(data: Partial<Project>, user: User): Promise
     createdBy: user.uid,
   });
   const type = (data.projectType || 'inhouse') === 'outsource' ? 'Outsource' : 'Inhouse';
-  notify(`🆕 ${displayName(user)} tạo dự án ${type} "${data.title || 'Không tên'}"${data.deadline ? ` — deadline ${data.deadline}` : ''}`);
+  const qtyParts: string[] = [];
+  if (Number(data.photoTarget) > 0) qtyParts.push(`${data.photoTarget} ảnh`);
+  if (Number(data.videoTarget) > 0) qtyParts.push(`${data.videoTarget} video`);
+  const qtyText = qtyParts.length ? ` · ${qtyParts.join(', ')}` : '';
+  notify(`🆕 ${displayName(user)} tạo dự án ${type} "${data.title || 'Không tên'}"${data.deadline ? ` — deadline ${data.deadline}` : ''}${qtyText}`);
   return id;
 }
 
-/** info (tuỳ chọn): truyền title + prevStatus để bắn thông báo Telegram khi dự án
- *  chuyển sang Thanh toán/Hoàn thành. Không truyền → chỉ ghi dữ liệu như cũ. */
+/** info (tuỳ chọn):
+ *  - `prev` (dự án TRƯỚC khi sửa) → cần để biết prevStatus (mừng khi chuyển Thanh toán/Hoàn thành)
+ *    VÀ để dựng diff "sửa từ gì thành gì" khi có kèm `user` (sửa tự động, vd. hệ thống tự
+ *    chuyển trạng thái, không truyền `user` → không bắn diff, tránh thông báo vô chủ).
+ *  Không truyền `info` → chỉ ghi dữ liệu, không thông báo gì. */
 export async function updateProject(
   id: string,
   data: Partial<Project>,
-  info?: { title?: string; prevStatus?: Project['status'] },
+  info?: { prev?: Project; user?: User },
 ): Promise<void> {
+  const prev = info?.prev;
+  const prevStatus = prev?.status;
+  const title = prev?.title;
   // Đóng dấu thời điểm hoàn thành để ô "Đã hoàn thành" xếp mới nhất trước.
   // Chỉ ghi khi thực sự vừa chuyển sang done (sửa lại dự án đã done không làm nó nhảy lên đầu).
-  const justDone = data.status === 'done' && info?.prevStatus !== 'done';
+  const justDone = data.status === 'done' && prevStatus !== 'done';
   await updateDoc(ref.project(id), {
     ...data,
     ...tagFields(data),
     ...(justDone ? { completedAt: serverTimestamp() } : {}),
     updatedAt: serverTimestamp(),
   });
-  if (data.status && info?.title && data.status !== info.prevStatus) {
-    if (data.status === 'payment') notify(`💵 Dự án "${info.title}" xong sản xuất → THANH TOÁN`);
-    else if (data.status === 'done') notify(`🎉 Dự án "${info.title}" đã HOÀN THÀNH`);
+
+  let statusCelebrated = false;
+  if (data.status && title && data.status !== prevStatus) {
+    if (data.status === 'payment') { notify(`💵 Dự án "${title}" xong sản xuất → THANH TOÁN`); statusCelebrated = true; }
+    else if (data.status === 'done') { notify(`🎉 Dự án "${title}" đã HOÀN THÀNH`); statusCelebrated = true; }
+  }
+
+  if (prev && info?.user) {
+    // Trạng thái đã có thông báo mừng riêng thì bỏ dòng diff Trạng thái, tránh trùng ý.
+    const lines = diffLines(prev, data, PROJECT_DIFF_FIELDS).filter((l) => !statusCelebrated || !l.startsWith('Trạng thái:'));
+    if (lines.length) notify(`✏️ ${displayName(info.user)} sửa dự án "${prev.title}":\n${lines.map((l) => `• ${l}`).join('\n')}`);
   }
 }
 
@@ -181,15 +240,33 @@ export async function createTask(input: NewTaskInput, user: User, projectTitle: 
     const label = input.category === 'photo' ? 'ảnh' : 'video';
     const icon = input.category === 'photo' ? '📸' : '🎬';
     const link = (input.link || '').trim();
-    notify(`${icon} ${who} vừa thêm ${Number(input.quantity) || 1} ${label} — ${projectTitle}${link ? `\n🔗 ${link}` : ''}`);
+    const deadline = (input.deadline || '').trim();
+    notify(`${icon} ${who} vừa thêm ${Number(input.quantity) || 1} ${label} — ${projectTitle}${deadline ? ` · hạn ${deadline}` : ''}${link ? `\n🔗 ${link}` : ''}`);
   }
   return id;
 }
 
-export async function updateTask(projectId: string, taskId: string, data: Partial<Task>): Promise<void> {
+/** info (tuỳ chọn): truyền `prev` (task TRƯỚC khi sửa) + `user` để bắn thông báo
+ *  "sửa từ gì thành gì". Không truyền → chỉ ghi dữ liệu, không thông báo (dùng cho các
+ *  thao tác nội bộ như gỡ liên kết report, không phải người dùng chủ động sửa). */
+export async function updateTask(
+  projectId: string,
+  taskId: string,
+  data: Partial<Task>,
+  info?: { prev?: Task; user?: User; projectTitle?: string },
+): Promise<void> {
   // Firestore từ chối giá trị undefined → lọc bỏ trước khi ghi.
   const clean = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
   await updateDoc(ref.task(projectId, taskId), { ...clean, updatedAt: serverTimestamp() });
+
+  if (info?.prev && info.user) {
+    const lines = diffLines(info.prev, data, TASK_DIFF_FIELDS);
+    if (lines.length) {
+      const label = CATEGORY_LABEL_VI[info.prev.category] || info.prev.category;
+      const where = info.projectTitle ? ` — ${info.projectTitle}` : '';
+      notify(`✏️ ${displayName(info.user)} sửa ${label} "${info.prev.title}"${where}:\n${lines.map((l) => `• ${l}`).join('\n')}`);
+    }
+  }
 }
 
 export async function deleteTask(projectId: string, taskId: string): Promise<void> {
@@ -346,18 +423,34 @@ export async function createDailyContent(data: Partial<DailyContent>, user: User
     createdAt: serverTimestamp(),
     createdBy: user.uid,
   });
-  notify(`📅 ${displayName(user)} thêm nội dung "${data.title || 'Không tên'}"${data.platform ? ` · ${data.platform}` : ''}`);
+  const qty = Math.max(1, Number(data.quantity) || 1);
+  const dl = (data.dueDate || '').trim();
+  notify(`📅 ${displayName(user)} thêm nội dung "${data.title || 'Không tên'}"${data.platform ? ` · ${data.platform}` : ''}${qty > 1 ? ` · SL ${qty}` : ''}${dl ? ` · hạn ${dl}` : ''}`);
 }
 
-/** info (tuỳ chọn): truyền title/platform để bắn thông báo khi nội dung chuyển sang "Hoàn thành". */
+/** info (tuỳ chọn):
+ *  - `title`/`platform` (kiểu cũ, vẫn còn dùng ở vài nơi) → chỉ bắn thông báo mừng khi
+ *    chuyển sang "Hoàn thành", không diff.
+ *  - `prev` (nội dung TRƯỚC khi sửa) + `user` → bắn thêm diff "sửa từ gì thành gì".
+ *  Không truyền `info` → chỉ ghi dữ liệu, không thông báo. */
 export async function updateDailyContent(
   id: string,
   data: Partial<DailyContent>,
-  info?: { title?: string; platform?: string },
+  info?: { title?: string; platform?: string; prev?: DailyContent; user?: User },
 ): Promise<void> {
   await updateDoc(ref.daily(id), { ...data, updatedAt: serverTimestamp() });
-  if (data.status === 'done' && info?.title) {
-    notify(`✅ Nội dung "${info.title}" đã HOÀN THÀNH${info.platform ? ` (${info.platform})` : ''}`);
+
+  const title = info?.title || info?.prev?.title;
+  const platform = info?.platform || info?.prev?.platform;
+  let statusCelebrated = false;
+  if (data.status === 'done' && title) {
+    notify(`✅ Nội dung "${title}" đã HOÀN THÀNH${platform ? ` (${platform})` : ''}`);
+    statusCelebrated = true;
+  }
+
+  if (info?.prev && info.user) {
+    const lines = diffLines(info.prev, data, CONTENT_DIFF_FIELDS).filter((l) => !statusCelebrated || !l.startsWith('Trạng thái:'));
+    if (lines.length) notify(`✏️ ${displayName(info.user)} sửa nội dung "${info.prev.title}":\n${lines.map((l) => `• ${l}`).join('\n')}`);
   }
 }
 

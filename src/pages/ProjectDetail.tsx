@@ -42,7 +42,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
     }
 
     if (!desired || desired === project.status) return;
-    updateProject(project.id, { status: desired }, { title: project.title, prevStatus: project.status }).catch(() => {});
+    updateProject(project.id, { status: desired }, { prev: project }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks, project?.id, project?.status, project?.photoTarget, project?.videoTarget, isEditor]);
 
@@ -249,6 +249,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
             project={project}
             isEditor={isEditor}
             toast={toast}
+            user={user}
             creator={memberOf(project.createdBy)}
             assignees={(project.assigneeIds || []).map((id) => memberOf(id)).filter((m): m is NonNullable<typeof m> => !!m)}
           />
@@ -302,7 +303,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
         onSave={async (data) => {
           try {
             if (taskModal.editing) {
-              await updateTask(projectId, taskModal.editing.id, data);
+              await updateTask(projectId, taskModal.editing.id, data, { prev: taskModal.editing, user, projectTitle: project.title });
               toast('Đã cập nhật task');
             } else {
               const isPre = taskModal.category === 'pre-production';
@@ -327,7 +328,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
           editing={project}
           onSave={async (data) => {
             try {
-              await updateProject(project.id, data, { title: project.title, prevStatus: project.status });
+              await updateProject(project.id, data, { prev: project, user });
               toast('Đã cập nhật dự án');
               setEditProject(false);
             } catch (e: unknown) {
@@ -465,7 +466,7 @@ function TaskDetailDrawer({
 }
 
 /* ---------- Info panel (thông tin dự án) ---------- */
-function InfoPanel({ project, isEditor, toast, creator, assignees }: { project: Project; isEditor: boolean; toast: (m: string, t?: 'success' | 'error') => void; creator?: { username?: string; avatarUrl?: string }; assignees?: { username?: string; avatarUrl?: string }[] }) {
+function InfoPanel({ project, isEditor, toast, user, creator, assignees }: { project: Project; isEditor: boolean; toast: (m: string, t?: 'success' | 'error') => void; user: User; creator?: { username?: string; avatarUrl?: string }; assignees?: { username?: string; avatarUrl?: string }[] }) {
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState(project.description || '');
   const [savingDesc, setSavingDesc] = useState(false);
@@ -474,7 +475,7 @@ function InfoPanel({ project, isEditor, toast, creator, assignees }: { project: 
   const [savingPhotoLink, setSavingPhotoLink] = useState(false);
 
   const setField = async (data: Partial<Project>, ok: string) => {
-    try { await updateProject(project.id, data, { title: project.title, prevStatus: project.status }); toast(ok); }
+    try { await updateProject(project.id, data, { prev: project, user }); toast(ok); }
     catch (e: unknown) { toast(`Lỗi: ${(e as Error).message}`, 'error'); }
   };
 

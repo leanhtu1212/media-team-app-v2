@@ -144,7 +144,7 @@ export function ProjectsPage({
     const p = projects.find((x) => x.id === projectId);
     if (!p || p.status === status) return;
     try {
-      await updateProject(projectId, { status }, { title: p.title, prevStatus: p.status });
+      await updateProject(projectId, { status }, { prev: p, user });
       toast(`"${p.title}" → ${STATUS_LABEL[status]}`);
     } catch (e: unknown) {
       toast(`Lỗi: ${(e as Error).message}`, 'error');
@@ -355,7 +355,7 @@ export function ProjectsPage({
         onSave={async (data) => {
           try {
             if (editing) {
-              await updateProject(editing.id, data, { title: editing.title, prevStatus: editing.status });
+              await updateProject(editing.id, data, { prev: editing, user });
               toast('Đã cập nhật dự án');
             } else {
               await createProject(data, user);

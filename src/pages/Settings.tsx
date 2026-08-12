@@ -541,7 +541,7 @@ function ProductsTab() {
   );
 }
 
-/* ---------- Thông báo Telegram ---------- */
+/* ---------- Thông báo tức thì (mọi thay đổi) ---------- */
 
 function NotifyCard() {
   const { team } = useAppData();
@@ -553,7 +553,7 @@ function NotifyCard() {
   const save = async () => {
     try {
       await updateDoc(dbRef.team(), { notifyWebhookUrl: url.trim() });
-      toast(url.trim() ? 'Đã lưu — thông báo Telegram BẬT' : 'Đã xoá URL — thông báo TẮT');
+      toast(url.trim() ? 'Đã lưu — thông báo tức thì BẬT' : 'Đã xoá URL — thông báo TẮT');
     } catch (e: unknown) {
       toast(`Lỗi: ${(e as Error).message}`, 'error');
     }
@@ -579,15 +579,16 @@ function NotifyCard() {
 
   return (
     <Card className="p-6">
-      <h2 className="font-bold mb-1 flex items-center gap-2"><Bell size={16} className="text-amber-300" /> Thông báo Telegram</h2>
+      <h2 className="font-bold mb-1 flex items-center gap-2"><Bell size={16} className="text-amber-300" /> Thông báo tức thì</h2>
       <p className="text-xs text-muted mb-5">
-        Gửi thông báo vào group Telegram khi có task mới, báo cáo mới, dự án xong — và nhắc dự án quá hạn mỗi sáng.
-        Cần cài Apps Script webhook một lần (xem file <code className="text-indigo-300">apps-script/notify.gs</code> trong source code — có hướng dẫn từng bước, riêng biệt với webhook Google Sheet).
+        Bắn ngay khi có thay đổi: tạo/sửa dự án, task, báo cáo, nội dung... — kèm chi tiết sửa từ gì thành gì.
+        Webhook có thể trỏ thẳng vào Apps Script Telegram (xem <code className="text-indigo-300">apps-script/notify.gs</code>) hoặc vào
+        1 workflow n8n (Webhook node) để đẩy tiếp sang Lark/nơi khác — tuỳ team cấu hình, app chỉ POST text tới đúng 1 URL này.
       </p>
       <div className="space-y-3">
-        <Field label="Webhook URL (Apps Script Web App — notify.gs)">
+        <Field label="Webhook URL (nhận {type:'notify', text})">
           <div className="flex gap-2">
-            <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/..../exec" />
+            <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/..../exec hoặc https://.../webhook/..." />
             <Button variant="outline" onClick={save}><Link2 size={14} /> Lưu</Button>
           </div>
         </Field>
@@ -599,7 +600,7 @@ function NotifyCard() {
             {result.message}
           </p>
         )}
-        <p className="text-xs text-dim">Xoá URL rồi bấm Lưu = tắt thông báo. Thông báo gửi cho cả team qua group Telegram có bot.</p>
+        <p className="text-xs text-dim">Xoá URL rồi bấm Lưu = tắt thông báo.</p>
       </div>
     </Card>
   );

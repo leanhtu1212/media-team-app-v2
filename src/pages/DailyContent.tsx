@@ -3,7 +3,6 @@ import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, 
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, ProgressBar } from '../components/ui';
 import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject, createNote, updateNote, deleteNote, createContentVideoReport, deleteReport, updateReport } from '../lib/actions';
-import { notify, displayName } from '../lib/notify';
 import { ProjectFormModal } from './Projects';
 import { Linkify } from './ProjectDetail';
 import { TagManagerModal, TagSelect, hexA } from '../components/tags';
@@ -258,8 +257,7 @@ export function useContentModals(user: User) {
         onSave={async (data) => {
           try {
             if (editing?.id) {
-              await updateDailyContent(editing.id, data);
-              notify(`✏️ ${displayName(user)} sửa nội dung "${data.title || editing.title || ''}"`);
+              await updateDailyContent(editing.id, data, { prev: editing, user });
               toast('Đã cập nhật');
             } else {
               await createDailyContent(data, user);
@@ -298,13 +296,14 @@ function MonthNav({ month, onChange }: { month: string; onChange: (m: string) =>
 }
 
 function ItemCard({
-  item, editor, canEdit, toast, onEdit, onDelete, onDetail,
+  item, editor, canEdit, toast, user, onEdit, onDelete, onDetail,
 }: {
   item: DailyContent;
   /** Người dựng video — content không còn "người phụ trách" riêng nữa */
   editor?: { username?: string; avatarUrl?: string };
   canEdit: boolean;
   toast: (m: string, t?: 'success' | 'error') => void;
+  user: User;
   onEdit: () => void;
   onDelete: () => void;
   onDetail: () => void;
@@ -352,7 +351,7 @@ function ItemCard({
         </div>
         {canEdit && next && (
           <button
-            onClick={() => updateDailyContent(item.id, { status: next }, { title: item.title, platform: item.platform }).then(() => toast(`→ ${STATUS_LABEL[next]}`)).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
+            onClick={() => updateDailyContent(item.id, { status: next }, { prev: item, user }).then(() => toast(`→ ${STATUS_LABEL[next]}`)).catch((e) => toast(`Lỗi: ${e.message}`, 'error'))}
             className="flex items-center gap-0.5 text-[11px] font-bold text-indigo-300 hover:text-indigo-200 cursor-pointer"
           >
             {STATUS_LABEL[next]} <ChevronRight size={11} />
@@ -385,7 +384,7 @@ export function ContentKanban({ user, newRef, onOpenContent }: { user: User; new
     const item = dailyContent.find((d) => d.id === id);
     if (!item || item.status === status) return;
     try {
-      await updateDailyContent(id, { status }, { title: item.title, platform: item.platform });
+      await updateDailyContent(id, { status }, { prev: item, user });
       toast(`"${item.title}" → ${STATUS_LABEL[status]}`);
     } catch (e: unknown) {
       toast(`Lỗi: ${(e as Error).message}`, 'error');
@@ -424,6 +423,7 @@ export function ContentKanban({ user, newRef, onOpenContent }: { user: User; new
                     editor={memberOf(contentOwnerId(item))}
                     canEdit={canEditDaily}
                     toast={toast}
+                    user={user}
                     onEdit={() => openEdit(item)}
                     onDelete={() => setConfirmDel(item)}
                     onDetail={() => onOpenContent(item.id)}
@@ -810,21 +810,19 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
         if (!canEditDaily) return;
         const d = dailyContent.find((x) => x.id === a);
         if (!d || d.dueDate === date) return;
-        await updateDailyContent(a, { dueDate: date });
+        await updateDailyContent(a, { dueDate: date }, { prev: d, user });
         toast(`"${d.title}" → ${formatDate(date)}`);
       } else if (kind === 'project') {
         if (!isEditor) return;
         const p = projects.find((x) => x.id === a);
         if (!p || p.deadline === date) return;
-        await updateProject(a, { deadline: date });
-        notify(`📆 ${displayName(user)} đổi deadline dự án "${p.title}" → ${formatDate(date)}`);
+        await updateProject(a, { deadline: date }, { prev: p, user });
         toast(`Deadline "${p.title}" → ${formatDate(date)}`);
       } else if (kind === 'task') {
         if (!isEditor) return;
         const t = allTasks.find((x) => x.id === b && x.projectId === a);
         if (!t || t.deadline === date) return;
-        await updateTask(a, b, { deadline: date });
-        notify(`📆 ${displayName(user)} đổi deadline "${t.title}" → ${formatDate(date)}`);
+        await updateTask(a, b, { deadline: date }, { prev: t, user, projectTitle: projects.find((x) => x.id === a)?.title });
         toast(`Deadline task → ${formatDate(date)}`);
       } else if (kind === 'note') {
         if (!canEditDaily) return;
@@ -1505,7 +1503,7 @@ export function ContentDetailPage({
 
   const setField = async (data: Partial<DailyContent>, ok: string) => {
     try {
-      await updateDailyContent(item.id, data, { title: item.title, platform: item.platform });
+      await updateDailyContent(item.id, data, { prev: item, user });
       toast(ok);
     } catch (e: unknown) {
       toast(`Lỗi: ${(e as Error).message}`, 'error');
@@ -1824,8 +1822,7 @@ export function ContentDetailPage({
         members={members.filter((m) => m.role !== 'viewer')}
         onSave={async (data) => {
           try {
-            await updateDailyContent(item.id, data);
-            notify(`✏️ ${displayName(user)} sửa nội dung "${data.title || item.title || ''}"`);
+            await updateDailyContent(item.id, data, { prev: item, user });
             toast('Đã cập nhật');
             setEditOpen(false);
           } catch (e: unknown) {
