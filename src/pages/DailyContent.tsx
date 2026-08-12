@@ -766,7 +766,8 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
   // Chọn loại khi tạo mới từ lịch (inhouse / outsource / content / ghi chú).
   // Vai trò content (canEditDaily nhưng không phải editor) → bỏ qua bước chọn, tạo thẳng content.
   const [pickerDate, setPickerDate] = useState<string | null>(null);
-  const [projModal, setProjModal] = useState<{ projectType: 'inhouse' | 'outsource'; startDate: string; deadline?: string } | null>(null);
+  // Outsource KHÔNG có ngày bắt đầu → ngày chọn trên lịch là deadline luôn (xem nhánh outsource ở bảng "Tạo mới").
+  const [projModal, setProjModal] = useState<{ projectType: 'inhouse' | 'outsource'; startDate?: string; deadline?: string } | null>(null);
   // Modal tạo/sửa ghi chú: { note } khi sửa, hoặc { date } khi tạo mới ở 1 ngày
   const [noteModal, setNoteModal] = useState<{ note: Note | null; date: string } | null>(null);
 
@@ -1348,7 +1349,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
           {canCreateProject && (
           <button
             type="button"
-            onClick={() => { const d = pickerDate!; setPickerDate(null); setProjModal({ projectType: 'outsource', startDate: d }); }}
+            onClick={() => { const d = pickerDate!; setPickerDate(null); setProjModal({ projectType: 'outsource', deadline: d }); }}
             className="flex items-center gap-3 p-3 bg-bg border border-line rounded-xl hover:border-fuchsia-500/50 transition-all text-left cursor-pointer"
           >
             <Video size={18} className="text-fuchsia-300 shrink-0" />
@@ -1421,7 +1422,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
         open={!!projModal}
         onClose={() => setProjModal(null)}
         editing={null}
-        preset={projModal ? { projectType: projModal.projectType, startDate: projModal.startDate, ...(projModal.deadline ? { deadline: projModal.deadline } : {}) } : undefined}
+        preset={projModal ? { projectType: projModal.projectType, ...(projModal.startDate ? { startDate: projModal.startDate } : {}), ...(projModal.deadline ? { deadline: projModal.deadline } : {}) } : undefined}
         onSave={async (data) => {
           try {
             await createProject(data, user);

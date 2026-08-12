@@ -406,6 +406,7 @@ export function ProjectFormModal({
       return !!ctx && !!t && tagContexts(t).includes(ctx);
     });
   const mangCtx = ctxOf(form.projectType, loaiId);
+  const isOutsource = form.projectType === 'outsource';
   // Danh sách mảng chọn được ở ngữ cảnh hiện tại (chip bật/tắt như người phụ trách)
   const mangOptions = mangCtx
     ? tags.filter((t) => tagLevel(t) === 'mang' && tagContexts(t).includes(mangCtx)).sort((a, b) => a.name.localeCompare(b.name, 'vi'))
@@ -416,7 +417,13 @@ export function ProjectFormModal({
   const setProjectType = (type: 'inhouse' | 'outsource') => {
     const keep = keepMangs(ctxOf(type, loaiId));
     const others = curTagIds.filter((x) => x !== loaiId && !mangIds.includes(x));
-    setForm((f) => ({ ...f, projectType: type, tagIds: [loaiId, ...keep, ...others].filter(Boolean) }));
+    // Outsource không có ngày bắt đầu (chỉ có deadline) → chuyển sang outsource thì bỏ luôn startDate đã nhập
+    setForm((f) => ({
+      ...f,
+      projectType: type,
+      ...(type === 'outsource' ? { startDate: undefined } : {}),
+      tagIds: [loaiId, ...keep, ...others].filter(Boolean),
+    }));
   };
 
   // Thành viên có thể gán làm người phụ trách: chỉ admin/editor (bỏ viewer & content)
@@ -449,13 +456,14 @@ export function ProjectFormModal({
       toast('Cần nhập khối lượng: target ảnh hoặc target video ≥ 1', 'error');
       return;
     }
-    if (form.startDate && form.deadline && form.deadline < form.startDate) {
+    if (!isOutsource && form.startDate && form.deadline && form.deadline < form.startDate) {
       toast('Deadline phải sau hoặc bằng ngày bắt đầu (kiểm tra lại tháng)', 'error');
       return;
     }
     setBusy(true);
     const clean = { ...form };
     if (clean.qualityScore === undefined) delete clean.qualityScore;
+    if (isOutsource) delete clean.startDate; // outsource không có ngày bắt đầu (đừng ghi undefined xuống Firestore)
     await onSave(clean);
     setBusy(false);
   };
@@ -469,12 +477,15 @@ export function ProjectFormModal({
         <Field label="Mô tả">
           <Textarea rows={2} value={form.description || ''} onChange={(e) => set('description', e.target.value)} />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Ngày bắt đầu">
-            <Input type="date" value={form.startDate || ''} onChange={(e) => set('startDate', e.target.value)} />
-          </Field>
+        {/* Outsource chỉ có deadline (ngày đối tác phải trả hàng), không có ngày bắt đầu */}
+        <div className={isOutsource ? '' : 'grid grid-cols-2 gap-3'}>
+          {!isOutsource && (
+            <Field label="Ngày bắt đầu">
+              <Input type="date" value={form.startDate || ''} onChange={(e) => set('startDate', e.target.value)} />
+            </Field>
+          )}
           <Field label="Deadline">
-            <Input type="date" min={form.startDate || undefined} value={form.deadline || ''} onChange={(e) => set('deadline', e.target.value)} />
+            <Input type="date" min={isOutsource ? undefined : form.startDate || undefined} value={form.deadline || ''} onChange={(e) => set('deadline', e.target.value)} />
           </Field>
         </div>
         <div>
