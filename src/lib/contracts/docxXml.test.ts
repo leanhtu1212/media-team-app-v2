@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BA_CHAM, nfc, ptext, replaceAcrossRuns, replacePh, tatCaParagraph, timParagraph, vaXml, W_NS,
+  BA_CHAM, nfc, ptext, replaceAcrossRuns, replacePh, runsOf, tatCaParagraph, timParagraph, vaXml, W_NS,
 } from './docxXml';
 
 function docTuXml(bodyInnerXml: string): Document {
@@ -90,5 +90,50 @@ describe('vaXml', () => {
     vaXml(doc, '19', '08', '2026');
     const [p] = tatCaParagraph(doc);
     expect(ptext(p)).toBe('Hôm nay, ngày 19 tháng 08 năm 2026');
+  });
+});
+
+describe('content-control cấp run (inline w:sdt lồng trong 1 w:p)', () => {
+  // Trường hợp thật khi điền template: w:sdt nằm GIỮA 2 run thường trong CÙNG 1 w:p,
+  // <w:r> bên trong là con của <w:sdtContent> chứ không phải con trực tiếp của <w:p>.
+  const bodyInline = (mid: string) =>
+    `<w:p><w:r><w:t>trước </w:t></w:r>` +
+    `<w:sdt><w:sdtContent><w:r><w:t>${mid}</w:t></w:r></w:sdtContent></w:sdt>` +
+    `<w:r><w:t> sau</w:t></w:r></w:p>`;
+
+  it('runsOf(p) chỉ trả về 2 run thường, KHÔNG lấy run trong w:sdtContent', () => {
+    const doc = docTuXml(bodyInline(BA_CHAM));
+    const [p] = tatCaParagraph(doc);
+    const runs = runsOf(p);
+    expect(runs.length).toBe(2);
+    const texts = runs.map((r) => r.getElementsByTagNameNS(W_NS, 't')[0]?.textContent);
+    expect(texts).toEqual(['trước ', ' sau']);
+  });
+
+  it('replacePh KHÔNG đụng placeholder nằm trong content-control cấp run', () => {
+    const doc = docTuXml(bodyInline(BA_CHAM));
+    const [p] = tatCaParagraph(doc);
+    replacePh(p, ['X']);
+    // placeholder trong content-control vẫn nguyên vẹn
+    expect(ptext(p)).toBe(`trước ${BA_CHAM} sau`);
+  });
+
+  it('ptext(p) VẪN đọc được text trong content-control (quét toàn subtree)', () => {
+    const doc = docTuXml(bodyInline('giữa'));
+    const [p] = tatCaParagraph(doc);
+    expect(ptext(p)).toBe('trước giữa sau');
+  });
+
+  it('vaXml VẪN vá được text trong content-control cấp run (sdt là anh em của run thường trong cùng w:p)', () => {
+    // vaXml quét mọi w:t theo giá trị text của CHÍNH node đó (không gộp nhiều w:t), nên câu
+    // "Hôm nay …" phải nằm trọn trong 1 w:t — ở đây w:t đó lồng trong w:sdtContent, đứng sau
+    // 1 run thường khác trong cùng w:p, đúng tình huống inline content-control thật.
+    const doc = docTuXml(
+      `<w:p><w:r><w:t>Ghi chú: </w:t></w:r>` +
+        `<w:sdt><w:sdtContent><w:r><w:t>Hôm nay, ngày ${BA_CHAM} tháng ${BA_CHAM} năm ${BA_CHAM}</w:t></w:r></w:sdtContent></w:sdt></w:p>`,
+    );
+    vaXml(doc, '19', '08', '2026');
+    const [p] = tatCaParagraph(doc);
+    expect(ptext(p)).toBe('Ghi chú: Hôm nay, ngày 19 tháng 08 năm 2026');
   });
 });
