@@ -30,11 +30,14 @@ describe('lamSachTenFile', () => {
   it('thay ký tự cấm bằng khoảng trắng, gộp khoảng trắng, bỏ dấu chấm/space cuối', () => {
     expect(lamSachTenFile('Video: A/B "test"...')).toBe('Video A B test');
   });
+  it('thay cả ký tự backslash bằng khoảng trắng', () => {
+    expect(lamSachTenFile('a\\b|c*d?e<f>g')).toBe('a b c d e f g');
+  });
 });
 
 describe('tenFileHd / tenFileBbnt', () => {
-  it('ghép đúng tiền tố', () => {
-    expect(tenFileHd('Mã Thị Bình', 'Sản xuất Reels')).toBe('Hop dong - Ma Thi Binh - San xuat Reels.docx');
-    expect(tenFileBbnt('Mã Thị Bình', 'Sản xuất Reels')).toBe('BBNT - Ma Thi Binh - San xuat Reels.docx');
+  it('ghép đúng tiền tố, GIỮ NGUYÊN dấu tiếng Việt', () => {
+    expect(tenFileHd('Mã Thị Bình', 'Sản xuất Reels')).toBe('Hop dong - Mã Thị Bình - Sản xuất Reels.docx');
+    expect(tenFileBbnt('Mã Thị Bình', 'Sản xuất Reels')).toBe('BBNT - Mã Thị Bình - Sản xuất Reels.docx');
   });
 });

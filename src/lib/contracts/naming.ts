@@ -1,6 +1,6 @@
 // Tên đối tác, số hợp đồng, tên file. Port 1:1 từ D:\App\core\naming.py.
 
-const CAM = /[/:*?"<>|]/g;
+const CAM = /[\\/:*?"<>|]/g;
 const MAX_TEN_FILE = 150;
 
 export function boDau(s: string): string {
@@ -35,8 +35,7 @@ export function taoSoHopDong(hoTen: string, ngayKy: Date): string {
 }
 
 export function lamSachTenFile(s: string): string {
-  const boDauS = boDau(s);
-  const thay = boDauS.replace(CAM, ' ').replace(/\s+/g, ' ').trim();
+  const thay = s.replace(CAM, ' ').replace(/\s+/g, ' ').trim();
   return thay.replace(/[.\s]+$/, '');
 }
 
