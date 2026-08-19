@@ -586,7 +586,7 @@ export async function capNhatContractSettings(settings: ContractSettingsDoc): Pr
   await updateDoc(ref.team(), { contractSettings: settings });
 }
 
-/** Token dùng chung với Apps Script (Script Property CONTRACT_TOKEN). Lưu ở doc admin-only. */
+/** Token dùng chung với Apps Script (User Property CONTRACT_TOKEN). Lưu ở doc admin-only. */
 export async function docContractToken(): Promise<string> {
   const snap = await getDoc(ref.contractPrivate());
   return snap.exists() ? String((snap.data() as { contractToken?: string }).contractToken || '') : '';

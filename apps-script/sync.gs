@@ -16,29 +16,48 @@
  * LƯU Ý: mỗi lần đổi code phải Deploy version mới thì URL mới có doGet trả .ics.
  *
  * ============================================================================
- * BẮT BUỘC cho tính năng Hợp đồng KOL/KOC (2026-08) — Script Properties
+ * BẮT BUỘC cho tính năng Hợp đồng KOL/KOC (2026-08) — USER Properties
  * ============================================================================
  * Web app này chạy dưới quyền "Execute as: Me / Who has access: Anyone", tức là
  * BẤT KỲ AI biết URL cũng gọi được. URL lại nằm ở team doc mà mọi thành viên đọc
  * được. Vì dữ liệu hợp đồng có CCCD + số tài khoản, ba endpoint hợp đồng:
- *   - KHÔNG nhận sheetId / rootFolderId từ phía client nữa (đọc từ Script Property),
+ *   - KHÔNG nhận sheetId / rootFolderId từ phía client nữa (đọc từ User Property),
  *   - BẮT BUỘC kèm token khớp CONTRACT_TOKEN,
  *   - chỉ ghi được vào thư mục nằm BÊN TRONG CONTRACT_ROOT_FOLDER_ID.
  * Feed .ics và đồng bộ Google Sheet giữ nguyên như cũ, KHÔNG cần token.
  *
- * Cách đặt: Apps Script → Project Settings (Cài đặt dự án) → Script Properties →
- * Add script property, thêm 4 dòng:
- *   CONTRACT_SHEET_ID        = id của Google Sheet "Danh sách làm HĐ"
- *                              (phần giữa /d/ và /edit trong URL sheet)
- *   CONTRACT_SHEET_TAB       = tên tab chứa danh sách (vd: Thanh Toán)
- *   CONTRACT_ROOT_FOLDER_ID  = id thư mục Drive gốc để lưu HĐ/BBNT
- *                              (phần sau /folders/ trong URL thư mục)
- *   CONTRACT_TOKEN           = chuỗi bí mật tự đặt (dài, ngẫu nhiên). Dán ĐÚNG chuỗi
- *                              này vào app → trang Hợp đồng → Cài đặt → "Token".
- *                              Token lưu ở teams/{id}/private/contracts (admin-only).
- * Thiếu property nào thì endpoint tương ứng trả { ok:false, error:... } chứ không chạy.
- * Đổi CONTRACT_TOKEN thì phải sửa lại token trong app; KHÔNG cần Deploy lại
- * (Script Properties đọc lúc chạy), nhưng đổi CODE thì vẫn phải Deploy version mới.
+ * ⚠ 4 giá trị cấu hình nằm ở USER Properties, KHÔNG phải Script Properties.
+ * Lý do: hàm saveIcs_ (feed lịch Apple) gọi setProperties(map, true) — tham số
+ * `true` = XOÁ MỌI KEY KHÁC trong Script Properties. Mỗi lần app bấm "Cập nhật
+ * feed" là 4 property hợp đồng bị xoá sạch, tab Hợp đồng chết và phải nhập tay lại.
+ * Để ở User Properties thì feed .ics không bao giờ đụng tới.
+ *
+ * ⚠ Vì thế deployment BẮT BUỘC là "Execute as: Me": User Properties gắn với NGƯỜI
+ * ĐANG CHẠY script. Deploy "Execute as: Me" → người chạy hiệu dụng trong web app
+ * chính là chủ script, đúng bằng người bấm Run trong trình soạn thảo Apps Script,
+ * nên hai bên đọc CÙNG một kho User Properties. Nếu đổi sang "Execute as: User
+ * accessing the web app" thì mỗi người gọi sẽ có kho riêng (rỗng) → hỏng ngay.
+ *
+ * Cách đặt: Project Settings → Script Properties KHÔNG quản lý User Properties
+ * (không có giao diện nhập tay), nên phải chạy hàm setup trong file này:
+ *   1. Mở Apps Script → tìm hàm `thietLapCauHinhHopDong` ở cuối file
+ *   2. Sửa 4 hằng số ở đầu hàm thành giá trị thật:
+ *        CONTRACT_SHEET_ID        = id của Google Sheet "Danh sách làm HĐ"
+ *                                   (phần giữa /d/ và /edit trong URL sheet)
+ *        CONTRACT_SHEET_TAB       = tên tab chứa danh sách (vd: Thanh Toán)
+ *        CONTRACT_ROOT_FOLDER_ID  = id thư mục Drive gốc để lưu HĐ/BBNT
+ *                                   (phần sau /folders/ trong URL thư mục)
+ *        CONTRACT_TOKEN           = chuỗi bí mật tự đặt (dài, ngẫu nhiên). Dán ĐÚNG
+ *                                   chuỗi này vào app → Hợp đồng → Cài đặt → "Token".
+ *                                   Token lưu ở teams/{id}/private/contracts (admin-only).
+ *   3. Chọn hàm `thietLapCauHinhHopDong` trên thanh công cụ → Run (chạy 1 lần)
+ *   4. Kiểm lại bất cứ lúc nào bằng cách Run hàm `kiemTraCauHinhHopDong`
+ *      (chỉ đọc, in ra Log, token bị che chỉ còn 4 ký tự đầu)
+ *   5. Nên xoá lại 4 giá trị thật trong code sau khi chạy xong (giá trị đã nằm
+ *      trong User Properties rồi) để không lưu token dạng chữ thường trong file.
+ * Thiếu property nào thì mọi endpoint hợp đồng trả { ok:false, error:'Chưa cấu hình…' }.
+ * Đổi CONTRACT_TOKEN thì chạy lại hàm setup + sửa token trong app; KHÔNG cần Deploy
+ * lại (property đọc lúc chạy), nhưng đổi CODE thì vẫn phải Deploy version mới.
  */
 
 function doPost(e) {
@@ -146,7 +165,10 @@ function saveIcs_(ics) {
   var n = Math.max(1, Math.ceil(ics.length / size));
   var map = { ICS_N: String(n) };
   for (var j = 0; j < n; j++) map['ICS_' + j] = ics.substr(j * size, size);
-  PropertiesService.getScriptProperties().setProperties(map, true); // true = xoá các key cũ còn sót
+  // ⚠ Tham số `true` = deleteAllOthers: XOÁ MỌI KEY KHÁC trong Script Properties (cần thiết để
+  // dọn chunk ICS_* cũ khi feed ngắn lại). Vì vậy TUYỆT ĐỐI không lưu cấu hình gì khác ở
+  // Script Properties — cấu hình hợp đồng (CONTRACT_*) nằm ở User Properties, xem đầu file.
+  PropertiesService.getScriptProperties().setProperties(map, true);
 }
 
 /** Ghép lại .ics từ các chunk đã lưu. */
@@ -170,19 +192,34 @@ function loadIcs_() {
 // BẢO MẬT: sheetId / rootFolderId / sheetTab KHÔNG còn lấy từ request (xem khối chú thích
 // đầu file). Nếu client vẫn gửi kèm thì bị BỎ QUA hoàn toàn — nếu không, ai biết URL webhook
 // cũng đọc được sheet bất kỳ hoặc ghi file vào thư mục Drive bất kỳ của chủ script.
+// 4 giá trị này nằm ở USER Properties (đặt bằng cách chạy `thietLapCauHinhHopDong()` trong
+// trình soạn thảo), KHÔNG phải Script Properties — Script Properties bị saveIcs_ xoá sạch
+// mỗi lần app cập nhật feed .ics. Deployment BẮT BUỘC "Execute as: Me" để web app và trình
+// soạn thảo cùng đọc một kho User Properties. Chi tiết xem khối chú thích đầu file.
 
-function prop_(ten) {
-  var v = PropertiesService.getScriptProperties().getProperty(ten);
+/** Tên 4 khoá cấu hình hợp đồng. Dùng chung cho hàm setup, hàm kiểm tra và hàm đọc. */
+var KHOA_HOP_DONG = [
+  'CONTRACT_SHEET_ID',
+  'CONTRACT_SHEET_TAB',
+  'CONTRACT_ROOT_FOLDER_ID',
+  'CONTRACT_TOKEN',
+];
+
+/**
+ * Đọc cấu hình hợp đồng từ USER Properties (KHÔNG phải Script Properties — saveIcs_ dùng
+ * setProperties(map, true) sẽ xoá sạch Script Properties mỗi lần cập nhật feed .ics).
+ * Web app deploy "Execute as: Me" nên người chạy hiệu dụng = chủ script = người bấm Run
+ * trong trình soạn thảo → cả hai ngữ cảnh đọc cùng một kho.
+ */
+function propHD_(ten) {
+  var v = PropertiesService.getUserProperties().getProperty(ten);
   return v ? String(v).trim() : '';
 }
 
-/** Token khớp CONTRACT_TOKEN? Chưa đặt property = khoá cứng (không cho gọi). */
-function tokenOk_(token) {
-  var mong = prop_('CONTRACT_TOKEN');
-  if (!mong) return false;
-  var nhan = token ? String(token) : '';
+/** So token kiểu hằng-thời-gian (không thoát sớm) — tránh lộ prefix đúng qua thời gian phản hồi. */
+function soSanhToken_(mong, nhanVao) {
+  var nhan = nhanVao ? String(nhanVao) : '';
   if (nhan.length !== mong.length) return false;
-  // So từng ký tự, không thoát sớm — tránh lộ độ dài prefix đúng qua thời gian phản hồi.
   var lech = 0;
   for (var i = 0; i < mong.length; i++) {
     lech |= mong.charCodeAt(i) ^ nhan.charCodeAt(i);
@@ -190,19 +227,36 @@ function tokenOk_(token) {
   return lech === 0;
 }
 
-/** Lỗi chung cho mọi trường hợp từ chối — không mô tả thiếu token hay sai token. */
-function tuChoi_() {
+/**
+ * Cổng chung cho 3 endpoint hợp đồng. Trả về '' nếu hợp lệ, hoặc mã lỗi:
+ *   'chua-cau-hinh' — thiếu ít nhất 1 trong 4 User Property (chủ script chưa chạy setup)
+ *   'tu-choi'       — có cấu hình đầy đủ nhưng token gửi lên không khớp
+ * Cả hai đều CHẶN, chỉ khác thông báo để admin biết phải làm gì.
+ */
+function kiemQuyenHopDong_(token) {
+  for (var i = 0; i < KHOA_HOP_DONG.length; i++) {
+    if (!propHD_(KHOA_HOP_DONG[i])) return 'chua-cau-hinh';
+  }
+  return soSanhToken_(propHD_('CONTRACT_TOKEN'), token) ? '' : 'tu-choi';
+}
+
+/** Chuyển mã lỗi của kiemQuyenHopDong_ thành response. Không lộ token/ID trong thông báo. */
+function loiQuyen_(ma) {
+  if (ma === 'chua-cau-hinh') {
+    return json_({
+      ok: false,
+      error: 'Chưa cấu hình — chạy thietLapCauHinhHopDong() trong Apps Script',
+    });
+  }
   return json_({ ok: false, error: 'Không có quyền' });
 }
 
 function contractList_(params) {
   try {
-    if (!tokenOk_(params && params.token)) return tuChoi_();
-    var sheetId = prop_('CONTRACT_SHEET_ID');
-    var sheetTab = prop_('CONTRACT_SHEET_TAB');
-    if (!sheetId || !sheetTab) {
-      return json_({ ok: false, error: 'Chưa đặt Script Property CONTRACT_SHEET_ID / CONTRACT_SHEET_TAB' });
-    }
+    var loi = kiemQuyenHopDong_(params && params.token);
+    if (loi) return loiQuyen_(loi);
+    var sheetId = propHD_('CONTRACT_SHEET_ID');
+    var sheetTab = propHD_('CONTRACT_SHEET_TAB');
     var ss = SpreadsheetApp.openById(sheetId);
     var sh = ss.getSheetByName(sheetTab);
     if (!sh) return json_({ ok: false, error: 'Không tìm thấy tab "' + sheetTab + '"' });
@@ -248,9 +302,9 @@ function chuanHoaTen_(s) {
 
 function contractDriveMatch_(data) {
   try {
-    if (!tokenOk_(data && data.token)) return tuChoi_();
-    var rootId = prop_('CONTRACT_ROOT_FOLDER_ID');
-    if (!rootId) return json_({ ok: false, error: 'Chưa đặt Script Property CONTRACT_ROOT_FOLDER_ID' });
+    var loi = kiemQuyenHopDong_(data && data.token);
+    if (loi) return loiQuyen_(loi);
+    var rootId = propHD_('CONTRACT_ROOT_FOLDER_ID');
     // depth vẫn nhận từ client nhưng chặn trên 5 tầng: chỉ ảnh hưởng phạm vi quét BÊN TRONG
     // thư mục gốc, không mở rộng ra ngoài.
     var doSau = Math.min(5, Math.max(1, Number(data.depth) || 2));
@@ -338,9 +392,9 @@ function laConCuaGoc_(folderId, rootId) {
 
 function contractDriveCopy_(data) {
   try {
-    if (!tokenOk_(data && data.token)) return tuChoi_();
-    var rootId = prop_('CONTRACT_ROOT_FOLDER_ID');
-    if (!rootId) return json_({ ok: false, error: 'Chưa đặt Script Property CONTRACT_ROOT_FOLDER_ID' });
+    var loi = kiemQuyenHopDong_(data && data.token);
+    if (loi) return loiQuyen_(loi);
+    var rootId = propHD_('CONTRACT_ROOT_FOLDER_ID');
     var folder;
     if (data.folderId) {
       // folderId đến từ kết quả contract-drive-match trước đó, nhưng vẫn phải kiểm lại:
@@ -370,4 +424,86 @@ function contractDriveCopy_(data) {
 
 function json_(o) {
   return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ============ Cấu hình hợp đồng: chạy tay trong trình soạn thảo ============
+// Project Settings → Script Properties CHỈ quản lý Script Properties, không có giao diện
+// nhập User Properties. Nên 2 hàm dưới đây là cách duy nhất để đặt / kiểm tra cấu hình.
+// Chạy trong trình soạn thảo = chạy dưới tài khoản chủ script, đúng bằng người chạy hiệu
+// dụng của web app khi deploy "Execute as: Me" → cùng một kho User Properties.
+
+/** Che token khi in log: chỉ giữ 4 ký tự đầu, phần còn lại thay bằng dấu sao. */
+function cheToken_(s) {
+  if (!s) return '(chưa đặt)';
+  var t = String(s);
+  if (t.length <= 4) return '**** (' + t.length + ' ký tự)';
+  return t.substring(0, 4) + '**** (' + t.length + ' ký tự)';
+}
+
+/**
+ * CHẠY 1 LẦN trong trình soạn thảo Apps Script để đặt cấu hình hợp đồng.
+ * Cách dùng: sửa 4 hằng số ngay dưới đây thành giá trị thật → chọn hàm này trên thanh
+ * công cụ → nhấn Run → xem Log để xác nhận. Sau khi chạy xong nên xoá lại giá trị thật
+ * khỏi code (giá trị đã nằm trong User Properties rồi).
+ */
+function thietLapCauHinhHopDong() {
+  // ======= SỬA 4 DÒNG DƯỚI ĐÂY, RỒI NHẤN RUN =======
+  var CONTRACT_SHEET_ID = 'DIEN_ID_GOOGLE_SHEET_VAO_DAY';
+  var CONTRACT_SHEET_TAB = 'DIEN_TEN_TAB_VAO_DAY';
+  var CONTRACT_ROOT_FOLDER_ID = 'DIEN_ID_THU_MUC_DRIVE_GOC_VAO_DAY';
+  var CONTRACT_TOKEN = 'DIEN_TOKEN_BI_MAT_VAO_DAY';
+  // =================================================
+
+  var giaTri = {
+    CONTRACT_SHEET_ID: CONTRACT_SHEET_ID,
+    CONTRACT_SHEET_TAB: CONTRACT_SHEET_TAB,
+    CONTRACT_ROOT_FOLDER_ID: CONTRACT_ROOT_FOLDER_ID,
+    CONTRACT_TOKEN: CONTRACT_TOKEN,
+  };
+
+  var thieu = [];
+  var canDat = {};
+  for (var i = 0; i < KHOA_HOP_DONG.length; i++) {
+    var khoa = KHOA_HOP_DONG[i];
+    var v = giaTri[khoa] == null ? '' : String(giaTri[khoa]).trim();
+    // Chưa sửa placeholder (còn bắt đầu bằng "DIEN_") hoặc để trống -> coi như thiếu.
+    if (!v || v.indexOf('DIEN_') === 0) thieu.push(khoa);
+    else canDat[khoa] = v;
+  }
+  if (thieu.length) {
+    throw new Error(
+      'Chưa điền giá trị thật cho: ' + thieu.join(', ') +
+      '. Mở hàm thietLapCauHinhHopDong(), sửa 4 hằng số ở đầu hàm rồi chạy lại.'
+    );
+  }
+
+  // KHÔNG dùng setProperties(map, true) ở đây — chỉ ghi đè đúng 4 khoá, giữ nguyên phần còn lại.
+  PropertiesService.getUserProperties().setProperties(canDat, false);
+
+  Logger.log('Đã lưu cấu hình hợp đồng vào User Properties:');
+  Logger.log('  CONTRACT_SHEET_ID       = ' + canDat.CONTRACT_SHEET_ID);
+  Logger.log('  CONTRACT_SHEET_TAB      = ' + canDat.CONTRACT_SHEET_TAB);
+  Logger.log('  CONTRACT_ROOT_FOLDER_ID = ' + canDat.CONTRACT_ROOT_FOLDER_ID);
+  Logger.log('  CONTRACT_TOKEN          = ' + cheToken_(canDat.CONTRACT_TOKEN));
+  Logger.log('Nhớ dán ĐÚNG token này vào app → Hợp đồng → Cài đặt → "Token".');
+}
+
+/**
+ * CHỈ ĐỌC: in ra Log tình trạng 4 khoá cấu hình hợp đồng (token bị che).
+ * Dùng để kiểm tra mà không phải nhập lại gì cả.
+ */
+function kiemTraCauHinhHopDong() {
+  var thieu = [];
+  Logger.log('Cấu hình hợp đồng hiện tại (User Properties):');
+  for (var i = 0; i < KHOA_HOP_DONG.length; i++) {
+    var khoa = KHOA_HOP_DONG[i];
+    var v = propHD_(khoa);
+    if (!v) thieu.push(khoa);
+    Logger.log('  ' + khoa + ' = ' + (khoa === 'CONTRACT_TOKEN' ? cheToken_(v) : (v || '(chưa đặt)')));
+  }
+  if (thieu.length) {
+    Logger.log('THIẾU: ' + thieu.join(', ') + ' → chạy thietLapCauHinhHopDong() để đặt.');
+  } else {
+    Logger.log('Đủ 4 khoá — tab Hợp đồng dùng được (miễn là token trong app khớp).');
+  }
 }

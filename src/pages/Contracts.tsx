@@ -14,9 +14,9 @@ import { demPlaceholderSot, taoHaiFile, taiXuong } from '../lib/contracts/docxFi
 import { catAnh, type CropRegion } from '../lib/contracts/imageCrop';
 import { danhSachTuRows, type SheetRow } from '../lib/contracts/sheetSync';
 
-// Sheet ID / tên tab / thư mục Drive gốc KHÔNG còn nằm ở đây — chúng là Script Properties của
-// Apps Script (CONTRACT_SHEET_ID / CONTRACT_SHEET_TAB / CONTRACT_ROOT_FOLDER_ID). Xem khối
-// chú thích đầu apps-script/sync.gs.
+// Sheet ID / tên tab / thư mục Drive gốc KHÔNG còn nằm ở đây — chúng là User Properties của
+// Apps Script (CONTRACT_SHEET_ID / CONTRACT_SHEET_TAB / CONTRACT_ROOT_FOLDER_ID), đặt bằng
+// hàm thietLapCauHinhHopDong(). Xem khối chú thích đầu apps-script/sync.gs.
 const MAC_DINH: ContractSettingsDoc = {
   luiNgayKy: 5, thueTNCN: 0.1, thoiHanThanhToan: 30, baoTruocChamDut: 5, ngayThanhLy: 30,
   hangMucBbnt: 'Sản xuất hình ảnh', anhRongInch: 2.3, doSauDoFolder: 2,
@@ -241,8 +241,9 @@ export function Contracts() {
           <AlertTriangle size={16} className="shrink-0 mt-0.5" />
           <span>
             Chưa cấu hình Webhook / Token — vào phần Cài đặt bên dưới trước. Sheet ID, tên tab và
-            thư mục Drive gốc đặt ở phía Apps Script (Project Settings → Script Properties:
-            CONTRACT_SHEET_ID / CONTRACT_SHEET_TAB / CONTRACT_ROOT_FOLDER_ID / CONTRACT_TOKEN).
+            thư mục Drive gốc đặt ở phía Apps Script: mở Apps Script, sửa 4 giá trị trong hàm
+            thietLapCauHinhHopDong() (CONTRACT_SHEET_ID / CONTRACT_SHEET_TAB /
+            CONTRACT_ROOT_FOLDER_ID / CONTRACT_TOKEN) rồi bấm Run một lần.
           </span>
         </div>
       )}
@@ -461,7 +462,7 @@ function ContractSettingsPanel({
     <div className="bg-surface border border-line rounded-xl p-4 space-y-3">
       <h2 className="font-bold">Cài đặt</h2>
       <label className="block text-sm">
-        <span className="text-muted">Token webhook hợp đồng (khớp Script Property CONTRACT_TOKEN)</span>
+        <span className="text-muted">Token webhook hợp đồng (khớp CONTRACT_TOKEN bên Apps Script)</span>
         <input
           type="password" autoComplete="off"
           className="mt-1 w-full bg-bg border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-accent transition-colors"
@@ -470,9 +471,11 @@ function ContractSettingsPanel({
         />
       </label>
       <p className="text-xs text-dim">
-        Sheet ID, tên tab và thư mục Drive gốc đặt ở Apps Script → Project Settings → Script
-        Properties (CONTRACT_SHEET_ID / CONTRACT_SHEET_TAB / CONTRACT_ROOT_FOLDER_ID), không đặt
-        ở đây nữa — webhook chạy dưới quyền chủ script nên client không được chỉ định đích đến.
+        Sheet ID, tên tab và thư mục Drive gốc đặt ở Apps Script bằng cách chạy hàm
+        thietLapCauHinhHopDong() (CONTRACT_SHEET_ID / CONTRACT_SHEET_TAB /
+        CONTRACT_ROOT_FOLDER_ID lưu ở User Properties), không đặt ở đây nữa — webhook chạy dưới
+        quyền chủ script nên client không được chỉ định đích đến. Nếu webhook báo “Chưa cấu
+        hình”, nghĩa là bên Apps Script chưa chạy hàm đó (không phải sai token).
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {field('doSauDoFolder', 'Độ sâu dò folder', 'number')}
