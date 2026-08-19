@@ -23,4 +23,14 @@ describe('chuanTenNganHang', () => {
   it('chuỗi rỗng trả về rỗng, không đổi', () => {
     expect(chuanTenNganHang('')).toEqual(['', false]);
   });
+
+  // `khoa in TRA_CUU` đi cả prototype chain: 'constructor' khớp Object.prototype.constructor và
+  // ghi "function Object() { [native code] }" vào ô ngân hàng của một văn bản pháp lý.
+  it('tên trùng key trên Object.prototype KHÔNG được coi là ngân hàng', () => {
+    for (const rac of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      expect(chuanTenNganHang(rac)).toEqual([rac, false]);
+    }
+    // Kể cả khi qua nhánh bỏ hậu tố "bank".
+    expect(chuanTenNganHang('constructorbank')).toEqual(['constructorbank', false]);
+  });
 });

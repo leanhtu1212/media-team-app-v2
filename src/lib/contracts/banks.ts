@@ -61,6 +61,12 @@ for (const [ten, ds] of Object.entries(DANH_SACH)) {
   for (const b of ds) TRA_CUU[b] = ten;
 }
 
+/** `khoa in TRA_CUU` sẽ đi cả prototype chain: 'constructor'/'toString' khớp bậy và ghi thẳng
+ *  "function Object() { [native code] }" vào ô ngân hàng của hợp đồng. Luôn dùng hàm này. */
+function coKhoa(obj: Record<string, unknown>, khoa: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, khoa);
+}
+
 function nen(s: string): string {
   return boDau(s || '')
     .toLowerCase()
@@ -79,11 +85,11 @@ export function chuanTenNganHang(nhap: string): [string, boolean] {
       break;
     }
   }
-  if (khoa.endsWith('bank') && !(khoa in TRA_CUU) && khoa.slice(0, -4) in TRA_CUU) {
+  if (khoa.endsWith('bank') && !coKhoa(TRA_CUU, khoa) && coKhoa(TRA_CUU, khoa.slice(0, -4))) {
     khoa = khoa.slice(0, -4);
   }
 
-  if (khoa in TRA_CUU) {
+  if (coKhoa(TRA_CUU, khoa)) {
     const ten = TRA_CUU[khoa];
     return [ten, ten !== goc];
   }

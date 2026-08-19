@@ -9,7 +9,7 @@ import { fmtSo, soNgayChu, soThanhChu, tinhGross } from './money';
 import { tenFileBbnt, tenFileHd } from './naming';
 import {
   BA_CHAM, cellsOfRow, nfc, paragraphsOf, ptext, replaceAcrossRuns, replacePh, rowsOfTable,
-  runsOf, tatCaParagraph, timParagraph, vaXml, W_NS,
+  runsOf, runText, setRunText, tatCaParagraph, timParagraph, vaXml, W_NS,
 } from './docxXml';
 
 const TEN_MAU = 'TRẦN TRANG ANH';
@@ -41,10 +41,10 @@ function dienBang(doc: Document, d: PreparedData, cfg: ContractSettings, ten: st
         for (const c of cellsOfRow(row)) {
           for (const p of paragraphsOf(c)) {
             for (const r of runsOf(p)) {
-              const t = Array.from(r.children).find((x) => x.namespaceURI === W_NS && x.localName === 't');
-              if (t && (t.textContent || '').trim() === BA_CHAM) {
-                t.textContent = (t.textContent || '').replace(BA_CHAM, ten);
-              }
+              // Dùng runText/setRunText (docxXml) thay vì đọc <w:t> đầu tiên: một run có thể
+              // chứa nhiều <w:t> xen <w:tab/>, đọc mỗi cái đầu là bỏ sót/ghi lệch.
+              const t = runText(r);
+              if (t.trim() === BA_CHAM) setRunText(r, t.replace(BA_CHAM, ten));
             }
           }
         }

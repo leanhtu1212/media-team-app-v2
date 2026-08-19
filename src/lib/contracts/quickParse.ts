@@ -80,6 +80,12 @@ const TRUONG_SO = new Set(['cccd', 'sdt', 'so_tk', 'mst']);
 // Ký tự rác hay dính vào đầu/cuối dòng khi copy.
 const RAC = ' \t"\'“”«»*•-–—';
 
+/** `khoa in NHAN` đi cả prototype chain — nhãn "constructor:" / "toString:" sẽ khớp bậy và
+ *  ném giá trị vào trường rác. Luôn tra bằng hasOwnProperty. */
+function coKhoa(obj: Record<string, unknown>, khoa: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, khoa);
+}
+
 function goRac(s: string): string {
   let a = 0;
   let b = s.length;
@@ -151,7 +157,7 @@ export function phanTichNhanh(text: string): QuickParseResult {
     const giaTriRaw = dau ? dong.slice(iHai + 1) : '';
     const khoa = chuanHoa(goRac(nhan));
 
-    if (dau && khoa in NHAN_GOP) {
+    if (dau && coKhoa(NHAN_GOP, khoa)) {
       const rawTrimmed = goRac(giaTriRaw);
       const mManh = rawTrimmed.match(/^(.*?)\s+[-–]\s+(.*)$/s);
       const manh = mManh ? [mManh[1].trim(), mManh[2].trim()] : [rawTrimmed.trim()];
@@ -166,7 +172,7 @@ export function phanTichNhanh(text: string): QuickParseResult {
       continue;
     }
 
-    if (dau && khoa in NHAN) {
+    if (dau && coKhoa(NHAN, khoa)) {
       const truong = NHAN[khoa];
       if (dat(form, truong, goRac(giaTriRaw))) nhanRa.push(NHAN_HIEN[truong]);
       // 'Ông:' / 'Bà:' vừa là nhãn tên vừa cho biết xưng hô; 'Ông/Bà:' là nhãn in sẵn

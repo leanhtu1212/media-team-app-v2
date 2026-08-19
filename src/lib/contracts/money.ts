@@ -53,10 +53,6 @@ export function fmtSo(n: number): string {
     .replace(/,/g, '.');
 }
 
-export function fmtMoney(n: number): string {
-  return `${fmtSo(n)} VNĐ`;
-}
-
 /** Giá trị hợp đồng trước thuế, suy từ số tiền thực nhận. */
 export function tinhGross(net: number, thue = 0.1): number {
   return Math.round(net / (1 - thue));

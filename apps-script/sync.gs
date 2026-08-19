@@ -14,6 +14,31 @@
  *      (Apple Calendar → File → New Calendar Subscription → dán URL webcal://.../exec)
  *
  * LƯU Ý: mỗi lần đổi code phải Deploy version mới thì URL mới có doGet trả .ics.
+ *
+ * ============================================================================
+ * BẮT BUỘC cho tính năng Hợp đồng KOL/KOC (2026-08) — Script Properties
+ * ============================================================================
+ * Web app này chạy dưới quyền "Execute as: Me / Who has access: Anyone", tức là
+ * BẤT KỲ AI biết URL cũng gọi được. URL lại nằm ở team doc mà mọi thành viên đọc
+ * được. Vì dữ liệu hợp đồng có CCCD + số tài khoản, ba endpoint hợp đồng:
+ *   - KHÔNG nhận sheetId / rootFolderId từ phía client nữa (đọc từ Script Property),
+ *   - BẮT BUỘC kèm token khớp CONTRACT_TOKEN,
+ *   - chỉ ghi được vào thư mục nằm BÊN TRONG CONTRACT_ROOT_FOLDER_ID.
+ * Feed .ics và đồng bộ Google Sheet giữ nguyên như cũ, KHÔNG cần token.
+ *
+ * Cách đặt: Apps Script → Project Settings (Cài đặt dự án) → Script Properties →
+ * Add script property, thêm 4 dòng:
+ *   CONTRACT_SHEET_ID        = id của Google Sheet "Danh sách làm HĐ"
+ *                              (phần giữa /d/ và /edit trong URL sheet)
+ *   CONTRACT_SHEET_TAB       = tên tab chứa danh sách (vd: Thanh Toán)
+ *   CONTRACT_ROOT_FOLDER_ID  = id thư mục Drive gốc để lưu HĐ/BBNT
+ *                              (phần sau /folders/ trong URL thư mục)
+ *   CONTRACT_TOKEN           = chuỗi bí mật tự đặt (dài, ngẫu nhiên). Dán ĐÚNG chuỗi
+ *                              này vào app → trang Hợp đồng → Cài đặt → "Token".
+ *                              Token lưu ở teams/{id}/private/contracts (admin-only).
+ * Thiếu property nào thì endpoint tương ứng trả { ok:false, error:... } chứ không chạy.
+ * Đổi CONTRACT_TOKEN thì phải sửa lại token trong app; KHÔNG cần Deploy lại
+ * (Script Properties đọc lúc chạy), nhưng đổi CODE thì vẫn phải Deploy version mới.
  */
 
 function doPost(e) {
@@ -135,18 +160,52 @@ function loadIcs_() {
 }
 
 // ============ Hợp đồng KOL/KOC (thêm 2026-08) ============
-// GET  ?action=contract-list&sheetId=...&sheetTab=...            -> { ok, rows: [[...], ...] }
-// POST {action:'contract-drive-match', ten, rootFolderId, depth}  -> { ok, ket_qua: [{id,name}] }
-// POST {action:'contract-drive-copy', filename, base64, folderId?, rootFolderId?, ten?}
+// GET  ?action=contract-list&token=...                     -> { ok, rows: [[...], ...] }
+// POST {action:'contract-drive-match', token, ten, depth}  -> { ok, ket_qua: [{id,name}] }
+// POST {action:'contract-drive-copy', token, filename, base64, folderId?, ten?}
 //      -> { ok, fileId, name, folderId }
 // Đọc sheet CHỈ trả raw rows — việc hiểu cột nào là gì nằm ở client (src/lib/contracts/sheetSync.ts),
 // để không lặp logic quick_parse/sheet_sync ở hai ngôn ngữ.
+//
+// BẢO MẬT: sheetId / rootFolderId / sheetTab KHÔNG còn lấy từ request (xem khối chú thích
+// đầu file). Nếu client vẫn gửi kèm thì bị BỎ QUA hoàn toàn — nếu không, ai biết URL webhook
+// cũng đọc được sheet bất kỳ hoặc ghi file vào thư mục Drive bất kỳ của chủ script.
+
+function prop_(ten) {
+  var v = PropertiesService.getScriptProperties().getProperty(ten);
+  return v ? String(v).trim() : '';
+}
+
+/** Token khớp CONTRACT_TOKEN? Chưa đặt property = khoá cứng (không cho gọi). */
+function tokenOk_(token) {
+  var mong = prop_('CONTRACT_TOKEN');
+  if (!mong) return false;
+  var nhan = token ? String(token) : '';
+  if (nhan.length !== mong.length) return false;
+  // So từng ký tự, không thoát sớm — tránh lộ độ dài prefix đúng qua thời gian phản hồi.
+  var lech = 0;
+  for (var i = 0; i < mong.length; i++) {
+    lech |= mong.charCodeAt(i) ^ nhan.charCodeAt(i);
+  }
+  return lech === 0;
+}
+
+/** Lỗi chung cho mọi trường hợp từ chối — không mô tả thiếu token hay sai token. */
+function tuChoi_() {
+  return json_({ ok: false, error: 'Không có quyền' });
+}
 
 function contractList_(params) {
   try {
-    var ss = SpreadsheetApp.openById(params.sheetId);
-    var sh = ss.getSheetByName(params.sheetTab);
-    if (!sh) return json_({ ok: false, error: 'Không tìm thấy tab "' + params.sheetTab + '"' });
+    if (!tokenOk_(params && params.token)) return tuChoi_();
+    var sheetId = prop_('CONTRACT_SHEET_ID');
+    var sheetTab = prop_('CONTRACT_SHEET_TAB');
+    if (!sheetId || !sheetTab) {
+      return json_({ ok: false, error: 'Chưa đặt Script Property CONTRACT_SHEET_ID / CONTRACT_SHEET_TAB' });
+    }
+    var ss = SpreadsheetApp.openById(sheetId);
+    var sh = ss.getSheetByName(sheetTab);
+    if (!sh) return json_({ ok: false, error: 'Không tìm thấy tab "' + sheetTab + '"' });
     var lastRow = Math.max(1, sh.getLastRow());
     var rows = sh.getRange(1, 1, lastRow, 10).getDisplayValues();
     return json_({ ok: true, rows: rows });
@@ -189,7 +248,13 @@ function chuanHoaTen_(s) {
 
 function contractDriveMatch_(data) {
   try {
-    var con = folderConTheoDoSau_(data.rootFolderId, data.depth || 2);
+    if (!tokenOk_(data && data.token)) return tuChoi_();
+    var rootId = prop_('CONTRACT_ROOT_FOLDER_ID');
+    if (!rootId) return json_({ ok: false, error: 'Chưa đặt Script Property CONTRACT_ROOT_FOLDER_ID' });
+    // depth vẫn nhận từ client nhưng chặn trên 5 tầng: chỉ ảnh hưởng phạm vi quét BÊN TRONG
+    // thư mục gốc, không mở rộng ra ngoài.
+    var doSau = Math.min(5, Math.max(1, Number(data.depth) || 2));
+    var con = folderConTheoDoSau_(rootId, doSau);
     var khoa = chuanHoaTen_(data.ten);
     var khop = con.filter(function (f) {
       return chuanHoaTen_(f.getName()) === khoa;
@@ -242,14 +307,52 @@ function tenKhongTrung_(folder, ten) {
   return than + ' (' + i + ').docx';
 }
 
+/** `folderId` có nằm trong (hoặc chính là) `rootId` không? Đi ngược lên qua getParents(),
+ *  giới hạn 10 tầng + 40 nút để không treo trên cây thư mục lạ. Một thư mục Drive có thể có
+ *  NHIỀU cha nên phải duyệt rộng chứ không chỉ cha đầu tiên. */
+function laConCuaGoc_(folderId, rootId) {
+  if (!folderId || !rootId) return false;
+  if (folderId === rootId) return true;
+  var hangDoi = [DriveApp.getFolderById(folderId)];
+  var daXet = {};
+  daXet[folderId] = true;
+  var soNut = 0;
+  for (var tang = 0; tang < 10 && hangDoi.length; tang++) {
+    var keTiep = [];
+    for (var i = 0; i < hangDoi.length; i++) {
+      var ps = hangDoi[i].getParents();
+      while (ps.hasNext()) {
+        var p = ps.next();
+        var pid = p.getId();
+        if (pid === rootId) return true;
+        if (daXet[pid]) continue;
+        daXet[pid] = true;
+        if (++soNut > 40) return false;
+        keTiep.push(p);
+      }
+    }
+    hangDoi = keTiep;
+  }
+  return false;
+}
+
 function contractDriveCopy_(data) {
   try {
+    if (!tokenOk_(data && data.token)) return tuChoi_();
+    var rootId = prop_('CONTRACT_ROOT_FOLDER_ID');
+    if (!rootId) return json_({ ok: false, error: 'Chưa đặt Script Property CONTRACT_ROOT_FOLDER_ID' });
     var folder;
     if (data.folderId) {
+      // folderId đến từ kết quả contract-drive-match trước đó, nhưng vẫn phải kiểm lại:
+      // request là do client gửi nên không được tin, nếu không thì ghi được file (kèm CCCD,
+      // số tài khoản) vào bất kỳ thư mục nào mà chủ script có quyền.
+      if (!laConCuaGoc_(String(data.folderId), rootId)) {
+        return json_({ ok: false, error: 'Thư mục đích không nằm trong thư mục gốc đã cấu hình' });
+      }
       folder = DriveApp.getFolderById(data.folderId);
     } else {
-      var rootFolder = DriveApp.getFolderById(data.rootFolderId);
-      var thangFolder = timFolderThang_(data.rootFolderId);
+      var rootFolder = DriveApp.getFolderById(rootId);
+      var thangFolder = timFolderThang_(rootId);
       var cha = thangFolder || rootFolder;
       var hienCo = cha.getFoldersByName(data.ten);
       folder = hienCo.hasNext() ? hienCo.next() : cha.createFolder(data.ten);

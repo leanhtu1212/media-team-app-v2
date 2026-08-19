@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtMoney, fmtSo, soNgayChu, soThanhChu, tinhGross } from './money';
+import { fmtSo, soNgayChu, soThanhChu, tinhGross } from './money';
 
 describe('soThanhChu', () => {
   it('đọc số 0', () => expect(soThanhChu(0)).toBe('Không'));
@@ -15,10 +15,6 @@ describe('soThanhChu', () => {
 describe('fmtSo', () => {
   it('phân cách nghìn bằng dấu chấm', () => expect(fmtSo(1000000)).toBe('1.000.000'));
   it('số nhỏ không có dấu chấm', () => expect(fmtSo(500)).toBe('500'));
-});
-
-describe('fmtMoney', () => {
-  it('thêm hậu tố VNĐ', () => expect(fmtMoney(1000000)).toBe('1.000.000 VNĐ'));
 });
 
 describe('tinhGross', () => {

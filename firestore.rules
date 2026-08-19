@@ -152,6 +152,13 @@ service cloud.firestore {
       match /contractPartners/{partnerId} {
         allow read, write: if isAdmin(teamId);
       }
+
+      // Private Subcollection — bí mật KHÔNG được để trên team doc (mọi thành viên đọc team doc).
+      // Hiện chứa doc 'contracts' với contractToken: token gọi 3 endpoint hợp đồng của Apps
+      // Script; ai có token là đọc được sheet CCCD/số tài khoản nên phải admin-only.
+      match /private/{docId} {
+        allow read, write: if isAdmin(teamId);
+      }
     }
   }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BA_CHAM, nfc, ptext, replaceAcrossRuns, replacePh, runsOf, tatCaParagraph, timParagraph, vaXml, W_NS,
+  BA_CHAM, nfc, ptext, replaceAcrossRuns, replacePh, runsOf, runText, setRunText,
+  tatCaParagraph, timParagraph, vaXml, W_NS,
 } from './docxXml';
 
 function docTuXml(bodyInnerXml: string): Document {
@@ -44,6 +45,41 @@ describe('replacePh', () => {
     const [p] = tatCaParagraph(doc);
     replacePh(p, ['Nguyễn Văn A']);
     expect(ptext(p)).toBe('Tên: Nguyễn Văn A');
+  });
+});
+
+describe('run nhiều <w:t> xen <w:tab/> (runText/setRunText)', () => {
+  // Tình huống thật của template: 2 nhãn "CCCD số:" và "Ngày cấp:" nằm trong CÙNG 1 run,
+  // cách nhau bằng <w:tab/>, mỗi đoạn text là 1 <w:t> riêng. Đọc mỗi <w:t> đầu tiên là mất
+  // nửa sau → placeholder thứ 2 không bao giờ được điền.
+  const runTabTab = `<w:p><w:r>` +
+    `<w:t xml:space="preserve">CCCD số: ${BA_CHAM}</w:t><w:tab/>` +
+    `<w:t xml:space="preserve">Ngày cấp: ${BA_CHAM}</w:t>` +
+    `</w:r></w:p>`;
+
+  it('runText gộp mọi w:t con và đổi <w:tab/> thành \\t', () => {
+    const doc = docTuXml(runTabTab);
+    const [r] = runsOf(tatCaParagraph(doc)[0]);
+    expect(runText(r)).toBe(`CCCD số: ${BA_CHAM}\tNgày cấp: ${BA_CHAM}`);
+  });
+
+  it('setRunText dựng lại đúng w:t / w:tab và giữ w:rPr', () => {
+    const doc = docTuXml(
+      `<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>a</w:t><w:tab/><w:t>b</w:t></w:r></w:p>`,
+    );
+    const [r] = runsOf(tatCaParagraph(doc)[0]);
+    setRunText(r, 'X\tY');
+    expect(runText(r)).toBe('X\tY');
+    expect(r.getElementsByTagNameNS(W_NS, 'b').length).toBe(1); // rPr còn nguyên
+    expect(r.getElementsByTagNameNS(W_NS, 'tab').length).toBe(1);
+    expect(r.getElementsByTagNameNS(W_NS, 't').length).toBe(2);
+  });
+
+  it('replacePh điền được CẢ HAI placeholder trong cùng 1 run có tab', () => {
+    const doc = docTuXml(runTabTab);
+    const [p] = tatCaParagraph(doc);
+    replacePh(p, ['0010012345', '01/01/2020']);
+    expect(runText(runsOf(p)[0])).toBe('CCCD số: 0010012345\tNgày cấp: 01/01/2020');
   });
 });
 

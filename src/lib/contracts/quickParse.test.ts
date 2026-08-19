@@ -74,4 +74,12 @@ describe('phanTichNhanh', () => {
     expect(r.form.so_tk).toBe('123456');
     expect(r.form.ngan_hang).toBe('Foobar Bank - Chi nhánh ABC');
   });
+
+  // Nhãn trùng key trên Object.prototype: `khoa in NHAN` sẽ khớp bậy và nhét giá trị vào một
+  // trường ngẫu nhiên thay vì báo `khongRo`.
+  it('nhãn trùng key Object.prototype rơi vào khongRo, không nhét bừa vào form', () => {
+    const r = phanTichNhanh('constructor: abc\ntoString: xyz');
+    expect(r.form).toEqual({});
+    expect(r.khongRo).toEqual(['constructor: abc', 'toString: xyz']);
+  });
 });

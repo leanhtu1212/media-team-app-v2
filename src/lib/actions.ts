@@ -74,6 +74,9 @@ export const ref = {
   note: (id: string) => doc(db, ...teamPath, 'notes', id),
   tag: (id: string) => doc(db, ...teamPath, 'tags', id),
   contractPartner: (id: string) => doc(db, ...teamPath, 'contractPartners', id),
+  // teams/{id}/private/contracts — bí mật admin-only (token webhook hợp đồng). KHÔNG để trên
+  // team doc: team doc mọi thành viên đọc được, mà token cho phép đọc sheet CCCD/STK.
+  contractPrivate: () => doc(db, ...teamPath, 'private', 'contracts'),
 };
 
 /* ---------- Projects ---------- */
@@ -545,11 +548,22 @@ const CONTRACT_FORM_TO_PARTNER: Record<string, keyof ContractPartner> = {
   sdt: 'sdt', email: 'email', ten_tk: 'tenTk', so_tk: 'soTk', ngan_hang: 'nganHang',
 };
 
+/** Id doc lịch sử đối tác. `chuanHoa` bỏ dấu + gộp khoảng trắng nhưng KHÔNG bỏ '/', mà '/'
+ *  cắt path Firestore (tên "A/B" → path sai). Bỏ luôn các ký tự Firestore cấm khác. */
+export function idDoiTac(hoTen: string): string {
+  return chuanHoa(hoTen)
+    .replace(/[/\\.[\]*~#$?]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ');
+}
+
 /** Lưu/ghi đè lịch sử đối tác sau khi tạo file thành công — port `store.luu` (history.json). */
 export async function luuContractPartner(form: ContractForm): Promise<void> {
   const hoTen = String(form.ho_ten || '').trim();
   if (!hoTen) return;
-  const id = chuanHoa(hoTen);
+  const id = idDoiTac(hoTen);
+  if (!id) return;
   const snap = await getDoc(ref.contractPartner(id));
   const truoc = snap.exists() ? (snap.data() as ContractPartner) : null;
 
@@ -570,4 +584,14 @@ export async function luuContractPartner(form: ContractForm): Promise<void> {
 /** Ghi đè toàn bộ cài đặt tính năng Hợp đồng (giống ghi_cai_dat của bản Python — ghi cả object). */
 export async function capNhatContractSettings(settings: ContractSettingsDoc): Promise<void> {
   await updateDoc(ref.team(), { contractSettings: settings });
+}
+
+/** Token dùng chung với Apps Script (Script Property CONTRACT_TOKEN). Lưu ở doc admin-only. */
+export async function docContractToken(): Promise<string> {
+  const snap = await getDoc(ref.contractPrivate());
+  return snap.exists() ? String((snap.data() as { contractToken?: string }).contractToken || '') : '';
+}
+
+export async function luuContractToken(token: string): Promise<void> {
+  await setDoc(ref.contractPrivate(), { contractToken: token.trim() }, { merge: true });
 }

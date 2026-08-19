@@ -37,7 +37,7 @@ export function runsOf(p: Element): Element[] {
 /** Text đầy đủ của 1 <w:r>, khớp hành vi `Run.text` của python-docx: gộp MỌI <w:t> con trực
  *  tiếp (một run có thể chứa nhiều <w:t> xen <w:tab/>, ví dụ 2 nhãn "CCCD số:"/"Ngày cấp:"
  *  cách nhau bằng tab trong CÙNG 1 run), <w:tab/> → '\t', <w:br/>/<w:cr/> → '\n'. */
-function runText(r: Element): string {
+export function runText(r: Element): string {
   let out = '';
   for (const child of Array.from(r.children)) {
     if (isW(child, 't')) out += child.textContent || '';
@@ -49,7 +49,7 @@ function runText(r: Element): string {
 
 /** Ghi lại toàn bộ nội dung text của 1 <w:r>, dựng lại <w:t>/<w:tab/>/<w:br/> từ chuỗi (đảo
  *  ngược runText) — giữ nguyên các con khác của run (vd <w:rPr>) và thứ tự tab/br gốc. */
-function setRunText(r: Element, text: string): void {
+export function setRunText(r: Element, text: string): void {
   for (const child of Array.from(r.children)) {
     if (isW(child, 't') || isW(child, 'tab') || isW(child, 'br') || isW(child, 'cr')) {
       r.removeChild(child);

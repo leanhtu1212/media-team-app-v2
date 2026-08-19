@@ -215,9 +215,11 @@ export interface ContractSettingsDoc {
   ngayThanhLy: number;
   hangMucBbnt: string;
   anhRongInch: number;
-  sheetId: string;
-  sheetTab: string;
-  thuMucGocDriveId: string; // Drive folder ID (không phải đường dẫn ổ G: như bản Python)
+  // Sheet id / tên tab / thư mục Drive gốc ĐÃ CHUYỂN SANG SERVER (Apps Script → Project
+  // Settings → Script Properties: CONTRACT_SHEET_ID / CONTRACT_SHEET_TAB /
+  // CONTRACT_ROOT_FOLDER_ID). Webhook chạy dưới quyền chủ script và URL thì mọi thành viên
+  // đọc được, nên client KHÔNG được phép chỉ định sheet/thư mục nữa. Doc cũ trong Firestore
+  // còn 3 field này thì bị bỏ qua.
   doSauDoFolder: number;
 }
 
