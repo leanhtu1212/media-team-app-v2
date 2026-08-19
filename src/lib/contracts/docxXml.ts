@@ -34,23 +34,50 @@ export function runsOf(p: Element): Element[] {
   return directChildren(p, 'r');
 }
 
-function tOf(r: Element): Element | undefined {
-  return directChildren(r, 't')[0];
-}
-
+/** Text đầy đủ của 1 <w:r>, khớp hành vi `Run.text` của python-docx: gộp MỌI <w:t> con trực
+ *  tiếp (một run có thể chứa nhiều <w:t> xen <w:tab/>, ví dụ 2 nhãn "CCCD số:"/"Ngày cấp:"
+ *  cách nhau bằng tab trong CÙNG 1 run), <w:tab/> → '\t', <w:br/>/<w:cr/> → '\n'. */
 function runText(r: Element): string {
-  const t = tOf(r);
-  return t ? t.textContent || '' : '';
+  let out = '';
+  for (const child of Array.from(r.children)) {
+    if (isW(child, 't')) out += child.textContent || '';
+    else if (isW(child, 'tab')) out += '\t';
+    else if (isW(child, 'br') || isW(child, 'cr')) out += '\n';
+  }
+  return out;
 }
 
+/** Ghi lại toàn bộ nội dung text của 1 <w:r>, dựng lại <w:t>/<w:tab/>/<w:br/> từ chuỗi (đảo
+ *  ngược runText) — giữ nguyên các con khác của run (vd <w:rPr>) và thứ tự tab/br gốc. */
 function setRunText(r: Element, text: string): void {
-  let t = tOf(r);
-  if (!t) {
-    t = r.ownerDocument!.createElementNS(W_NS, 'w:t');
-    r.appendChild(t);
+  for (const child of Array.from(r.children)) {
+    if (isW(child, 't') || isW(child, 'tab') || isW(child, 'br') || isW(child, 'cr')) {
+      r.removeChild(child);
+    }
   }
-  t.textContent = text;
-  if (/^\s|\s$/.test(text)) t.setAttribute('xml:space', 'preserve');
+  const doc = r.ownerDocument!;
+  let buf = '';
+  const flush = () => {
+    if (buf === '') return;
+    const t = doc.createElementNS(W_NS, 'w:t');
+    t.textContent = buf;
+    if (/^\s|\s$/.test(buf)) t.setAttribute('xml:space', 'preserve');
+    r.appendChild(t);
+    buf = '';
+  };
+  for (const ch of text) {
+    if (ch === '\t') {
+      flush();
+      r.appendChild(doc.createElementNS(W_NS, 'w:tab'));
+    } else if (ch === '\n') {
+      flush();
+      r.appendChild(doc.createElementNS(W_NS, 'w:br'));
+    } else {
+      buf += ch;
+    }
+  }
+  flush();
+  if (text === '') r.appendChild(doc.createElementNS(W_NS, 'w:t'));
 }
 
 /** Thay lần lượt từng placeholder '…' hoặc '...' bằng values[i]. null giữ nguyên placeholder.
