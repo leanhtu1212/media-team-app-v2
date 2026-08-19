@@ -88,4 +88,13 @@ describe('taoHaiFile', () => {
     const fonts = await hangMucRunFonts(bbntBlob);
     expect(fonts).toEqual(['Times New Roman', 'Times New Roman']);
   });
+
+  it('kèm ảnh chứng minh vẫn sinh file hợp lệ, không còn placeholder', async () => {
+    const d = chuanBi({ ho_ten: 'Trần Thị C', net: 2000000, noi_dung: 'Chụp ảnh sản phẩm' }, CFG, new Date(2026, 7, 19));
+    const pngBytes = Uint8Array.from(
+      Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAFUlEQVR4nGP8z8DwnwEIGAkFjIMBAJqOA/8DfLQ2AAAAAElFTkSuQmCC', 'base64'),
+    );
+    const { bbntBlob } = await taoHaiFile(d, CFG, templateBytes(), { bytes: pngBytes, widthPx: 2, heightPx: 1 });
+    expect(await demPlaceholderSot(bbntBlob)).toBe(0);
+  });
 });

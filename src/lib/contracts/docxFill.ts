@@ -4,6 +4,7 @@
 
 import JSZip from 'jszip';
 import type { ContractSettings, PreparedData } from './compute';
+import { chenAnhBbnt } from './docxImage';
 import { fmtSo, soNgayChu, soThanhChu, tinhGross } from './money';
 import { tenFileBbnt, tenFileHd } from './naming';
 import {
@@ -204,11 +205,15 @@ export interface GeneratedFiles {
  *  Contracts.tsx ở Task 12 — fetch 1 lần lúc mở trang). */
 export async function taoHaiFile(
   d: PreparedData, cfg: ContractSettings, templateBytes: ArrayBuffer,
+  anh?: { bytes: Uint8Array; widthPx: number; heightPx: number },
 ): Promise<GeneratedFiles> {
   const [hd, bb] = await Promise.all([
     luuMotNua(templateBytes, d, cfg, 'hd'),
     luuMotNua(templateBytes, d, cfg, 'bb'),
   ]);
+  if (anh) {
+    await chenAnhBbnt(bb.zip, bb.doc, anh.bytes, anh.widthPx, anh.heightPx, cfg.anhRongInch);
+  }
   docToZipXml(hd.zip, hd.doc);
   docToZipXml(bb.zip, bb.doc);
   const mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
