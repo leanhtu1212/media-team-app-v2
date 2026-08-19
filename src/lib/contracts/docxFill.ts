@@ -59,6 +59,17 @@ function dienBang(doc: Document, d: PreparedData, cfg: ContractSettings, ten: st
         if (!p) return;
         for (const r of runsOf(p)) p.removeChild(r);
         const r = doc.createElementNS(W_NS, 'w:r');
+        // Khớp python-docx `rr.font.name = "Times New Roman"`: mặc định của document.xml
+        // là Arial (kiểm chứng qua styles.xml của template thật), phần còn lại của bảng
+        // "Hạng mục" dùng Times New Roman — thiếu w:rPr/w:rFonts sẽ lệch font khỏi phần còn lại.
+        const rPr = doc.createElementNS(W_NS, 'w:rPr');
+        const rFonts = doc.createElementNS(W_NS, 'w:rFonts');
+        rFonts.setAttribute('w:ascii', 'Times New Roman');
+        rFonts.setAttribute('w:hAnsi', 'Times New Roman');
+        rFonts.setAttribute('w:cs', 'Times New Roman');
+        rFonts.setAttribute('w:eastAsia', 'Times New Roman');
+        rPr.appendChild(rFonts);
+        r.appendChild(rPr);
         const t = doc.createElementNS(W_NS, 'w:t');
         t.textContent = txt;
         if (/^\s|\s$/.test(txt)) t.setAttribute('xml:space', 'preserve');

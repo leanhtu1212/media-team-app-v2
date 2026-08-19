@@ -21,6 +21,28 @@ async function docxText(blob: Blob): Promise<string> {
   return xml;
 }
 
+const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+
+/** Tìm run điền vào cột "Hạng mục"/"Nội dung" của bảng BBNT (bảng có header chứa "Hạng mục"),
+ *  trả về giá trị w:ascii của w:rFonts (hoặc null nếu run không có w:rPr/w:rFonts). */
+async function hangMucRunFonts(blob: Blob): Promise<(string | null)[]> {
+  const xml = await docxText(blob);
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const tbls = Array.from(doc.getElementsByTagNameNS(W_NS, 'tbl'));
+  const tb = tbls.find((t) => {
+    const firstRow = t.getElementsByTagNameNS(W_NS, 'tr')[0];
+    return firstRow && (firstRow.textContent || '').includes('Hạng mục');
+  });
+  if (!tb) return [];
+  const rows = Array.from(tb.getElementsByTagNameNS(W_NS, 'tr'));
+  const dataRow = rows[1];
+  const cells = Array.from(dataRow.children).filter((c) => c.namespaceURI === W_NS && c.localName === 'tc');
+  return cells.slice(0, 2).map((c) => {
+    const rFonts = c.getElementsByTagNameNS(W_NS, 'rFonts')[0];
+    return rFonts ? rFonts.getAttribute('w:ascii') : null;
+  });
+}
+
 describe('taoHaiFile', () => {
   it('sinh 2 file, không còn placeholder sót', async () => {
     const d = chuanBi(
@@ -58,5 +80,12 @@ describe('taoHaiFile', () => {
     // Nhãn "HDDV"/"BBNT" tự thân (paragraph đánh dấu) không còn trong file tương ứng.
     expect(hdXml).not.toContain('>BBNT<');
     expect(bbXml).not.toContain('>HDDV<');
+  });
+
+  it('bảng "Hạng mục" trong BBNT dùng font Times New Roman (khớp Python: rr.font.name)', async () => {
+    const d = chuanBi({ ho_ten: 'Nguyễn Văn A', net: 1000000, noi_dung: 'Quay video' }, CFG, new Date(2026, 7, 19));
+    const { bbntBlob } = await taoHaiFile(d, CFG, templateBytes());
+    const fonts = await hangMucRunFonts(bbntBlob);
+    expect(fonts).toEqual(['Times New Roman', 'Times New Roman']);
   });
 });
