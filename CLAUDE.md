@@ -20,13 +20,15 @@ SPA quản lý team media (2–5 người, tiếng Việt) được **build lạ
 ## Cấu trúc
 ```
 src/
-├── App.tsx            # auth gate + view switching (dashboard/me/projects/daily/contentlist/reports/performance/settings)
+├── App.tsx            # auth gate + view switching (dashboard/me/projects/daily/contentlist/contracts/reports/performance/settings)
+├── assets/contracts/HDDV_BBNT_Mau_moi.docx  # mẫu Word bundle sẵn (nhị phân, xem mục 15)
 ├── lib/  firebase.ts, kpi.ts, sheets.ts, utils.ts, actions.ts (mọi ghi Firestore), points.ts (chỉ còn DEFAULT_PRODUCT_TYPES)
+│        contracts/*.ts + *.test.ts (HĐ/BBNT KOL/KOC — mục 15)
 ├── types/index.ts
 ├── store/AppDataContext.tsx  # onSnapshot tất cả collections (tasks qua collectionGroup không filter, lọc path client-side)
 ├── hooks/useToast.tsx
 ├── components/ui/index.tsx (Button, Modal, Badge, STATUS_BADGE/LABEL...), layout/Sidebar.tsx
-└── pages/ Dashboard, Me, Projects, ProjectDetail, DailyContent, ContentList, Reports, Performance, Settings, Login
+└── pages/ Dashboard, Me, Projects, ProjectDetail, DailyContent, ContentList, Contracts, Reports, Performance, Settings, Login
 ```
 
 ## Nghiệp vụ hiện tại (đã thay đổi nhiều so với app cũ!)
@@ -68,6 +70,18 @@ src/
 12. **Kéo-thả kanban** (HTML5 DnD thuần, editor trở lên): kéo card dự án giữa các cột đổi status; kéo card Daily Content ở view kanban đổi status. Projects có ô tìm kiếm không dấu (normalize) theo tên/loại sản phẩm/mô tả.
 13. **Form UX**: `Modal` nhận prop `onSubmit` → bọc children trong `<form>`, Enter trong input tự submit (Textarea vẫn xuống dòng bình thường); nút chính đặt `type="submit"`, nút phụ để mặc định (Button mặc định `type="button"` để không vô tình submit). Áp dụng cho mọi form tạo/sửa (project, task, daily content, báo cáo, thành viên, đổi mật khẩu). Guard hợp lệ đặt trong hàm submit (không chỉ dựa disabled của nút).
 14. **Drawer chi tiết** (`Drawer` trong ui, prop `side='left'|'right'`, animation `slide-in-left/right` trong index.css): nhấn đúp (double-click) vào task ở ProjectDetail hoặc card/ô-lịch Daily Content → mở panel chi tiết trượt từ trái (read-only + nút Sửa nếu có quyền). MemberDetail ở Performance vẫn là drawer phải tự viết (chưa refactor sang `Drawer`).
+
+15. **HỢP ĐỒNG KOL/KOC (2026-08)** — tab admin-only sinh file Word `.docx` ngay trong trình duyệt, port từ app Python `D:\App`:
+   - Trang `src/pages/Contracts.tsx`, view key `contracts`, menu "Hợp đồng" (`show: a => a.isAdmin`). Không có route riêng, vẫn switch bằng state như mọi view khác.
+   - Module `src/lib/contracts/`: `money.ts` (đọc số thành chữ, `tinhGross` net→gross) · `naming.ts` (`chuanHoa`, số HĐ `DDMMYY/HĐ/ALC-<viết tắt>`, tên file) · `banks.ts` (chuẩn tên ngân hàng) · `quickParse.ts` (bóc cột "Thông tin" thành form) · `sheetSync.ts` (hàng sheet → `SheetRow`) · `compute.ts` (`chuanBi`/`xemTruoc`, `LoiNguoiDung`) · `docxXml.ts` (thao tác `w:p`/`w:r` trên DOM) · `docxFill.ts` (điền mẫu, tách 2 file, `demPlaceholderSot`) · `docxImage.ts` (chèn ảnh vào BBNT) · `imageCrop.ts` (canvas crop + thu nhỏ). File mẫu là **asset nhị phân bundle sẵn** `src/assets/contracts/HDDV_BBNT_Mau_moi.docx` — sửa mẫu là phải kiểm lại `docxFill.test.ts`.
+   - **`banks.ts`/`quickParse.ts` chỉ được chạy ở bước NHẬP dữ liệu, không bao giờ lúc tạo file**: thứ người dùng nhìn thấy trong ô phải đúng bằng thứ đi vào hợp đồng. Sửa gì thì UI phải hiện ra (`SheetRow.goc` = giá trị trước khi app đổi, `SheetRow.khongRo` = dòng parser không hiểu — cả hai đều render trong modal sửa, **đừng bỏ**).
+   - **Tra bảng bằng `Object.prototype.hasOwnProperty.call`, KHÔNG dùng `khoa in obj`** (helper `coKhoa` trong cả 2 file): `in` đi prototype chain nên nhãn "constructor" ghi `function Object() {...}` vào ô ngân hàng của văn bản pháp lý. Có test.
+   - Firestore: collection `contractPartners` (lịch sử đối tác để autofill, id doc = `idDoiTac(hoTen)` trong actions.ts — `chuanHoa` **cộng thêm** bỏ `/ \ . [ ] * ~ # $ ?` vì các ký tự này phá path Firestore) · field `contractSettings` trên team doc · doc **`teams/{id}/private/contracts`** giữ `contractToken`. Rules: `contractPartners` và `private/{docId}` đều **admin-only** (chứa CCCD/số tài khoản/token).
+   - **Apps Script (`apps-script/sync.gs`) — BẮT BUỘC 4 Script Property**: `CONTRACT_SHEET_ID`, `CONTRACT_SHEET_TAB`, `CONTRACT_ROOT_FOLDER_ID`, `CONTRACT_TOKEN` (Apps Script → Project Settings → Script Properties). Web app deploy "Execute as: Me / Who has access: Anyone" và URL nằm ở team doc mà mọi thành viên đọc được, nên 3 endpoint hợp đồng (`contract-list` GET, `contract-drive-match` / `contract-drive-copy` POST) **không nhận sheetId/rootFolderId từ client** (gửi lên cũng bị bỏ qua), **bắt buộc token khớp** `CONTRACT_TOKEN`, và `contract-drive-copy` kiểm `folderId` phải là con của thư mục gốc. Feed `.ics` + sheet-sync cũ **không** cần token, đừng gate chúng. Đổi code .gs vẫn phải Deploy version mới; đổi Script Property thì không.
+   - Luồng copy Drive **luôn 2 bước**: `contract-drive-match` → hiện danh sách folder tìm được → người dùng chọn (hoặc "tạo folder mới") → `contract-drive-copy`. Server khớp cả chuỗi con nên "Anh" trúng "Anh Tuấn" — **không bao giờ tự upload vào `ket_qua[0]`**.
+   - Ảnh BBNT: `catAnh` thu nhỏ cạnh dài về `anhRongInch × 300` px trước khi encode PNG (ảnh 12 MP không hạ kích thước → .docx vài chục MB, base64 treo trình duyệt, Apps Script từ chối). `blobToBase64` trong Contracts.tsx mã hoá theo lô 8 KB.
+   - Tạo file xong là `setGenerated` NGAY (file đã tải về rồi), lưu `contractPartners` bọc try/catch riêng — lỗi ghi lịch sử không được làm mất nút "Copy lên Drive".
+16. **TEST RUNNER (mới ở nhánh này)**: repo giờ có **vitest** (`npm test` = `vitest run`, `vitest.config.ts` với `environment: 'jsdom'`). Quy ước: file test **đặt cạnh file nguồn**, tên `xxx.test.ts` (hiện chỉ có trong `src/lib/contracts/`). Trước khi commit chạy CẢ `npx tsc --noEmit` lẫn `npm test`. Code mới trong `src/lib/**` (hàm thuần) nên có test kèm; component React chưa có hạ tầng test.
 
 ## App cũ (tham khảo, không sửa)
 - Repo GitHub `leanhtu1212/media-anna-manage`, deploy Mắt Bão/Plesk qua Passenger, entry `dist/index.cjs`, build esbuild CJS. Domain: annatoiyeu.info.vn.
