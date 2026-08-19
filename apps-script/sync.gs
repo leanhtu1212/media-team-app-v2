@@ -20,6 +20,10 @@ function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
 
+    // --- Hợp đồng KOL/KOC ---
+    if (data.action === 'contract-drive-match') return contractDriveMatch_(data);
+    if (data.action === 'contract-drive-copy') return contractDriveCopy_(data);
+
     // --- Feed lịch Apple: lưu chuỗi .ics do app build sẵn ---
     if (data.type === 'ics') {
       saveIcs_(data.ics || '');
@@ -99,8 +103,11 @@ function boldSummaryRows_(sh, rows, nCol, startRow) {
   }
 }
 
-/** Apple/Google Calendar gọi GET để lấy feed .ics. */
-function doGet() {
+/** Apple/Google Calendar gọi GET để lấy feed .ics. Hợp đồng KOL/KOC gọi GET để lấy sheet. */
+function doGet(e) {
+  if (e && e.parameter && e.parameter.action === 'contract-list') {
+    return contractList_(e.parameter);
+  }
   var ics = loadIcs_();
   if (!ics) {
     ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Media Team//Lich//VI\r\nEND:VCALENDAR';
@@ -125,6 +132,137 @@ function loadIcs_() {
   var parts = [];
   for (var i = 0; i < n; i++) parts.push(props.getProperty('ICS_' + i) || '');
   return parts.join('');
+}
+
+// ============ Hợp đồng KOL/KOC (thêm 2026-08) ============
+// GET  ?action=contract-list&sheetId=...&sheetTab=...            -> { ok, rows: [[...], ...] }
+// POST {action:'contract-drive-match', ten, rootFolderId, depth}  -> { ok, ket_qua: [{id,name}] }
+// POST {action:'contract-drive-copy', filename, base64, folderId?, rootFolderId?, ten?}
+//      -> { ok, fileId, name, folderId }
+// Đọc sheet CHỈ trả raw rows — việc hiểu cột nào là gì nằm ở client (src/lib/contracts/sheetSync.ts),
+// để không lặp logic quick_parse/sheet_sync ở hai ngôn ngữ.
+
+function contractList_(params) {
+  try {
+    var ss = SpreadsheetApp.openById(params.sheetId);
+    var sh = ss.getSheetByName(params.sheetTab);
+    if (!sh) return json_({ ok: false, error: 'Không tìm thấy tab "' + params.sheetTab + '"' });
+    var lastRow = Math.max(1, sh.getLastRow());
+    var rows = sh.getRange(1, 1, lastRow, 10).getDisplayValues();
+    return json_({ ok: true, rows: rows });
+  } catch (err) {
+    return json_({ ok: false, error: String(err) });
+  }
+}
+
+/** Mọi thư mục con từ cấp 1 tới cấp `depth` của folder `rootId`. */
+function folderConTheoDoSau_(rootId, depth) {
+  var tang = [DriveApp.getFolderById(rootId)];
+  var ra = [];
+  for (var d = 0; d < Math.max(1, depth); d++) {
+    var keTiep = [];
+    for (var i = 0; i < tang.length; i++) {
+      var it = tang[i].getFolders();
+      while (it.hasNext()) {
+        var f = it.next();
+        ra.push(f);
+        keTiep.push(f);
+      }
+    }
+    if (!keTiep.length) break;
+    tang = keTiep;
+  }
+  return ra;
+}
+
+function chuanHoaTen_(s) {
+  return (s || '')
+    .toString()
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function contractDriveMatch_(data) {
+  try {
+    var con = folderConTheoDoSau_(data.rootFolderId, data.depth || 2);
+    var khoa = chuanHoaTen_(data.ten);
+    var khop = con.filter(function (f) {
+      return chuanHoaTen_(f.getName()) === khoa;
+    });
+    if (!khop.length) {
+      khop = con.filter(function (f) {
+        return chuanHoaTen_(f.getName()).indexOf(khoa) >= 0;
+      });
+    }
+    khop.sort(function (a, b) {
+      return b.getLastUpdated() - a.getLastUpdated();
+    });
+    return json_({
+      ok: true,
+      ket_qua: khop.map(function (f) {
+        return { id: f.getId(), name: f.getName() };
+      }),
+    });
+  } catch (err) {
+    return json_({ ok: false, error: String(err) });
+  }
+}
+
+/** Folder tên "T8 26" / "T8 2026" của tháng/năm hiện tại, nằm ngay dưới `rootId`. */
+function timFolderThang_(rootId) {
+  var now = new Date();
+  var thang = now.getMonth() + 1;
+  var nam = now.getFullYear();
+  var re = /^T0?(\d{1,2})[\s\-\/\._]*?(\d{2}|\d{4})$/i;
+  var con = folderConTheoDoSau_(rootId, 1);
+  var khop = con.filter(function (f) {
+    var m = re.exec(f.getName().trim());
+    if (!m) return false;
+    var t = Number(m[1]);
+    var n = Number(m[2]);
+    if (n < 100) n += 2000;
+    return t === thang && n === nam;
+  });
+  khop.sort(function (a, b) {
+    return b.getLastUpdated() - a.getLastUpdated();
+  });
+  return khop.length ? khop[0] : null;
+}
+
+function tenKhongTrung_(folder, ten) {
+  if (!folder.getFilesByName(ten).hasNext()) return ten;
+  var than = ten.replace(/\.docx$/i, '');
+  var i = 2;
+  while (folder.getFilesByName(than + ' (' + i + ').docx').hasNext()) i++;
+  return than + ' (' + i + ').docx';
+}
+
+function contractDriveCopy_(data) {
+  try {
+    var folder;
+    if (data.folderId) {
+      folder = DriveApp.getFolderById(data.folderId);
+    } else {
+      var rootFolder = DriveApp.getFolderById(data.rootFolderId);
+      var thangFolder = timFolderThang_(data.rootFolderId);
+      var cha = thangFolder || rootFolder;
+      var hienCo = cha.getFoldersByName(data.ten);
+      folder = hienCo.hasNext() ? hienCo.next() : cha.createFolder(data.ten);
+    }
+    var bytes = Utilities.base64Decode(data.base64);
+    var mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    var blob = Utilities.newBlob(bytes, mime, data.filename);
+    var tenCuoi = tenKhongTrung_(folder, data.filename);
+    var file = folder.createFile(blob).setName(tenCuoi);
+    return json_({ ok: true, fileId: file.getId(), name: file.getName(), folderId: folder.getId() });
+  } catch (err) {
+    return json_({ ok: false, error: String(err) });
+  }
 }
 
 function json_(o) {
