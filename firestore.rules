@@ -147,6 +147,11 @@ service cloud.firestore {
         allow read: if isTeamMember(teamId);
         allow create, update, delete: if isEditor(teamId);
       }
+
+      // Contract Partners Subcollection — lịch sử đối tác HĐ/BBNT (CCCD, số tài khoản): admin-only.
+      match /contractPartners/{partnerId} {
+        allow read, write: if isAdmin(teamId);
+      }
     }
   }
 }

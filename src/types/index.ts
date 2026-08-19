@@ -203,5 +203,39 @@ export interface TeamDoc {
   name?: string;
   sheetsWebhookUrl?: string;
   notifyWebhookUrl?: string; // webhook Apps Script gửi thông báo Telegram (apps-script/notify.gs)
+  contractSettings?: ContractSettingsDoc;
   createdBy?: string;
+}
+
+export interface ContractSettingsDoc {
+  luiNgayKy: number;
+  thueTNCN: number;
+  thoiHanThanhToan: number;
+  baoTruocChamDut: number;
+  ngayThanhLy: number;
+  hangMucBbnt: string;
+  anhRongInch: number;
+  sheetId: string;
+  sheetTab: string;
+  thuMucGocDriveId: string; // Drive folder ID (không phải đường dẫn ổ G: như bản Python)
+  doSauDoFolder: number;
+}
+
+/** Lịch sử đối tác HĐ/BBNT — thay data/history.json của bản Python. Có CCCD/STK: admin-only
+ *  (xem firestore.rules). id doc = chuanHoa(hoTen). */
+export interface ContractPartner {
+  id: string;
+  hoTen: string;
+  xungHo?: string;
+  cccd?: string;
+  ngayCap?: string;
+  mst?: string;
+  diaChi?: string;
+  sdt?: string;
+  email?: string;
+  tenTk?: string;
+  soTk?: string;
+  nganHang?: string;
+  soLan: number;
+  lanCuoi?: unknown; // serverTimestamp
 }

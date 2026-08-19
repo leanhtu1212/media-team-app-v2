@@ -1,10 +1,12 @@
 import {
-  addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch,
+  addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore';
 import { db, type User } from './firebase';
 import { MAIN_TEAM_ID, genId, todayStr, formatVND } from './utils';
 import { notify, displayName, diffLines, type DiffField } from './notify';
-import type { Project, Task, Report, DailyContent, Note, Tag, TaskCategory } from '../types';
+import type { Project, Task, Report, DailyContent, Note, Tag, TaskCategory, ContractPartner, ContractSettingsDoc } from '../types';
+import { chuanHoa } from './contracts/naming';
+import type { ContractForm } from './contracts/compute';
 
 const teamPath = ['teams', MAIN_TEAM_ID] as const;
 
@@ -58,6 +60,7 @@ export const col = {
   dailyContent: () => collection(db, ...teamPath, 'dailyContent'),
   notes: () => collection(db, ...teamPath, 'notes'),
   tags: () => collection(db, ...teamPath, 'tags'),
+  contractPartners: () => collection(db, ...teamPath, 'contractPartners'),
 };
 
 export const ref = {
@@ -70,6 +73,7 @@ export const ref = {
   daily: (id: string) => doc(db, ...teamPath, 'dailyContent', id),
   note: (id: string) => doc(db, ...teamPath, 'notes', id),
   tag: (id: string) => doc(db, ...teamPath, 'tags', id),
+  contractPartner: (id: string) => doc(db, ...teamPath, 'contractPartners', id),
 };
 
 /* ---------- Projects ---------- */
@@ -532,4 +536,38 @@ export async function updateTag(id: string, data: Partial<Tag>): Promise<void> {
 
 export async function deleteTag(id: string): Promise<void> {
   await deleteDoc(ref.tag(id));
+}
+
+/* ---------- Hợp đồng KOL/KOC ---------- */
+
+const CONTRACT_FORM_TO_PARTNER: Record<string, keyof ContractPartner> = {
+  xung_ho: 'xungHo', cccd: 'cccd', ngay_cap: 'ngayCap', mst: 'mst', dia_chi: 'diaChi',
+  sdt: 'sdt', email: 'email', ten_tk: 'tenTk', so_tk: 'soTk', ngan_hang: 'nganHang',
+};
+
+/** Lưu/ghi đè lịch sử đối tác sau khi tạo file thành công — port `store.luu` (history.json). */
+export async function luuContractPartner(form: ContractForm): Promise<void> {
+  const hoTen = String(form.ho_ten || '').trim();
+  if (!hoTen) return;
+  const id = chuanHoa(hoTen);
+  const snap = await getDoc(ref.contractPartner(id));
+  const truoc = snap.exists() ? (snap.data() as ContractPartner) : null;
+
+  const data: Partial<ContractPartner> = { id, hoTen };
+  for (const [k, target] of Object.entries(CONTRACT_FORM_TO_PARTNER)) {
+    const giaTri = String((form as Record<string, unknown>)[k] || '').trim();
+    if (giaTri) (data as Record<string, unknown>)[target] = giaTri;
+  }
+
+  await setDoc(ref.contractPartner(id), {
+    ...(truoc || {}),
+    ...data,
+    soLan: (truoc?.soLan || 0) + 1,
+    lanCuoi: serverTimestamp(),
+  });
+}
+
+/** Ghi đè toàn bộ cài đặt tính năng Hợp đồng (giống ghi_cai_dat của bản Python — ghi cả object). */
+export async function capNhatContractSettings(settings: ContractSettingsDoc): Promise<void> {
+  await updateDoc(ref.team(), { contractSettings: settings });
 }
