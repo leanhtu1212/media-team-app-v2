@@ -68,4 +68,10 @@ describe('phanTichNhanh', () => {
     expect(r.form.so_tk).toBe('101871610416');
     expect(r.form.ngan_hang).toBe('VietinBank');
   });
+
+  it('nhãn gộp chỉ tách ở dấu gạch ĐẦU TIÊN (maxsplit=1)', () => {
+    const r = phanTichNhanh('STK - Ngân hàng: 123456 - Foobar Bank - Chi nhánh ABC');
+    expect(r.form.so_tk).toBe('123456');
+    expect(r.form.ngan_hang).toBe('Foobar Bank - Chi nhánh ABC');
+  });
 });

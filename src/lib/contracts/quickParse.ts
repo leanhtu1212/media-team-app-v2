@@ -152,9 +152,9 @@ export function phanTichNhanh(text: string): QuickParseResult {
     const khoa = chuanHoa(goRac(nhan));
 
     if (dau && khoa in NHAN_GOP) {
-      const manh = goRac(giaTriRaw)
-        .split(/\s+[-–]\s+/)
-        .map((x) => x.trim());
+      const rawTrimmed = goRac(giaTriRaw);
+      const mManh = rawTrimmed.match(/^(.*?)\s+[-–]\s+(.*)$/s);
+      const manh = mManh ? [mManh[1].trim(), mManh[2].trim()] : [rawTrimmed.trim()];
       const [t1, t2] = NHAN_GOP[khoa];
       const cap: [keyof QuickParseForm, string | undefined][] = [
         [t1, manh[0]],
