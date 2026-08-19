@@ -1,10 +1,10 @@
-import { LayoutDashboard, FolderKanban, CalendarDays, FileText, TrendingUp, Settings, LogOut, Clapperboard, CircleUser, MoreHorizontal, ListVideo } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, CalendarDays, FileText, TrendingUp, Settings, LogOut, Clapperboard, CircleUser, MoreHorizontal, ListVideo, FileSignature } from 'lucide-react';
 import { useState } from 'react';
 import { auth, signOut } from '../../lib/firebase';
 import { Avatar } from '../ui';
 import { useAppData } from '../../store/AppDataContext';
 
-export type View = 'dashboard' | 'me' | 'projects' | 'daily' | 'contentlist' | 'reports' | 'performance' | 'settings';
+export type View = 'dashboard' | 'me' | 'projects' | 'daily' | 'contentlist' | 'contracts' | 'reports' | 'performance' | 'settings';
 
 type Access = { isAdmin: boolean; role: string };
 
@@ -17,6 +17,7 @@ const NAV: { view: View; label: string; icon: typeof LayoutDashboard; show: (a: 
   { view: 'projects', label: 'Dự án', icon: FolderKanban, show: () => true },
   { view: 'daily', label: 'Lịch tháng', icon: CalendarDays, show: () => true },
   { view: 'contentlist', label: 'DS Content', icon: ListVideo, show: (a) => a.isAdmin || a.role === 'content' },
+  { view: 'contracts', label: 'Hợp đồng', icon: FileSignature, show: (a) => a.isAdmin },
   { view: 'reports', label: 'Báo cáo', icon: FileText, show: (a) => a.role !== 'content' },
   { view: 'performance', label: 'Hiệu suất', icon: TrendingUp, show: (a) => a.isAdmin },
   { view: 'settings', label: 'Cài đặt', icon: Settings, show: () => true },

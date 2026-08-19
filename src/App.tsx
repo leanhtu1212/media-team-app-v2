@@ -14,6 +14,7 @@ import { ProjectsPage, type ProjectsTab } from './pages/Projects';
 import { ProjectDetailPage } from './pages/ProjectDetail';
 import { DailyContentPage, ContentDetailPage, type CalendarScroll } from './pages/DailyContent';
 import { ContentListPage } from './pages/ContentList';
+import { Contracts } from './pages/Contracts';
 import { ReportsPage } from './pages/Reports';
 import { PerformancePage } from './pages/Performance';
 import { SettingsPage } from './pages/Settings';
@@ -87,6 +88,7 @@ function Shell({ user }: { user: User }) {
               {view === 'daily' && <DailyContentPage user={user} onOpenProject={openProject} onOpenContent={openContent} month={calendarMonth} onMonthChange={setCalendarMonth} focusDate={calendarFocusDate} scrollRef={calendarScrollRef} />}
               {/* DS Content: chỉ admin + role 'content' (Sidebar cũng ẩn mục này với người khác) */}
               {view === 'contentlist' && (isAdmin || role === 'content') && <ContentListPage user={user} onOpenContent={openContent} onOpenProject={openProject} />}
+              {view === 'contracts' && isAdmin && <Contracts />}
               {view === 'reports' && role !== 'content' && <ReportsPage user={user} />}
               {view === 'performance' && isAdmin && <PerformancePage onOpenProject={openProject} />}
               {view === 'settings' && <SettingsPage user={user} />}
