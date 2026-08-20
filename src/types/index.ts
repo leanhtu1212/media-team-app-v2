@@ -79,6 +79,11 @@ export interface Task {
   used?: boolean;
   usedDate?: string;
   usedBy?: string;
+  // Khoản chi tiền kỳ này có làm hợp đồng KOL/KOC hay không. Tab Hợp đồng đọc NGƯỢC lên qua
+  // 3 field này để dựng dòng có cột "Dự án" — sheet "Danh sách làm HĐ" không biết dự án nào.
+  hopDong?: boolean;        // admin tick lúc thêm chi phí
+  hopDongHoTen?: string;    // tên đối tác đã dùng khi tạo file
+  hopDongDaLam?: boolean;   // đã sinh file HĐ/BBNT
 }
 
 export type OutputType = 'none' | 'photo' | 'video' | 'pre-production';

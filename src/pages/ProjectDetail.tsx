@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, Pencil, Camera, Video, Wallet, Star, CheckCircle2, Circle, Calendar, Package, FileText, Check, TrendingUp, ExternalLink } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
-import { updateProject, deleteProject, createTask, updateTask, deleteTask, toggleDntt } from '../lib/actions';
+import { updateProject, deleteProject, createTask, updateTask, deleteTask, toggleDntt, danhDauTaskDaLamHopDong } from '../lib/actions';
+import { ContractFormModal, useContractConfig } from '../components/ContractFormModal';
+import type { ContractForm } from '../lib/contracts/compute';
 import { formatVND, formatDate, todayStr, isProjectFinished } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { ProjectFormModal } from './Projects';
@@ -15,6 +17,10 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
   const project = projects.find((p) => p.id === projectId);
 
   const [taskModal, setTaskModal] = useState<{ open: boolean; category: TaskCategory; editing: Task | null }>({ open: false, category: 'photo', editing: null });
+  // Form HĐ đang mở cho khoản chi nào. Object mới mỗi lần mở = ContractFormModal nạp lại form.
+  const [hopDong, setHopDong] = useState<{ taskId: string; form: ContractForm } | null>(null);
+  const cauHinhHd = useContractConfig();
+  const moFormHopDong = (taskId: string, form: ContractForm) => setHopDong({ taskId, form });
   const [editProject, setEditProject] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'project' | 'task'; task?: Task } | null>(null);
   const [detailTask, setDetailTask] = useState<Task | null>(null);
@@ -302,12 +308,13 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
         onClose={() => setTaskModal((s) => ({ ...s, open: false }))}
         onSave={async (data) => {
           try {
+            let taskId = taskModal.editing?.id || '';
             if (taskModal.editing) {
               await updateTask(projectId, taskModal.editing.id, data, { prev: taskModal.editing, user, projectTitle: project.title });
               toast('Đã cập nhật task');
             } else {
               const isPre = taskModal.category === 'pre-production';
-              await createTask(
+              taskId = await createTask(
                 { ...data, projectId, category: taskModal.category, title: data.title || project.title, status: isPre ? 'pending' : 'completed' },
                 user,
                 project.title,
@@ -315,9 +322,32 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
               toast(isPre ? 'Đã thêm khoản chi' : 'Đã thêm — báo cáo tự động được tạo');
             }
             setTaskModal((s) => ({ ...s, open: false }));
+            // Tick "có làm HĐ" → mở luôn form hợp đồng, số tiền + nội dung lấy từ khoản chi.
+            // Không sinh file thì khoản chi vẫn còn đó, chỉ là chưa có hopDongDaLam.
+            if (data.hopDong && !data.hopDongDaLam) {
+              moFormHopDong(taskId, {
+                net: String(Number(data.amount) || 0),
+                noi_dung: data.title || project.title,
+              });
+            }
           } catch (e: unknown) {
             toast(`Lỗi: ${(e as Error).message}`, 'error');
           }
+        }}
+      />
+
+      {/* Form HĐ dùng chung với tab Hợp đồng — mở ngay tại đây để không mất ngữ cảnh dự án. */}
+      <ContractFormModal
+        open={!!hopDong}
+        onClose={() => setHopDong(null)}
+        tieuDe={`Hợp đồng — ${project.title}`}
+        settings={cauHinhHd.settings}
+        webhookUrl={cauHinhHd.webhookUrl}
+        token={cauHinhHd.token}
+        formBanDau={hopDong?.form ?? {}}
+        hienODan
+        onTaoXong={async (hoTen) => {
+          if (hopDong?.taskId) await danhDauTaskDaLamHopDong(projectId, hopDong.taskId, hoTen);
         }}
       />
 
@@ -639,6 +669,7 @@ function TaskFormModal({
 
   const set = (k: keyof Task, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const isPre = state.category === 'pre-production';
+  const laHopDong = !!form.hopDong;
   // Chỉ VIDEO bắt buộc link thành phẩm; ảnh & chi phí thì không.
   const invalid = (isPre && !form.title) || (state.category === 'video' && !form.link?.trim());
   const submit = async () => {
@@ -683,9 +714,28 @@ function TaskFormModal({
           )}
         </div>
         {isPre ? (
-          <Field label="Mô tả">
-            <Textarea rows={2} value={form.description || ''} onChange={(e) => set('description', e.target.value)} placeholder="Ghi chú thêm về khoản chi (không bắt buộc)" />
-          </Field>
+          <>
+            <Field label="Mô tả">
+              <Textarea rows={2} value={form.description || ''} onChange={(e) => set('description', e.target.value)} placeholder="Ghi chú thêm về khoản chi (không bắt buộc)" />
+            </Field>
+            {/* Tick = lưu khoản chi xong mở luôn form HĐ, số tiền + nội dung điền sẵn từ đây. */}
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={laHopDong}
+                onChange={(e) => set('hopDong', e.target.checked)}
+              />
+              <span>
+                <span className="font-medium">Có làm hợp đồng cho khoản chi này</span>
+                <span className="block text-xs text-dim">
+                  {form.hopDongDaLam
+                    ? 'Đã sinh file HĐ/BBNT cho khoản chi này.'
+                    : 'Bấm Thêm xong sẽ mở form điền thông tin đối tác để tạo HĐ + BBNT ngay.'}
+                </span>
+              </span>
+            </label>
+          </>
         ) : (
           <Field label={<>Link thành phẩm {state.category === 'video' && <span className="text-red-400">*</span>}</>}>
             <Input value={form.link || ''} onChange={(e) => set('link', e.target.value)} placeholder={state.category === 'video' ? 'Dán link video (bắt buộc)' : 'Dán link ảnh (không bắt buộc)'} required={state.category === 'video'} />

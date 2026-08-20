@@ -74,6 +74,35 @@ const TYPE_TINT = {
   note: 'bg-violet-500/12 text-violet-200',
 } as const;
 
+/** Nhóm để bật/tắt hiện chip (ô tích ở chú thích "Nền chip"). Dự án tách theo tag Loại vì
+ *  chú thích vốn liệt kê từng tag Loại một; dự án chưa gắn tag Loại gom vào 'du-an'. */
+const NHOM_KHAC = 'du-an';
+function nhomCuaDuAn(p: Project | undefined, loaiIds: Set<string>): string {
+  for (const id of projectTagIds(p)) if (loaiIds.has(id)) return `tag:${id}`;
+  return NHOM_KHAC;
+}
+function nhomCuaEntry(e: CalEntry, loaiIds: Set<string>): string {
+  if (e.kind === 'daily') return 'content';
+  if (e.kind === 'note') return 'note';
+  if (e.kind === 'task') return 'task';
+  return nhomCuaDuAn(e.project, loaiIds);
+}
+
+/** Một mục trong chú thích "Nền chip": ô tích + ô màu + tên. Bỏ tick = ẩn loại chip đó. */
+function OTichChip({
+  nhan, mau, mauClass, hien, onDoi,
+}: {
+  nhan: string; mau?: string; mauClass?: string; hien: boolean; onDoi: () => void;
+}) {
+  return (
+    <label className="flex items-center gap-1.5 whitespace-nowrap cursor-pointer select-none">
+      <input type="checkbox" className="w-3 h-3 cursor-pointer accent-accent" checked={hien} onChange={onDoi} />
+      <span className={`w-2.5 h-2.5 rounded-sm ${mauClass || ''}`} style={mau ? { backgroundColor: mau } : undefined} />
+      <span className={hien ? '' : 'line-through text-dim'}>{nhan}</span>
+    </label>
+  );
+}
+
 // Vạch trái theo TIẾN ĐỘ: quá hạn → đỏ, xong → xanh lá, đang làm → vàng, chưa bắt đầu → xám
 function stripeFor(entry: CalEntry, today: string): string {
   if (entry.kind === 'daily') {
@@ -759,6 +788,16 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
   const tagColorOf = (id?: string) => (id ? tags.find((t) => t.id === id)?.color : undefined);
   // Tag theo cấp — dùng cho bảng chú thích (liệt kê rõ từng Loại / từng Mảng)
   const loaiTags = useMemo(() => tags.filter((t) => tagLevel(t) === 'loai').sort((a, b) => a.name.localeCompare(b.name, 'vi')), [tags]);
+  const loaiIds = useMemo(() => new Set(loaiTags.map((t) => t.id)), [loaiTags]);
+  // Nhóm chip đang bị ẩn (ô tích ở chú thích). CỐ Ý không lưu localStorage: chú thích bị ẩn
+  // trên điện thoại, lọc dính lại sẽ thành "mất chip" mà không có chỗ nào bật lại được.
+  const [anChip, setAnChip] = useState<Set<string>>(new Set());
+  const hienNhom = (k: string) => !anChip.has(k);
+  const doiNhom = (k: string) => setAnChip((s) => {
+    const n = new Set(s);
+    if (n.has(k)) n.delete(k); else n.add(k);
+    return n;
+  });
   const mangTags = useMemo(() => tags.filter((t) => tagLevel(t) === 'mang').sort((a, b) => a.name.localeCompare(b.name, 'vi')), [tags]);
 
   // Màu các tag MẢNG của dự án → vạch kẻ sát đáy chip (nền chip đã là màu tag Loại)
@@ -869,6 +908,13 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
     [projects],
   );
   const spanIds = useMemo(() => new Set(spanProjects.map((s) => s.project.id)), [spanProjects]);
+  // Thanh dự án dài vẽ riêng, không đi qua byDay → phải lọc thêm ở đây, không thì tắt "Ảnh"
+  // mà thanh dự án ảnh vẫn nằm nguyên trên lịch. spanIds giữ NGUYÊN (chưa lọc) để dự án bị
+  // ẩn không bị byDay đẩy ngược thành chip ngày.
+  const spanHienThi = useMemo(
+    () => spanProjects.filter((sp) => !anChip.has(nhomCuaDuAn(sp.project, loaiIds))),
+    [spanProjects, anChip, loaiIds],
+  );
 
   // Lane cố định cho dự án DÀI (qua ≥2 tuần) — dùng chỉ số tuần tuyệt đối nên ổn định
   // kể cả khi nạp thêm tuần ở hai đầu dải.
@@ -885,24 +931,33 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
   const byDay = useMemo(() => {
     const map: Record<string, CalEntry[]> = {};
     const push = (date: string, e: CalEntry) => { (map[date] ||= []).push(e); };
-    dailyContent.forEach((d) => { if (d.dueDate) push(d.dueDate, { kind: 'daily', daily: d }); });
+    const hien = (e: CalEntry) => !anChip.has(nhomCuaEntry(e, loaiIds));
+    dailyContent.forEach((d) => {
+      const e: CalEntry = { kind: 'daily', daily: d };
+      if (d.dueDate && hien(e)) push(d.dueDate, e);
+    });
     projects.forEach((p) => {
       // Desktop: dự án dài đã có thanh nối liền riêng nên bỏ qua ở đây.
       // Mobile: không vẽ thanh (danh sách dọc) → xếp dự án vào đúng ngày deadline.
       if (!isMobile && spanIds.has(p.id)) return;
       const day = p.deadline || p.startDate;
-      if (day) push(day, { kind: 'project', project: p });
+      const e: CalEntry = { kind: 'project', project: p };
+      if (day && hien(e)) push(day, e);
     });
     if (isAdmin) {
       allTasks.forEach((t) => {
         if (t.category === 'pre-production' && t.status !== 'completed' && !t.dntt && t.deadline) {
-          push(t.deadline, { kind: 'task', task: t, project: projects.find((p) => p.id === t.projectId) });
+          const e: CalEntry = { kind: 'task', task: t, project: projects.find((p) => p.id === t.projectId) };
+          if (hien(e)) push(t.deadline, e);
         }
       });
     }
-    notes.forEach((n) => { if (n.date) push(n.date, { kind: 'note', note: n }); });
+    notes.forEach((n) => {
+      const e: CalEntry = { kind: 'note', note: n };
+      if (n.date && hien(e)) push(n.date, e);
+    });
     return map;
-  }, [dailyContent, projects, allTasks, notes, spanIds, isAdmin, isMobile]);
+  }, [dailyContent, projects, allTasks, notes, spanIds, isAdmin, isMobile, anChip, loaiIds]);
 
   // Chạm đáy → nối thêm tuần. `readyRef` chặn nạp trong lúc đang cuộn về hôm nay lúc mở trang,
   // nếu không observer bắn liên tiếp và lịch chạy đà đi vài năm. MAX_WEEKS là chặn trên an toàn.
@@ -1058,13 +1113,19 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
         <div className="flex gap-x-3 items-center text-[11px] text-muted overflow-x-auto">
           {/* Nhóm 1 — NỀN chip: mục không phải dự án dùng màu cố định, dự án lấy màu tag Loại */}
           <span className="font-bold text-dim uppercase text-[10px] tracking-wide shrink-0 whitespace-nowrap">Nền chip</span>
+          {/* Mỗi mục vừa là chú thích màu vừa là ô bật/tắt hiện chip loại đó trên lịch. */}
           {loaiTags.map((t) => (
-            <span key={t.id} className="flex items-center gap-1.5 whitespace-nowrap">
-              <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: t.color }} /> {t.name}
-            </span>
+            <OTichChip
+              key={t.id} nhan={t.name} mau={t.color}
+              hien={hienNhom(`tag:${t.id}`)} onDoi={() => doiNhom(`tag:${t.id}`)}
+            />
           ))}
-          <span className="flex items-center gap-1.5 whitespace-nowrap"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500/50" /> Nội dung</span>
-          <span className="flex items-center gap-1.5 whitespace-nowrap"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500/50" /> Ghi chú</span>
+          <OTichChip nhan="Dự án khác" mauClass="bg-sky-500/50" hien={hienNhom(NHOM_KHAC)} onDoi={() => doiNhom(NHOM_KHAC)} />
+          <OTichChip nhan="Nội dung" mauClass="bg-orange-500/50" hien={hienNhom('content')} onDoi={() => doiNhom('content')} />
+          <OTichChip nhan="Ghi chú" mauClass="bg-violet-500/50" hien={hienNhom('note')} onDoi={() => doiNhom('note')} />
+          {isAdmin && (
+            <OTichChip nhan="Chi phí" mauClass="bg-amber-500/50" hien={hienNhom('task')} onDoi={() => doiNhom('task')} />
+          )}
 
           {/* Nhóm 2 — vạch PHẢI dày = tiến độ */}
           <span className="w-px h-3.5 bg-line-2 shrink-0" />
@@ -1104,7 +1165,7 @@ export function DailyContentPage({ user, onOpenProject, onOpenContent, month, on
 
         <div className="space-y-2">
           {weeks.map((week, wi) => {
-            const { bars, colLanes } = layoutWeek(week, spanProjects, globalLanes);
+            const { bars, colLanes } = layoutWeek(week, spanHienThi, globalLanes);
             // Tuần này có chứa ngày 1 của tháng nào không → chèn nhãn phân cách tháng
             const firstOfMonth = week.find((d) => d.endsWith('-01'));
             // Tháng đại diện của tuần: nếu tuần chứa ngày 1 của tháng mới → tính là THÁNG MỚI luôn

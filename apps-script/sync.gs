@@ -261,11 +261,47 @@ function contractList_(params) {
     var sh = ss.getSheetByName(sheetTab);
     if (!sh) return json_({ ok: false, error: 'Không tìm thấy tab "' + sheetTab + '"' });
     var lastRow = Math.max(1, sh.getLastRow());
-    var rows = sh.getRange(1, 1, lastRow, 10).getDisplayValues();
-    return json_({ ok: true, rows: rows });
+    var vung = sh.getRange(1, 1, lastRow, 10);
+    // `links` = ma trận URL cùng kích thước `rows`. Bắt buộc phải có: các cột link (D/E/F/I)
+    // thường KHÔNG chứa URL dạng text — người dùng Insert > Link (URL nằm trong rich text)
+    // hoặc dán smart chip (getDisplayValues trả về chuỗi RỖNG), nên chỉ đọc display value
+    // là cột link trống trơn ở client. Client tự chọn cột nào là link (sheetSync.ts).
+    return json_({ ok: true, rows: vung.getDisplayValues(), links: urlTrongVung_(vung) });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
+}
+
+/** URL của từng ô trong vùng, '' nếu ô không có link. Cùng kích thước với getDisplayValues(). */
+function urlTrongVung_(vung) {
+  var rich = vung.getRichTextValues();
+  var congThuc = vung.getFormulas();
+  var ra = [];
+  for (var i = 0; i < rich.length; i++) {
+    var hang = [];
+    for (var j = 0; j < rich[i].length; j++) hang.push(urlCuaO_(rich[i][j], congThuc[i][j]));
+    ra.push(hang);
+  }
+  return ra;
+}
+
+/** Link của một ô: rich text (Insert > Link, smart chip) trước, rồi =HYPERLINK("url"; "text"). */
+function urlCuaO_(rt, congThuc) {
+  if (rt) {
+    var u = rt.getLinkUrl();
+    if (u) return u;
+    // Link chỉ gắn vào một đoạn chữ trong ô -> phải duyệt từng run.
+    var runs = rt.getRuns();
+    for (var k = 0; k < runs.length; k++) {
+      var ru = runs[k].getLinkUrl();
+      if (ru) return ru;
+    }
+  }
+  if (congThuc) {
+    var m = String(congThuc).match(/HYPERLINK\(\s*"([^"]+)"/i);
+    if (m) return m[1];
+  }
+  return '';
 }
 
 /** Mọi thư mục con từ cấp 1 tới cấp `depth` của folder `rootId`. */
@@ -361,12 +397,42 @@ function tenKhongTrung_(folder, ten) {
   return than + ' (' + i + ').docx';
 }
 
-/** `folderId` có nằm trong (hoặc chính là) `rootId` không? Đi ngược lên qua getParents(),
- *  giới hạn 10 tầng + 40 nút để không treo trên cây thư mục lạ. Một thư mục Drive có thể có
- *  NHIỀU cha nên phải duyệt rộng chứ không chỉ cha đầu tiên. */
+/** `folderId` có nằm trong (hoặc chính là) `rootId` không?
+ *
+ *  HAI CHIỀU, và phải giữ cả hai:
+ *  1. Đi NGƯỢC LÊN qua getParents() — nhanh, chỉ chạm đúng nhánh cần kiểm.
+ *  2. Nếu chiều 1 nói "không", quét XUÔI XUỐNG từ gốc rồi so id. Bắt buộc phải có vì
+ *     getParents() trả về RỖNG với thư mục nằm trong Shared Drive (hoặc thư mục được chia
+ *     sẻ mà tài khoản chạy script không thấy cha) — khi đó chiều 1 báo "không nằm trong
+ *     thư mục gốc" cho đúng cái thư mục mà contract-drive-match vừa tìm thấy bằng cách
+ *     quét xuống. Quét xuống chậm hơn nhưng chỉ chạy ở nhánh hiếm.
+ *
+ *  Cả hai chiều đều chỉ chấp nhận thư mục NẰM TRONG gốc, nên chặn ghi file ra ngoài vẫn
+ *  nguyên vẹn — chỉ là tính cùng một quan hệ theo hai cách. */
 function laConCuaGoc_(folderId, rootId) {
   if (!folderId || !rootId) return false;
   if (folderId === rootId) return true;
+  try {
+    if (laConTheoQuetNguoc_(folderId, rootId)) return true;
+  } catch (err) {
+    // getFolderById/getParents ném lỗi (quyền, thư mục lạ) — vẫn để quét xuôi có cơ hội trả lời.
+  }
+  return laConTheoQuetXuoi_(folderId, rootId);
+}
+
+/** Quét xuôi từ gốc: dùng đúng hàm mà contract-drive-match dùng để dựng danh sách, nên cái gì
+ *  hiện ra cho người dùng chọn thì ở đây chấp nhận được. Sâu 5 tầng = trần của match. */
+function laConTheoQuetXuoi_(folderId, rootId) {
+  var con = folderConTheoDoSau_(rootId, 5);
+  for (var i = 0; i < con.length; i++) {
+    if (con[i].getId() === folderId) return true;
+  }
+  return false;
+}
+
+/** Đi ngược lên qua getParents(), giới hạn 10 tầng + 40 nút để không treo trên cây thư mục lạ.
+ *  Một thư mục Drive có thể có NHIỀU cha nên phải duyệt rộng chứ không chỉ cha đầu tiên. */
+function laConTheoQuetNguoc_(folderId, rootId) {
   var hangDoi = [DriveApp.getFolderById(folderId)];
   var daXet = {};
   daXet[folderId] = true;
@@ -401,7 +467,14 @@ function contractDriveCopy_(data) {
       // request là do client gửi nên không được tin, nếu không thì ghi được file (kèm CCCD,
       // số tài khoản) vào bất kỳ thư mục nào mà chủ script có quyền.
       if (!laConCuaGoc_(String(data.folderId), rootId)) {
-        return json_({ ok: false, error: 'Thư mục đích không nằm trong thư mục gốc đã cấu hình' });
+        // Kèm tên hai thư mục: thông báo trơn không cho biết CONTRACT_ROOT_FOLDER_ID đang
+        // trỏ vào đâu, mà đó gần như luôn là chỗ sai (đặt nhầm id, hoặc đổi thư mục gốc).
+        return json_({
+          ok: false,
+          error: 'Thư mục đích không nằm trong thư mục gốc đã cấu hình'
+            + ' (đích: ' + tenFolderAnToan_(data.folderId)
+            + ' · gốc: ' + tenFolderAnToan_(rootId) + ')',
+        });
       }
       folder = DriveApp.getFolderById(data.folderId);
     } else {
@@ -416,9 +489,27 @@ function contractDriveCopy_(data) {
     var blob = Utilities.newBlob(bytes, mime, data.filename);
     var tenCuoi = tenKhongTrung_(folder, data.filename);
     var file = folder.createFile(blob).setName(tenCuoi);
-    return json_({ ok: true, fileId: file.getId(), name: file.getName(), folderId: folder.getId() });
+    // Kèm folderUrl để app hiện link kiểm tra ngay sau khi upload — nhất là nhánh server tự
+    // tạo thư mục mới, khi đó client không biết trước file nằm ở đâu.
+    return json_({
+      ok: true,
+      fileId: file.getId(),
+      name: file.getName(),
+      folderId: folder.getId(),
+      folderUrl: folder.getUrl(),
+      folderName: folder.getName(),
+    });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
+  }
+}
+
+/** Tên thư mục để đưa vào thông báo lỗi; không đọc được thì trả id để còn đối chiếu. */
+function tenFolderAnToan_(id) {
+  try {
+    return '«' + DriveApp.getFolderById(String(id)).getName() + '»';
+  } catch (err) {
+    return 'id ' + id + ' (không mở được: ' + err + ')';
   }
 }
 

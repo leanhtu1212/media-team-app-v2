@@ -83,3 +83,49 @@ describe('phanTichNhanh', () => {
     expect(r.khongRo).toEqual(['constructor: abc', 'toString: xyz']);
   });
 });
+
+// Khối "THÔNG TIN THANH TOÁN" người dùng copy từ chat/mail rồi dán vào nút "Tạo HĐ mới".
+// Đây là input thật, giữ nguyên văn để mọi thay đổi parser đều phải chạy qua nó.
+describe('khối thông tin thanh toán dán tay', () => {
+  const KHOI = [
+    'THÔNG TIN THANH TOÁN',
+    'Họ và Tên: Ngô Trần Ngọc Tú',
+    'Ngày sinh: 05/01/1994',
+    'CCCD: 001194007976',
+    'Ngày cấp: 10/07/2021',
+    'Nơi cấp: Cục Cảnh sát quản lý hành chính về trật tự xã hội',
+    'STK: 19032678830011',
+    'Tên chủ TK: Ngo Tran Ngoc Tu',
+    'Ngân Hàng: Techcombank',
+    'Mã số thuế (MST): 001194007976',
+    'Địa chỉ: 36 Thọ Lão, Hai Bà Trưng, Hà Nội',
+    'Sđt: 0388984494',
+    'Gmail: nt.ngoctu94@gmail.com',
+  ].join('\n');
+
+  it('nhận đủ 10 trường, không sót dòng nào', () => {
+    const r = phanTichNhanh(KHOI);
+    expect(r.form).toEqual({
+      ho_ten: 'Ngô Trần Ngọc Tú',
+      cccd: '001194007976',
+      ngay_cap: '10/07/2021',
+      so_tk: '19032678830011',
+      ten_tk: 'NGO TRAN NGOC TU',
+      ngan_hang: 'Techcombank',
+      mst: '001194007976',
+      dia_chi: '36 Thọ Lão, Hai Bà Trưng, Hà Nội',
+      sdt: '0388984494',
+      email: 'nt.ngoctu94@gmail.com',
+    });
+    expect(r.khongRo).toEqual([]);
+  });
+
+  it('dòng tiêu đề KHÔNG bị lấy làm nội dung công việc', () => {
+    expect(phanTichNhanh(KHOI).form.noi_dung).toBeUndefined();
+    expect(phanTichNhanh(KHOI).boQua).toContain('THÔNG TIN THANH TOÁN');
+  });
+
+  it('nhãn có ngoặc chú thích vẫn khớp', () => {
+    expect(phanTichNhanh('Số điện thoại (Zalo): 0900000000').form.sdt).toBe('0900000000');
+  });
+});

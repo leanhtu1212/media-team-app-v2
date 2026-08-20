@@ -581,6 +581,20 @@ export async function luuContractPartner(form: ContractForm): Promise<void> {
   });
 }
 
+/** Đánh dấu một khoản chi tiền kỳ đã sinh file HĐ/BBNT (tab Hợp đồng đọc ngược lên để dựng
+ *  dòng kèm cột "Dự án"). Chỉ ghi 3 field hợp đồng — đừng đụng status/dntt, hai thứ đó là
+ *  luồng thanh toán, không liên quan tới việc đã làm hợp đồng hay chưa. */
+export async function danhDauTaskDaLamHopDong(
+  projectId: string, taskId: string, hoTen: string,
+): Promise<void> {
+  await updateDoc(ref.task(projectId, taskId), {
+    hopDong: true,
+    hopDongHoTen: hoTen,
+    hopDongDaLam: true,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 /** Ghi đè toàn bộ cài đặt tính năng Hợp đồng (giống ghi_cai_dat của bản Python — ghi cả object). */
 export async function capNhatContractSettings(settings: ContractSettingsDoc): Promise<void> {
   await updateDoc(ref.team(), { contractSettings: settings });
@@ -594,4 +608,14 @@ export async function docContractToken(): Promise<string> {
 
 export async function luuContractToken(token: string): Promise<void> {
   await setDoc(ref.contractPrivate(), { contractToken: token.trim() }, { merge: true });
+}
+
+/** Toàn bộ lịch sử đối tác, key = `idDoiTac(hoTen)`. Dùng để biết ai ĐÃ từng làm HĐ qua app —
+ *  cột Link HĐ/BBNT của sheet chỉ đúng khi người dùng tự dán link vào, nên nếu chỉ nhìn sheet
+ *  thì người vừa làm xong vẫn bị gắn nhãn "người mới". */
+export async function docContractPartners(): Promise<Record<string, ContractPartner>> {
+  const snap = await getDocs(col.contractPartners());
+  const ra: Record<string, ContractPartner> = {};
+  snap.forEach((d) => { ra[d.id] = { ...(d.data() as ContractPartner), id: d.id }; });
+  return ra;
 }

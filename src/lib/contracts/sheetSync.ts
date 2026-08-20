@@ -16,6 +16,18 @@ function o(hang: string[], ten: keyof typeof COT): string {
   return (hang[COT[ten]] ?? '').trim();
 }
 
+/** Giá trị của ô link: URL thật ưu tiên, không có thì lấy chữ đang hiện.
+ *
+ *  Ô link trong sheet hiếm khi chứa URL dạng text. Người dùng thường Insert > Link (ô hiện
+ *  chữ "Link SP", URL nằm ở rich text) hoặc dán thành smart chip (getDisplayValues trả về
+ *  CHUỖI RỖNG). Cả hai kiểu đều làm cột link "biến mất" nếu chỉ đọc display value — và với
+ *  cột D/E còn kéo theo việc gắn nhãn "người mới" sai. Apps Script vì thế trả kèm ma trận
+ *  `links` (URL từ rich text / công thức HYPERLINK), tham số `lienKet` ở đây. */
+function oLink(hang: string[], lienKet: string[] | undefined, ten: keyof typeof COT): string {
+  const url = (lienKet?.[COT[ten]] ?? '').trim();
+  return url || o(hang, ten);
+}
+
 function laTrue(s: string): boolean {
   return ['TRUE', 'X', '1', 'V', '✓', 'DONE', 'CÓ'].includes(s.trim().toUpperCase());
 }
@@ -26,6 +38,7 @@ export interface SheetRow {
   ho_ten: string;
   noi_dung: string;
   tien: string;
+  link_sp: string;
   link_luu: string;
   da_co_hd: boolean;
   da_co_bbnt: boolean;
@@ -34,9 +47,14 @@ export interface SheetRow {
   form: QuickParseForm;
   goc: Partial<Record<keyof QuickParseForm, string>>;
   khongRo: string[];
+  // Chỉ có ở dòng dựng từ khoản chi của một dự án (xem fromTask.ts). Dòng đọc từ sheet để
+  // trống vì sheet "Danh sách làm HĐ" không có cột dự án.
+  taskId?: string;
+  projectId?: string;
+  projectTitle?: string;
 }
 
-export function phanTichHang(hang: string[], soDong: number): SheetRow {
+export function phanTichHang(hang: string[], soDong: number, lienKet?: string[]): SheetRow {
   const hoTen = o(hang, 'ho_ten');
   const noiDung = o(hang, 'noi_dung');
   const tien = o(hang, 'tien');
@@ -48,15 +66,16 @@ export function phanTichHang(hang: string[], soDong: number): SheetRow {
   if (noiDung) form.noi_dung = noiDung;
   if (tien) form.net = chuanTien(tien) || tien;
 
-  const daCoHd = !!o(hang, 'link_hd');
-  const daCoBbnt = !!o(hang, 'link_bbnt');
+  const daCoHd = !!oLink(hang, lienKet, 'link_hd');
+  const daCoBbnt = !!oLink(hang, lienKet, 'link_bbnt');
   return {
     dong: soDong,
     stt: o(hang, 'stt'),
     ho_ten: form.ho_ten || '',
     noi_dung: form.noi_dung || '',
     tien: form.net || '',
-    link_luu: o(hang, 'link_luu'),
+    link_sp: oLink(hang, lienKet, 'link_sp'),
+    link_luu: oLink(hang, lienKet, 'link_luu'),
     da_co_hd: daCoHd,
     da_co_bbnt: daCoBbnt,
     nguoi_moi: !daCoHd && !daCoBbnt,
@@ -67,14 +86,19 @@ export function phanTichHang(hang: string[], soDong: number): SheetRow {
   };
 }
 
-/** `rows` = giá trị thô trả về từ Apps Script (mảng 2 chiều, DÒNG 1 LÀ TIÊU ĐỀ). */
-export function danhSachTuRows(rows: string[][]): SheetRow[] {
+/** `rows` = giá trị thô trả về từ Apps Script (mảng 2 chiều, DÒNG 1 LÀ TIÊU ĐỀ).
+ *  `links` = ma trận URL cùng kích thước (xem `oLink`); webhook bản cũ không trả field này
+ *  nên tham số là tuỳ chọn. */
+export function danhSachTuRows(rows: string[][], links?: string[][]): SheetRow[] {
   const ra: SheetRow[] = [];
   rows.forEach((h, idx) => {
     const soDong = idx + 1;
     if (soDong === 1) return; // dòng tiêu đề
-    if (!h.some((c) => (c || '').trim())) return; // dòng rỗng
-    const muc = phanTichHang(h, soDong);
+    const lienKet = links?.[idx];
+    // Dòng chỉ có smart chip: display value rỗng hết nhưng vẫn là dòng có dữ liệu.
+    const rong = !h.some((c) => (c || '').trim()) && !lienKet?.some((c) => (c || '').trim());
+    if (rong) return;
+    const muc = phanTichHang(h, soDong, lienKet);
     if (!muc.ho_ten && !muc.noi_dung) return;
     ra.push(muc);
   });

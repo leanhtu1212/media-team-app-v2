@@ -49,7 +49,8 @@ const NHAN: Record<string, keyof QuickParseForm> = {
   'ngan hang': 'ngan_hang', 'bank': 'ngan_hang', 'ten ngan hang': 'ngan_hang',
   'tai ngan hang': 'ngan_hang', 'nh': 'ngan_hang',
   'ctk': 'ten_tk', 'chu tai khoan': 'ten_tk', 'ten tai khoan': 'ten_tk',
-  'ten tk': 'ten_tk', 'chu the': 'ten_tk',
+  'ten tk': 'ten_tk', 'chu the': 'ten_tk', 'ten chu tk': 'ten_tk',
+  'chu tk': 'ten_tk', 'ten chu tai khoan': 'ten_tk',
   'noi dung cong viec': 'noi_dung', 'noi dung': 'noi_dung', 'cong viec': 'noi_dung',
   'tien': 'net', 'so tien': 'net', 'net': 'net', 'thu lao': 'net', 'gia': 'net',
 };
@@ -68,6 +69,13 @@ const BO_QUA = new Set([
   'link hd', 'link bbnt', 'link luu hd', 'done',
 ]);
 
+// Dòng tiêu đề của khối text người dùng dán (không có dấu hai chấm). Không liệt kê ra thì
+// chúng rơi vào `ungVienNoiDung` và dòng đầu tiên bị lấy làm "Nội dung công việc".
+const TIEU_DE = new Set([
+  'thong tin thanh toan', 'thong tin ca nhan', 'thong tin chuyen khoan',
+  'thong tin', 'thong tin doi tac', 'thong tin nhan tien', 'thong tin tai khoan',
+]);
+
 const NHAN_HIEN: Record<keyof QuickParseForm, string> = {
   ho_ten: 'Họ tên', xung_ho: 'Xưng hô', cccd: 'CCCD', ngay_cap: 'Ngày cấp',
   mst: 'MST', dia_chi: 'Địa chỉ', sdt: 'Số điện thoại', email: 'Email',
@@ -84,6 +92,12 @@ const RAC = ' \t"\'“”«»*•-–—';
  *  ném giá trị vào trường rác. Luôn tra bằng hasOwnProperty. */
 function coKhoa(obj: Record<string, unknown>, khoa: string): boolean {
   return Object.prototype.hasOwnProperty.call(obj, khoa);
+}
+
+/** Chuẩn hoá nhãn + BỎ phần trong ngoặc: "Mã số thuế (MST)" và "Số điện thoại (Zalo)" là
+ *  cùng một nhãn với bản không ngoặc, không việc gì phải liệt kê từng biến thể. */
+function chuanHoaNhan(nhan: string): string {
+  return chuanHoa(nhan.replace(/\([^)]*\)/g, ' '));
 }
 
 function goRac(s: string): string {
@@ -155,7 +169,7 @@ export function phanTichNhanh(text: string): QuickParseResult {
     const dau = iHai >= 0;
     const nhan = dau ? dong.slice(0, iHai) : dong;
     const giaTriRaw = dau ? dong.slice(iHai + 1) : '';
-    const khoa = chuanHoa(goRac(nhan));
+    const khoa = chuanHoaNhan(goRac(nhan));
 
     if (dau && coKhoa(NHAN_GOP, khoa)) {
       const rawTrimmed = goRac(giaTriRaw);
@@ -190,6 +204,11 @@ export function phanTichNhanh(text: string): QuickParseResult {
     }
     if (dau && khoa) {
       khongRo.push(dong);
+      continue;
+    }
+
+    if (TIEU_DE.has(chuanHoa(dong))) {
+      boQua.push(dong);
       continue;
     }
 
