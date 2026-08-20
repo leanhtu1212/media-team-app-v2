@@ -199,6 +199,10 @@ export interface GeneratedFiles {
   bbntBlob: Blob;
   hdFilename: string;
   bbntFilename: string;
+  /** Ô "Hình ảnh chứng minh" của BBNT đã có ảnh chưa. false = không chọn ảnh, HOẶC không tìm
+   *  thấy bảng "Hạng mục" trong mẫu. UI phải cảnh báo — BBNT thiếu ảnh vẫn tải về bình
+   *  thường nên không nói ra thì chỉ phát hiện lúc mở file (hoặc lúc đối tác nhận được). */
+  daChenAnh: boolean;
 }
 
 /** Sinh 2 file HĐ + BBNT từ template. `templateBytes` = nội dung file mẫu (bundle sẵn, xem
@@ -211,9 +215,9 @@ export async function taoHaiFile(
     luuMotNua(templateBytes, d, cfg, 'hd'),
     luuMotNua(templateBytes, d, cfg, 'bb'),
   ]);
-  if (anh) {
-    await chenAnhBbnt(bb.zip, bb.doc, anh.bytes, anh.widthPx, anh.heightPx, cfg.anhRongInch);
-  }
+  const daChenAnh = anh
+    ? await chenAnhBbnt(bb.zip, bb.doc, anh.bytes, anh.widthPx, anh.heightPx, cfg.anhRongInch)
+    : false;
   docToZipXml(hd.zip, hd.doc);
   docToZipXml(bb.zip, bb.doc);
   const mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -225,6 +229,7 @@ export async function taoHaiFile(
     hdBlob, bbntBlob,
     hdFilename: tenFileHd(d.ho_ten, d.noi_dung),
     bbntFilename: tenFileBbnt(d.ho_ten, d.noi_dung),
+    daChenAnh,
   };
 }
 

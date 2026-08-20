@@ -5,6 +5,7 @@ import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Modal, In
 import { updateProject, deleteProject, createTask, updateTask, deleteTask, toggleDntt, danhDauTaskDaLamHopDong } from '../lib/actions';
 import { ContractFormModal, useContractConfig } from '../components/ContractFormModal';
 import type { ContractForm } from '../lib/contracts/compute';
+import { fmtSo } from '../lib/contracts/money';
 import { formatVND, formatDate, todayStr, isProjectFinished } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { ProjectFormModal } from './Projects';
@@ -326,7 +327,8 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
             // Không sinh file thì khoản chi vẫn còn đó, chỉ là chưa có hopDongDaLam.
             if (data.hopDong && !data.hopDongDaLam) {
               moFormHopDong(taskId, {
-                net: String(Number(data.amount) || 0),
+                // Format sẵn dấu chấm nghìn cho khớp ô Tiền NET của form HĐ.
+                net: fmtSo(Number(data.amount) || 0),
                 noi_dung: data.title || project.title,
               });
             }

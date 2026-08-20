@@ -96,5 +96,21 @@ describe('taoHaiFile', () => {
     );
     const { bbntBlob } = await taoHaiFile(d, CFG, templateBytes(), { bytes: pngBytes, widthPx: 2, heightPx: 1 });
     expect(await demPlaceholderSot(bbntBlob)).toBe(0);
+
+    // Ảnh phải nằm trong FILE CUỐI, không chỉ trong Document tạm: chenAnhBbnt sửa `bb.doc`
+    // rồi mới docToZipXml — trước đây test chỉ kiểm placeholder nên nếu bước ghi lại hỏng thì
+    // BBNT ra ngoài với ô "Hình ảnh chứng minh" trống mà không có gì báo.
+    const zip = await JSZip.loadAsync(await bbntBlob.arrayBuffer());
+    expect(zip.file('word/media/image1.png')).not.toBeNull();
+    const xml = await zip.file('word/document.xml')!.async('text');
+    expect(xml).toContain('<w:drawing');
+    const rels = await zip.file('word/_rels/document.xml.rels')!.async('text');
+    expect(rels).toContain('media/image1.png');
+  });
+
+  it('KHÔNG kèm ảnh thì taoHaiFile báo lại để UI cảnh báo ô ảnh trống', async () => {
+    const d = chuanBi({ ho_ten: 'Trần Thị C', net: 2000000, noi_dung: 'Chụp ảnh sản phẩm' }, CFG, new Date(2026, 7, 19));
+    const kq = await taoHaiFile(d, CFG, templateBytes());
+    expect(kq.daChenAnh).toBe(false);
   });
 });

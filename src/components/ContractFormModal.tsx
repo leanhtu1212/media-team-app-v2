@@ -3,15 +3,18 @@
 // Tách khỏi Contracts.tsx vì có HAI nơi mở nó: tab Hợp đồng (từ dòng sheet hoặc nút "Tạo HĐ
 // mới") và trang Dự án (tick "có làm HĐ" khi thêm chi phí). Trước khi tách, luồng dự án phải
 // nhảy view sang tab Hợp đồng — mất ngữ cảnh dự án đang xem.
+import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Download, ExternalLink, FolderInput, Loader2 } from 'lucide-react';
+import { AlertTriangle, Check, Download, ExternalLink, FolderInput, Loader2, X } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Modal } from './ui';
 import { docContractToken, luuContractPartner } from '../lib/actions';
 import type { ContractSettingsDoc } from '../types';
 import { chuanBi, LoiNguoiDung, xemTruoc, type ContractForm } from '../lib/contracts/compute';
-import { demPlaceholderSot, taoHaiFile, taiXuong } from '../lib/contracts/docxFill';
+import { chuanTien } from '../lib/contracts/quickParse';
+import { taoHaiFile, taiXuong } from '../lib/contracts/docxFill';
+import { kiemTraHaiFile, type KetQuaKiemTra } from '../lib/contracts/kiemTra';
 import { catAnh, type CropRegion } from '../lib/contracts/imageCrop';
 import { phanTichNhanh, type QuickParseResult } from '../lib/contracts/quickParse';
 
@@ -113,6 +116,9 @@ export function ContractFormModal({
   // Thư mục đã upload xong. Giữ lại (không chỉ báo bằng toast) để còn bấm vào kiểm tra —
   // nhất là khi server tự tạo thư mục mới thì đây là cách duy nhất biết file nằm ở đâu.
   const [daUpload, setDaUpload] = useState<{ url: string; name: string } | null>(null);
+  // Soát lại file đã sinh trước khi cho đẩy lên Drive (đọc ngược từ .docx — xem kiemTra.ts).
+  const [kiemTra, setKiemTra] = useState<KetQuaKiemTra | null>(null);
+  const [daSoat, setDaSoat] = useState(false);
 
   // Mở modal cho một đối tác khác = reset sạch, không để sót file/ảnh của người trước.
   useEffect(() => {
@@ -123,7 +129,35 @@ export function ContractFormModal({
     setGenerated(null);
     setDriveMatch(null);
     setDaUpload(null);
+    setKiemTra(null);
+    setDaSoat(false);
   }, [formBanDau]);
+
+  // URL xem trước ảnh; thu hồi khi đổi ảnh/đóng modal để không rò object URL.
+  // Link sản phẩm: dòng sheet có sẵn ở cột F, còn HĐ tạo tay thì tự dán vào. Chỉ dùng để mở
+  // trang lấy ảnh chứng minh — KHÔNG đi vào nội dung hợp đồng.
+  const [linkSpNhap, setLinkSpNhap] = useState(linkSp || '');
+  useEffect(() => setLinkSpNhap(linkSp || ''), [linkSp, formBanDau]);
+  const [anhXemTruoc, setAnhXemTruoc] = useState('');
+  useEffect(() => {
+    if (!cropFile) { setAnhXemTruoc(''); return; }
+    const url = URL.createObjectURL(cropFile);
+    setAnhXemTruoc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [cropFile]);
+
+  /** Dán ảnh thẳng từ clipboard (Win+Shift+S rồi Ctrl+V) — trình duyệt KHÔNG chụp được màn
+   *  hình của trang khác giúp, nên đây là đường ngắn nhất từ trang sản phẩm sang BBNT: bớt
+   *  được bước lưu file rồi đi tìm lại file. */
+  const danAnh = (e: React.ClipboardEvent) => {
+    const it = Array.from(e.clipboardData?.items || []).find((i) => i.type.startsWith('image/'));
+    const f = it?.getAsFile();
+    if (f) {
+      e.preventDefault();
+      setCropFile(f);
+      toast('Đã dán ảnh từ clipboard');
+    }
+  };
 
   const templateBytesRef = useRef<ArrayBuffer | null>(null);
   const getTemplateBytes = async (): Promise<ArrayBuffer> => {
@@ -166,18 +200,25 @@ export function ContractFormModal({
         anh = { bytes: c.bytes, widthPx: c.widthPx, heightPx: c.heightPx };
       }
       const templateBytes = await getTemplateBytes();
-      const { hdBlob, bbntBlob, hdFilename, bbntFilename } = await taoHaiFile(d, settings, templateBytes, anh);
+      const { hdBlob, bbntBlob, hdFilename, bbntFilename, daChenAnh } = await taoHaiFile(d, settings, templateBytes, anh);
       taiXuong(hdBlob, hdFilename);
       taiXuong(bbntBlob, bbntFilename);
       // Đặt generated NGAY sau khi tải xong: file đã ra tay người dùng rồi, đừng để một lỗi
       // ghi Firestore (vd rules chưa publish) làm mất nút "Copy lên Drive".
       setGenerated({ hd: hdBlob, bbnt: bbntBlob, hdName: hdFilename, bbntName: bbntFilename });
+      // Tạo lại file = phải soát lại từ đầu, không giữ lại tick của lần trước.
+      setDaSoat(false);
+      setKiemTra(await kiemTraHaiFile(hdBlob, bbntBlob, d, settings));
       toast('Đã tạo và tải 2 file HĐ + BBNT');
-
-      // Kiểm placeholder còn sót: mẫu bị sửa/đổi là hợp đồng ra ngoài với dấu "…" chưa điền.
-      const [sotHd, sotBb] = await Promise.all([demPlaceholderSot(hdBlob), demPlaceholderSot(bbntBlob)]);
-      if (sotHd + sotBb > 0) {
-        toast(`⚠ Còn ${sotHd + sotBb} chỗ "…" chưa điền (HĐ: ${sotHd}, BBNT: ${sotBb}) — mở file kiểm lại trước khi gửi.`, 'error');
+      // Ô "Hình ảnh chứng minh" trống thì file vẫn tải về bình thường — không nói ra thì chỉ
+      // phát hiện lúc mở file, hoặc tệ hơn là lúc đối tác nhận được.
+      if (!daChenAnh) {
+        toast(
+          cropFile
+            ? '⚠ Không chèn được ảnh vào BBNT (không thấy bảng "Hạng mục" trong mẫu) — kiểm lại file.'
+            : '⚠ Chưa chọn ảnh chứng minh — ô "Hình ảnh chứng minh" trong BBNT sẽ để trống.',
+          'error',
+        );
       }
 
       // Lưu lịch sử đối tác / đánh dấu khoản chi chỉ là ghi chú kèm theo, không phải sản phẩm
@@ -197,11 +238,13 @@ export function ContractFormModal({
   };
 
   const tenDoiTac = String(form.ho_ten || '').trim();
+  // Chỉ mở đường lên Drive khi đã soát: không lỗi nghiêm trọng VÀ người dùng tự xác nhận.
+  const choPhepCopy = !!kiemTra && kiemTra.soLoi === 0 && daSoat;
 
   /** Bước 1: hỏi server folder nào khớp tên đối tác. KHÔNG upload ngay — server khớp cả kiểu
    *  "chứa chuỗi con" nên "Anh" trúng "Anh Tuấn"; đẩy CCCD/STK nhầm folder là không lấy lại được. */
   const timFolderDrive = async () => {
-    if (!generated || !tenDoiTac) return;
+    if (!generated || !tenDoiTac || !choPhepCopy) return;
     if (!webhookUrl) return toast('Chưa cấu hình Webhook', 'error');
     if (!token) return toast('Chưa cấu hình Token ở Cài đặt', 'error');
     setBusy(true);
@@ -226,7 +269,7 @@ export function ContractFormModal({
 
   /** Bước 2: người dùng đã xác nhận đích đến → upload. driveChoice='' = để server tạo folder mới. */
   const xacNhanCopy = async () => {
-    if (!generated || !tenDoiTac) return;
+    if (!generated || !tenDoiTac || !choPhepCopy) return;
     setBusy(true);
     try {
       let dichId = '';
@@ -274,7 +317,7 @@ export function ContractFormModal({
   return (
     <>
       <Modal open={open} onClose={onClose} title={tieuDe}>
-        <div className="space-y-3">
+        <div className="space-y-3" onPaste={danAnh}>
           {hienODan && (
             <label className="block text-sm">
               <span className="text-muted">Dán khối thông tin (Họ và Tên / CCCD / STK / …)</span>
@@ -297,7 +340,19 @@ export function ContractFormModal({
           {O_FORM.map(([key, label]) => (
             <label key={key} className="block text-sm">
               <span className="text-muted">{label}</span>
-              {key === 'xung_ho' ? (
+              {key === 'net' ? (
+                // Số tiền luôn hiện dấu chấm phân nhóm nghìn (3.000.000) ngay khi gõ: đọc
+                // "3000000" bằng mắt rất dễ nhầm một chữ số, mà đây là con số đi vào hợp đồng.
+                // Lưu luôn dạng đã format — docTien() bỏ dấu chấm khi tính, nên thứ người dùng
+                // NHÌN THẤY đúng bằng thứ đi vào file (nguyên tắc ở đầu banks.ts).
+                <input
+                  inputMode="numeric"
+                  className="mt-1 w-full bg-bg border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-accent transition-colors"
+                  value={String(form.net ?? '')}
+                  onChange={(e) => setForm((f) => ({ ...f, net: chuanTien(e.target.value) }))}
+                  onFocus={(e) => e.target.select()}
+                />
+              ) : key === 'xung_ho' ? (
                 <select
                   className="mt-1 w-full bg-bg border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-accent transition-colors"
                   value={String(form.xung_ho ?? '')}
@@ -346,14 +401,24 @@ export function ContractFormModal({
             </div>
           )}
 
-          {!!linkSp && /^https?:\/\//i.test(linkSp) && (
-            <a
-              href={linkSp} target="_blank" rel="noreferrer noopener"
-              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline break-all"
-            >
-              <ExternalLink size={14} className="shrink-0" /> Link sản phẩm (lấy ảnh cho BBNT)
-            </a>
-          )}
+          <label className="block text-sm">
+            <span className="text-muted">Link sản phẩm (để lấy ảnh chứng minh cho BBNT)</span>
+            <div className="mt-1 flex gap-2">
+              <input
+                className="flex-1 min-w-0 bg-bg border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-accent transition-colors"
+                placeholder="Dán link sản phẩm…"
+                value={linkSpNhap}
+                onChange={(e) => setLinkSpNhap(e.target.value)}
+              />
+              <Button
+                variant="outline"
+                disabled={!/^https?:\/\//i.test(linkSpNhap.trim())}
+                onClick={() => window.open(linkSpNhap.trim(), '_blank', 'noopener')}
+              >
+                <ExternalLink size={14} /> Mở
+              </Button>
+            </div>
+          </label>
 
           <label className="block text-sm">
             <span className="text-muted">Ảnh chứng minh (BBNT)</span>
@@ -362,6 +427,20 @@ export function ContractFormModal({
               className="mt-1 w-full text-sm"
               onChange={(e) => setCropFile(e.target.files?.[0] || null)}
             />
+            <span className="mt-1 block text-[11px] text-dim">
+              Hoặc chụp màn hình (Windows: <b>Win+Shift+S</b>) rồi <b>Ctrl+V</b> ngay trong khung này.
+            </span>
+            {/* Xem trước để biết chắc đã chọn: quên chọn thì ô ảnh trong BBNT trống trơn. */}
+            {anhXemTruoc ? (
+              <img
+                src={anhXemTruoc} alt="Ảnh chứng minh"
+                className="mt-2 max-h-32 rounded-lg border border-line"
+              />
+            ) : (
+              <span className="mt-1 block text-[11px] text-amber-400">
+                Chưa chọn ảnh — ô "Hình ảnh chứng minh" trong BBNT sẽ để trống.
+              </span>
+            )}
           </label>
 
           {!preview.sanSang && (
@@ -379,11 +458,54 @@ export function ContractFormModal({
               Tạo &amp; Tải file
             </Button>
             {generated && (
-              <Button variant="outline" onClick={timFolderDrive} disabled={busy}>
+              <Button variant="outline" onClick={timFolderDrive} disabled={busy || !choPhepCopy}>
                 <FolderInput size={16} /> Copy lên Drive
               </Button>
             )}
           </div>
+
+          {kiemTra && (
+            <div className="bg-bg border border-line rounded-lg p-3 space-y-2">
+              <p className="text-sm font-bold">
+                Soát lại HĐ &amp; BBNT trước khi lên Drive
+                <span className="ml-2 font-normal text-xs text-dim">
+                  (đọc ngược từ file vừa tạo, không phải từ ô nhập)
+                </span>
+              </p>
+              <ul className="space-y-1 text-xs">
+                {kiemTra.muc.map((m) => (
+                  <li key={m.ten} className="flex items-start gap-1.5">
+                    {m.dat
+                      ? <Check size={13} className="shrink-0 mt-0.5 text-emerald-400" />
+                      : <X size={13} className={`shrink-0 mt-0.5 ${m.nghiemTrong ? 'text-red-400' : 'text-amber-400'}`} />}
+                    <span className={m.dat ? 'text-muted' : (m.nghiemTrong ? 'text-red-400' : 'text-amber-400')}>
+                      {m.ten}
+                      {m.chiTiet && <span className="text-dim"> — {m.chiTiet}</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+
+              {kiemTra.soLoi > 0 ? (
+                // Lỗi nghiêm trọng = file sai nội dung, sửa rồi tạo lại chứ không tick bỏ qua:
+                // lên Drive rồi là ra tay đối tác.
+                <p className="text-xs text-red-400 font-semibold">
+                  Còn {kiemTra.soLoi} lỗi nghiêm trọng — sửa lại thông tin rồi bấm "Tạo &amp; Tải file"
+                  lần nữa. Chưa copy lên Drive được.
+                </p>
+              ) : (
+                <label className="flex items-start gap-2 text-xs cursor-pointer">
+                  <input type="checkbox" className="mt-0.5" checked={daSoat} onChange={(e) => setDaSoat(e.target.checked)} />
+                  <span>
+                    Tôi đã <span className="font-semibold">mở cả 2 file vừa tải về</span> và soát lại một lượt
+                    {kiemTra.soCanhBao > 0 && (
+                      <span className="text-amber-400"> (chấp nhận {kiemTra.soCanhBao} cảnh báo ở trên)</span>
+                    )}.
+                  </span>
+                </label>
+              )}
+            </div>
+          )}
 
           {daUpload && (
             <div className="flex items-start gap-2 text-sm bg-emerald-500/10 rounded-lg p-3">
