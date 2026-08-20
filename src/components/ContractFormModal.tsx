@@ -200,7 +200,8 @@ export function ContractFormModal({
         anh = { bytes: c.bytes, widthPx: c.widthPx, heightPx: c.heightPx };
       }
       const templateBytes = await getTemplateBytes();
-      const { hdBlob, bbntBlob, hdFilename, bbntFilename, daChenAnh } = await taoHaiFile(d, settings, templateBytes, anh);
+      const { hdBlob, bbntBlob, hdFilename, bbntFilename, daChenAnh } =
+        await taoHaiFile(d, settings, templateBytes, anh, linkSpNhap.trim());
       taiXuong(hdBlob, hdFilename);
       taiXuong(bbntBlob, bbntFilename);
       // Đặt generated NGAY sau khi tải xong: file đã ra tay người dùng rồi, đừng để một lỗi
@@ -208,7 +209,7 @@ export function ContractFormModal({
       setGenerated({ hd: hdBlob, bbnt: bbntBlob, hdName: hdFilename, bbntName: bbntFilename });
       // Tạo lại file = phải soát lại từ đầu, không giữ lại tick của lần trước.
       setDaSoat(false);
-      setKiemTra(await kiemTraHaiFile(hdBlob, bbntBlob, d, settings));
+      setKiemTra(await kiemTraHaiFile(hdBlob, bbntBlob, d, settings, linkSpNhap.trim()));
       toast('Đã tạo và tải 2 file HĐ + BBNT');
       // Ô "Hình ảnh chứng minh" trống thì file vẫn tải về bình thường — không nói ra thì chỉ
       // phát hiện lúc mở file, hoặc tệ hơn là lúc đối tác nhận được.

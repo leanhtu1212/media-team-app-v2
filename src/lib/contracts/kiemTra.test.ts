@@ -31,13 +31,16 @@ const FORM = {
 
 const NGAY = new Date(2026, 7, 19);
 
-async function kiemTra(kemAnh: boolean) {
+const LINK = 'https://shopee.vn/san-pham-abc';
+
+async function kiemTra(kemAnh: boolean, link = LINK) {
   const d = chuanBi(FORM, CFG, NGAY);
   const { hdBlob, bbntBlob } = await taoHaiFile(
     d, CFG, templateBytes(),
     kemAnh ? { bytes: PNG, widthPx: 2, heightPx: 1 } : undefined,
+    link,
   );
-  return kiemTraHaiFile(hdBlob, bbntBlob, d, CFG);
+  return kiemTraHaiFile(hdBlob, bbntBlob, d, CFG, link);
 }
 
 const mucTen = (kq: Awaited<ReturnType<typeof kiemTra>>, ten: string) =>
@@ -59,6 +62,12 @@ describe('kiemTraHaiFile', () => {
     expect(kq.soCanhBao).toBe(1);
   });
 
+  it('không nhập link sản phẩm -> cảnh báo', async () => {
+    const kq = await kiemTra(true, '');
+    expect(mucTen(kq, 'Link sản phẩm')?.chiTiet).toBe('Chưa nhập link sản phẩm');
+    expect(kq.soLoi).toBe(0);
+  });
+
   it('đọc số tiền GROSS trong file, không phải số NET đã nhập', async () => {
     // net 1.500.000 + thuế 10% -> gross 1.666.667; nếu hàm kiểm tra lỡ so với net thì mục này
     // vẫn "đạt" một cách sai — nên khẳng định luôn là gross nằm trong file.
@@ -72,6 +81,7 @@ describe('kiemTraHaiFile', () => {
     const kq = await kiemTraHaiFile(hdBlob, bbntBlob, d, CFG);
     expect(kq.soLoi).toBe(0);
     expect(mucTen(kq, 'Số tài khoản')?.chiTiet).toBe('Chưa nhập số tài khoản');
+    expect(mucTen(kq, 'Link sản phẩm')?.chiTiet).toBe('Chưa nhập link sản phẩm');
     expect(mucTen(kq, 'CCCD')?.chiTiet).toBe('Chưa nhập CCCD');
   });
 });

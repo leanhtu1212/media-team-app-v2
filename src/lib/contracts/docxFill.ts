@@ -4,7 +4,7 @@
 
 import JSZip from 'jszip';
 import type { ContractSettings, PreparedData } from './compute';
-import { chenAnhBbnt } from './docxImage';
+import { chenAnhBbnt, chenLinkSpBbnt } from './docxImage';
 import { fmtSo, soNgayChu, soThanhChu, tinhGross } from './money';
 import { tenFileBbnt, tenFileHd } from './naming';
 import {
@@ -203,6 +203,8 @@ export interface GeneratedFiles {
    *  thấy bảng "Hạng mục" trong mẫu. UI phải cảnh báo — BBNT thiếu ảnh vẫn tải về bình
    *  thường nên không nói ra thì chỉ phát hiện lúc mở file (hoặc lúc đối tác nhận được). */
   daChenAnh: boolean;
+  /** Đã thêm dòng "Link sản phẩm" vào ô Nội dung của BBNT chưa (false = không nhập link). */
+  daChenLink: boolean;
 }
 
 /** Sinh 2 file HĐ + BBNT từ template. `templateBytes` = nội dung file mẫu (bundle sẵn, xem
@@ -210,6 +212,7 @@ export interface GeneratedFiles {
 export async function taoHaiFile(
   d: PreparedData, cfg: ContractSettings, templateBytes: ArrayBuffer,
   anh?: { bytes: Uint8Array; widthPx: number; heightPx: number },
+  linkSp?: string,
 ): Promise<GeneratedFiles> {
   const [hd, bb] = await Promise.all([
     luuMotNua(templateBytes, d, cfg, 'hd'),
@@ -218,6 +221,8 @@ export async function taoHaiFile(
   const daChenAnh = anh
     ? await chenAnhBbnt(bb.zip, bb.doc, anh.bytes, anh.widthPx, anh.heightPx, cfg.anhRongInch)
     : false;
+  // Link sản phẩm đi kèm ảnh chứng minh: ảnh cho thấy sản phẩm, link cho chỗ đối chiếu.
+  const daChenLink = linkSp ? await chenLinkSpBbnt(bb.zip, bb.doc, linkSp) : false;
   docToZipXml(hd.zip, hd.doc);
   docToZipXml(bb.zip, bb.doc);
   const mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -230,6 +235,7 @@ export async function taoHaiFile(
     hdFilename: tenFileHd(d.ho_ten, d.noi_dung),
     bbntFilename: tenFileBbnt(d.ho_ten, d.noi_dung),
     daChenAnh,
+    daChenLink,
   };
 }
 

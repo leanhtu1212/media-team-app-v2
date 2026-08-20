@@ -108,6 +108,35 @@ describe('taoHaiFile', () => {
     expect(rels).toContain('media/image1.png');
   });
 
+  it('link sản phẩm vào ô Nội dung của BBNT, bấm được (hyperlink external)', async () => {
+    const d = chuanBi({ ho_ten: 'Trần Thị C', net: 2000000, noi_dung: 'Chụp ảnh sản phẩm' }, CFG, new Date(2026, 7, 19));
+    const url = 'https://shopee.vn/san-pham-abc';
+    const kq = await taoHaiFile(d, CFG, templateBytes(), undefined, url);
+    expect(kq.daChenLink).toBe(true);
+
+    const zip = await JSZip.loadAsync(await kq.bbntBlob.arrayBuffer());
+    const xml = await zip.file('word/document.xml')!.async('text');
+    expect(xml).toContain('Link sản phẩm: ');
+    expect(xml).toContain(url);
+    expect(xml).toContain('<w:hyperlink');
+    // Rel phải là External, không thì Word coi link là đường dẫn nội bộ và báo hỏng file.
+    const rels = await zip.file('word/_rels/document.xml.rels')!.async('text');
+    expect(rels).toContain('TargetMode="External"');
+    expect(rels).toContain(url);
+
+    // Link CHỈ ở BBNT — hợp đồng không có mục nào cho link sản phẩm.
+    const zipHd = await JSZip.loadAsync(await kq.hdBlob.arrayBuffer());
+    expect(await zipHd.file('word/document.xml')!.async('text')).not.toContain(url);
+  });
+
+  it('không nhập link thì không thêm gì vào BBNT', async () => {
+    const d = chuanBi({ ho_ten: 'Trần Thị C', net: 2000000, noi_dung: 'Chụp ảnh sản phẩm' }, CFG, new Date(2026, 7, 19));
+    const kq = await taoHaiFile(d, CFG, templateBytes(), undefined, '   ');
+    expect(kq.daChenLink).toBe(false);
+    const zip = await JSZip.loadAsync(await kq.bbntBlob.arrayBuffer());
+    expect(await zip.file('word/document.xml')!.async('text')).not.toContain('Link sản phẩm');
+  });
+
   it('KHÔNG kèm ảnh thì taoHaiFile báo lại để UI cảnh báo ô ảnh trống', async () => {
     const d = chuanBi({ ho_ten: 'Trần Thị C', net: 2000000, noi_dung: 'Chụp ảnh sản phẩm' }, CFG, new Date(2026, 7, 19));
     const kq = await taoHaiFile(d, CFG, templateBytes());

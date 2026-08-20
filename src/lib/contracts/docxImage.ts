@@ -5,7 +5,7 @@
 // crop ảnh đã làm ở bước khác — xem imageCrop.ts — hàm này chỉ lo nhúng ảnh đã crop sẵn).
 
 import type JSZip from 'jszip';
-import { cellsOfRow, nfc, paragraphsOf, rowsOfTable, runsOf, W_NS } from './docxXml';
+import { cellsOfRow, nfc, paragraphsOf, rowsOfTable, runsOf, setRunText, W_NS } from './docxXml';
 
 const EMU_PER_INCH = 914400;
 const A_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main';
@@ -32,10 +32,10 @@ function nextImageName(zip: JSZip): string {
   return `image${i}.png`;
 }
 
-async function addImagePart(zip: JSZip, bytes: Uint8Array): Promise<{ relId: string }> {
-  const name = nextImageName(zip);
-  zip.file(`word/media/${name}`, bytes);
-
+/** Thêm một Relationship vào word/_rels/document.xml.rels, trả về Id vừa cấp. */
+async function themRel(
+  zip: JSZip, loai: string, target: string, ngoai = false,
+): Promise<string> {
   const relsPath = 'word/_rels/document.xml.rels';
   const relsDoc = await xmlDoc(zip, relsPath);
   const relsRoot = relsDoc.documentElement;
@@ -45,10 +45,18 @@ async function addImagePart(zip: JSZip, bytes: Uint8Array): Promise<{ relId: str
   const relId = `rId${Math.max(0, ...existingIds) + 1}`;
   const rel = relsDoc.createElementNS(RELS_NS, 'Relationship');
   rel.setAttribute('Id', relId);
-  rel.setAttribute('Type', `${R_NS}/image`);
-  rel.setAttribute('Target', `media/${name}`);
+  rel.setAttribute('Type', `${R_NS}/${loai}`);
+  rel.setAttribute('Target', target);
+  if (ngoai) rel.setAttribute('TargetMode', 'External');
   relsRoot.appendChild(rel);
   writeXml(zip, relsPath, relsDoc);
+  return relId;
+}
+
+async function addImagePart(zip: JSZip, bytes: Uint8Array): Promise<{ relId: string }> {
+  const name = nextImageName(zip);
+  zip.file(`word/media/${name}`, bytes);
+  const relId = await themRel(zip, 'image', `media/${name}`);
 
   const ctPath = '[Content_Types].xml';
   const ctDoc = await xmlDoc(zip, ctPath);
@@ -133,6 +141,54 @@ function buildDrawingRun(doc: Document, relId: string, widthPx: number, heightPx
   drawing.appendChild(inline);
   r.appendChild(drawing);
   return r;
+}
+
+/** Ô hàng 2 của bảng "Hạng mục" trong BBNT, theo chỉ số cột. null nếu không tìm thấy bảng. */
+function oBangHangMuc(doc: Document, cot: number): Element | null {
+  for (const tb of Array.from(doc.getElementsByTagNameNS(W_NS, 'tbl'))) {
+    const rows = rowsOfTable(tb);
+    if (!rows.length) continue;
+    const oDau = cellsOfRow(rows[0]).map((c) => nfc(c.textContent || '').trim());
+    if (!oDau.includes('Hạng mục')) continue;
+    if (rows.length < 2) return null;
+    return cellsOfRow(rows[1])[cot] || null;
+  }
+  return null;
+}
+
+/**
+ * Thêm dòng "Link sản phẩm: <url>" vào ô Nội dung (cột 2) của bảng Điều 1 BBNT.
+ *
+ * Dựng bằng cách NHÂN BẢN đoạn có sẵn trong ô rồi thay chữ, để thừa hưởng nguyên font/cỡ/căn
+ * lề của mẫu — tự tạo <w:p> trắng thì đoạn link ra khác hẳn phần còn lại của bảng.
+ * URL bọc trong <w:hyperlink> + rel TargetMode="External" nên bấm được trong Word.
+ */
+export async function chenLinkSpBbnt(zip: JSZip, doc: Document, url: string): Promise<boolean> {
+  const link = (url || '').trim();
+  if (!link) return false;
+  const cell = oBangHangMuc(doc, 1);
+  if (!cell) return false;
+  const mau = paragraphsOf(cell)[0];
+  if (!mau) return false;
+
+  const p = mau.cloneNode(true) as Element;
+  const runs = runsOf(p);
+  if (!runs.length) return false;
+  // Giữ đúng 1 run làm khuôn định dạng, bỏ phần còn lại (đoạn gốc có thể nhiều run).
+  for (const r of runs.slice(1)) p.removeChild(r);
+  const nhan = runs[0];
+  setRunText(nhan, 'Link sản phẩm: ');
+
+  const runLink = nhan.cloneNode(true) as Element;
+  setRunText(runLink, link);
+  const relId = await themRel(zip, 'hyperlink', link, true);
+  const hyperlink = doc.createElementNS(W_NS, 'w:hyperlink');
+  hyperlink.setAttributeNS(R_NS, 'r:id', relId);
+  hyperlink.appendChild(runLink);
+  p.appendChild(hyperlink);
+
+  cell.appendChild(p);
+  return true;
 }
 
 /** Chèn ảnh vào ô "Hình ảnh chứng minh" (cột 3) của bảng Điều 1 BBNT. `doc` phải là Document

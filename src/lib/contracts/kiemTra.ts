@@ -56,7 +56,7 @@ function demPlaceholder(text: string): number {
  * chỉ dùng để biết cần tìm chuỗi nào.
  */
 export async function kiemTraHaiFile(
-  hdBlob: Blob, bbntBlob: Blob, d: PreparedData, cfg: ContractSettings,
+  hdBlob: Blob, bbntBlob: Blob, d: PreparedData, cfg: ContractSettings, linkSp?: string,
 ): Promise<KetQuaKiemTra> {
   // Tính lại gross đúng công thức docxFill dùng — nếu hai bên lệch nhau thì mục "số tiền"
   // trượt, và đó chính là thứ cần biết trước khi gửi file đi.
@@ -96,6 +96,9 @@ export async function kiemTraHaiFile(
     d.ngan_hang ? `Không thấy «${d.ngan_hang}»` : 'Chưa nhập ngân hàng');
   them('CCCD có trong HĐ', !!d.cccd && chua(hd.text, d.cccd), false,
     d.cccd ? `Không thấy «${d.cccd}»` : 'Chưa nhập CCCD');
+  const link = (linkSp || '').trim();
+  them('Link sản phẩm có trong BBNT', !!link && chua(bb.text, link), false,
+    link ? `Không thấy «${link}»` : 'Chưa nhập link sản phẩm');
 
   return {
     muc,
