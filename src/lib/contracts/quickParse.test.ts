@@ -129,3 +129,59 @@ describe('khối thông tin thanh toán dán tay', () => {
     expect(phanTichNhanh('Số điện thoại (Zalo): 0900000000').form.sdt).toBe('0900000000');
   });
 });
+
+// Bug thật (2026-09): dán khối có nhãn "CCCD/CMND" (CCCD đứng trước) — app chỉ đăng ký
+// thứ tự "CMND/CCCD" nên nhãn này rơi thẳng vào khongRo, và ngày cấp bị nhét chung vào
+// cùng dòng (phân cách bằng dấu phẩy) khiến giá trị CCCD dính rác nếu nhãn có khớp.
+describe('nhãn "CCCD/CMND" (thứ tự ngược) kèm ngày cấp cùng dòng', () => {
+  it('vẫn nhận ra CCCD dù nhãn viết "CCCD/CMND"', () => {
+    const r = phanTichNhanh('CCCD/CMND: 025202006683, ngày cấp : 9/5/2021');
+    expect(r.form.cccd).toBe('025202006683');
+    expect(r.khongRo).toEqual([]);
+  });
+
+  // "Số tài khoản ngân hàng" là MỘT nhãn (số tài khoản của ngân hàng), không phải nhãn gộp
+  // hai giá trị kiểu "STK - Ngân hàng".
+  it('nhãn "Số tài khoản ngân hàng" là số tài khoản', () => {
+    const r = phanTichNhanh('Số tài khoản ngân hàng: 9704229294077826');
+    expect(r.form.so_tk).toBe('9704229294077826');
+    expect(r.khongRo).toEqual([]);
+  });
+
+  // Khối dán thường không ghi tên chủ tài khoản vì luôn trùng họ tên ở đầu khối.
+  it('không có nhãn tên chủ TK thì lấy họ tên đầu khối', () => {
+    const r = phanTichNhanh('Ông/Bà: Đỗ Tuấn Anh\nSố tài khoản ngân hàng: 9704229294077826');
+    expect(r.form.ten_tk).toBe('DO TUAN ANH');
+  });
+
+  it('có nhãn tên chủ TK thì giữ nguyên, không đè bằng họ tên', () => {
+    const r = phanTichNhanh('Họ và Tên: Đỗ Tuấn Anh\nChủ TK: Nguyen Van B');
+    expect(r.form.ten_tk).toBe('NGUYEN VAN B');
+  });
+
+  it('bóc luôn ngày cấp nằm chung dòng với CCCD', () => {
+    const r = phanTichNhanh('CCCD/CMND: 025202006683, ngày cấp : 9/5/2021');
+    expect(r.form.cccd).toBe('025202006683');
+    expect(r.form.ngay_cap).toBe('09/05/2021');
+    expect(r.nhanRa).toContain('Ngày cấp');
+  });
+
+  it('bóc được nhiều nhãn phụ, nhãn "hiểu nhưng không dùng" thì nuốt luôn', () => {
+    const r = phanTichNhanh('CCCD: 001, ngày cấp: 1/2/2020, nơi cấp: Cục CS QLHC');
+    expect(r.form.cccd).toBe('001');
+    expect(r.form.ngay_cap).toBe('01/02/2020');
+  });
+
+  // Không được đoán mò: dấu phẩy trong giá trị là chuyện bình thường.
+  it('giá trị có dấu phẩy nhưng không kèm nhãn đã biết thì giữ nguyên', () => {
+    expect(phanTichNhanh('Địa chỉ: 36 Thọ Lão, Hai Bà Trưng, Hà Nội').form.dia_chi)
+      .toBe('36 Thọ Lão, Hai Bà Trưng, Hà Nội');
+    expect(phanTichNhanh('Nội dung công việc: Quay video, phần 2: cận cảnh').form.noi_dung)
+      .toBe('Quay video, phần 2: cận cảnh');
+  });
+
+  it('nhãn phụ không đè giá trị đã có từ dòng riêng', () => {
+    const r = phanTichNhanh('Ngày cấp: 01/01/2019\nCCCD: 002, ngày cấp: 9/9/2021');
+    expect(r.form.ngay_cap).toBe('01/01/2019');
+  });
+});

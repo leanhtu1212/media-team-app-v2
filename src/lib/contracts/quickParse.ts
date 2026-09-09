@@ -36,7 +36,7 @@ const NHAN: Record<string, keyof QuickParseForm> = {
   'ho ten': 'ho_ten', 'ten': 'ho_ten', 'ho va ten': 'ho_ten',
   'dai dien': 'ho_ten', 'nguoi dai dien': 'ho_ten',
   'ong': 'ho_ten', 'ba': 'ho_ten', 'ong/ba': 'ho_ten', 'ong ba': 'ho_ten',
-  'so cmnd/cccd': 'cccd', 'so cmnd cccd': 'cccd', 'cmnd/cccd': 'cccd',
+  'so cmnd/cccd': 'cccd', 'so cmnd cccd': 'cccd', 'cmnd/cccd': 'cccd', 'cccd/cmnd': 'cccd',
   'cccd': 'cccd', 'cmnd': 'cccd', 'so cccd': 'cccd', 'so cmnd': 'cccd',
   'can cuoc': 'cccd', 'so can cuoc': 'cccd',
   'ngay cap': 'ngay_cap',
@@ -46,6 +46,9 @@ const NHAN: Record<string, keyof QuickParseForm> = {
   'ma so thue ca nhan': 'mst', 'ma so thue': 'mst', 'mst': 'mst',
   'email': 'email', 'gmail': 'email', 'mail': 'email',
   'stk': 'so_tk', 'so tk': 'so_tk', 'so tai khoan': 'so_tk',
+  // "Số tài khoản ngân hàng" là MỘT nhãn cho số tài khoản, khác nhãn gộp "STK - Ngân hàng".
+  'so tai khoan ngan hang': 'so_tk', 'so tk ngan hang': 'so_tk',
+  'stk ngan hang': 'so_tk', 'tai khoan ngan hang': 'so_tk',
   'ngan hang': 'ngan_hang', 'bank': 'ngan_hang', 'ten ngan hang': 'ngan_hang',
   'tai ngan hang': 'ngan_hang', 'nh': 'ngan_hang',
   'ctk': 'ten_tk', 'chu tai khoan': 'ten_tk', 'ten tai khoan': 'ten_tk',
@@ -100,6 +103,25 @@ function chuanHoaNhan(nhan: string): string {
   return chuanHoa(nhan.replace(/\([^)]*\)/g, ' '));
 }
 
+/** Dòng dán tay hay nhét hai nhãn vào một dòng, ngăn bởi dấu phẩy:
+ *  "CCCD/CMND: 025202006683, ngày cấp : 9/5/2021". Chỉ tách khi mảnh sau dấu phẩy có dạng
+ *  "<nhãn đã biết> : <giá trị>" — nhãn lạ thì để nguyên cả cụm, không đoán mò (dấu phẩy
+ *  trong địa chỉ / nội dung công việc là chuyện bình thường). */
+function tachNhanPhu(giaTri: string): { chinh: string; phu: [keyof QuickParseForm, string][] } {
+  const manh = giaTri.split(',');
+  const phu: [keyof QuickParseForm, string][] = [];
+  let i = manh.length;
+  while (i > 1) {
+    const m = manh[i - 1].match(/^([^:]+):(.*)$/s);
+    if (!m) break;
+    const khoa = chuanHoaNhan(goRac(m[1]));
+    if (coKhoa(NHAN, khoa)) phu.unshift([NHAN[khoa], goRac(m[2])]);
+    else if (!BO_QUA.has(khoa)) break;
+    i--;
+  }
+  return { chinh: manh.slice(0, i).join(','), phu };
+}
+
 function goRac(s: string): string {
   let a = 0;
   let b = s.length;
@@ -148,7 +170,10 @@ function dat(form: QuickParseForm, truong: keyof QuickParseForm, giaTriIn: strin
   } else if (truong === 'ten_tk') {
     giaTri = boDau(giaTri).toUpperCase();
   } else if (TRUONG_SO.has(truong)) {
-    giaTri = giaTri.replace(/[\s.]/g, '');
+    // Dòng dán tay đôi khi nhét thêm nhãn khác cùng dòng, ngăn bởi dấu phẩy
+    // (vd "CCCD/CMND: 025202006683, ngày cấp : 9/5/2021") — chỉ lấy phần số đầu.
+    const m = giaTri.match(/^[\d.\s]+/);
+    giaTri = (m ? m[0] : giaTri).replace(/[\s.]/g, '');
   }
   form[truong] = giaTri;
   return true;
@@ -188,7 +213,12 @@ export function phanTichNhanh(text: string): QuickParseResult {
 
     if (dau && coKhoa(NHAN, khoa)) {
       const truong = NHAN[khoa];
-      if (dat(form, truong, goRac(giaTriRaw))) nhanRa.push(NHAN_HIEN[truong]);
+      const { chinh, phu } = tachNhanPhu(goRac(giaTriRaw));
+      if (dat(form, truong, chinh)) nhanRa.push(NHAN_HIEN[truong]);
+      // Dòng riêng có nhãn hẳn hoi đáng tin hơn nhãn nhét thêm sau dấu phẩy.
+      for (const [truongPhu, gtPhu] of phu) {
+        if (!form[truongPhu] && dat(form, truongPhu, gtPhu)) nhanRa.push(NHAN_HIEN[truongPhu]);
+      }
       // 'Ông:' / 'Bà:' vừa là nhãn tên vừa cho biết xưng hô; 'Ông/Bà:' là nhãn in sẵn
       // nên không suy ra được gì.
       if ((khoa === 'ong' || khoa === 'ba') && !form.xung_ho) {
@@ -236,6 +266,11 @@ export function phanTichNhanh(text: string): QuickParseResult {
     }
   } else {
     khongRo.push(...ungVienNoiDung);
+  }
+
+  // Khối dán hiếm khi ghi tên chủ tài khoản vì luôn trùng họ tên ở đầu khối.
+  if (!form.ten_tk && form.ho_ten && dat(form, 'ten_tk', form.ho_ten)) {
+    nhanRa.push(NHAN_HIEN.ten_tk);
   }
 
   // Chuẩn hoá tên ngân hàng, GIỮ LẠI bản gốc để giao diện hiện ra đối chiếu.
