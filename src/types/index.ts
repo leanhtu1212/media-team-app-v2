@@ -151,6 +151,12 @@ export interface DailyContent {
   // chọn ngay lúc tạo content để biết trước ai dựng, khác `ContentItem.addedBy` (chỉ có sau
   // khi video đã trả). Bot báo deadline Lark đọc field này để hiện tên người dựng.
   editorId?: string;
+  /** Danh sách người dựng — NGUỒN SỰ THẬT khi có nhiều người. `editorId` ở trên là mirror của
+   *  phần tử [0], giữ lại vì bot Lark n8n và doc cũ vẫn đọc field đó. Luôn đọc qua
+   *  contentEditorIds() trong lib/utils.ts, đừng đọc thẳng field này. */
+  editorIds?: string[];
+  /** Định mức số video từng người dựng, key = uid. Chỉ ghi khi có ≥2 người dựng. */
+  editorQty?: Record<string, number>;
   orderDate?: string; // ngày order/đặt nội dung — mặc định là ngày thêm content
   dueDate?: string;
   notes?: string;

@@ -109,9 +109,65 @@ export function isDayOff(dateStr: string): boolean {
   return nth % 2 === 1;
 }
 
-/** Người của 1 NỘI DUNG (Daily Content) = NGƯỜI DỰNG (`editorId`).
- *  Ô "Người phụ trách" (`assigneeId`) đã gỡ khỏi form nội dung — content chỉ còn 1 người là
- *  người dựng video. Doc cũ chưa có `editorId` thì đọc tạm `assigneeId` để không mất tên,
- *  nhưng KHÔNG ghi mới vào field đó nữa. */
-export const contentOwnerId = (d: { editorId?: string; assigneeId?: string }): string =>
-  d.editorId || d.assigneeId || '';
+type ContentEditorSrc = { editorIds?: string[]; editorId?: string; assigneeId?: string };
+type ContentProgressSrc = ContentEditorSrc & {
+  editorQty?: Record<string, number>;
+  items?: { done: boolean; addedBy?: string }[];
+};
+
+export type EditorProgress = { uid: string; done: number; quota?: number };
+export type QuotaSummary = { target: number; assigned: number; diff: number; ok: boolean };
+
+/** Danh sách NGƯỜI DỰNG của 1 nội dung. `editorIds` là nguồn sự thật; doc cũ chỉ có `editorId`,
+ *  doc rất cũ chỉ có `assigneeId` (ô "người phụ trách" đã gỡ khỏi form) — quy đổi lúc đọc nên
+ *  không cần migrate. Đừng đọc thẳng field, mọi nơi phải gọi hàm này. */
+export function contentEditorIds(d: ContentEditorSrc): string[] {
+  const ids = (d.editorIds || []).filter(Boolean);
+  if (ids.length) return ids;
+  const cu = d.editorId || d.assigneeId || '';
+  return cu ? [cu] : [];
+}
+
+export const contentOwnerId = (d: ContentEditorSrc): string => contentEditorIds(d)[0] || '';
+
+/** Tiến độ từng người dựng, đếm từ `items[].addedBy` (đã lưu sẵn lúc trả video).
+ *  Người TRẢ HỘ (không nằm trong danh sách người dựng) vẫn được một dòng riêng không có định
+ *  mức — để tổng `done` các dòng luôn bằng tổng video đã trả, không thất lạc cái nào. */
+export function editorProgress(d: ContentProgressSrc): EditorProgress[] {
+  const items = (d.items || []).filter((i) => i.done);
+  const demTheoUid = (uid: string) => items.filter((i) => (i.addedBy || '') === uid).length;
+  const ids = contentEditorIds(d);
+  const nhieuNguoi = ids.length >= 2;
+  const coQuotaDict = !!d.editorQty && Object.keys(d.editorQty).length > 0;
+  const hasExplicitEditorIds = Array.isArray(d.editorIds);
+  const ra: EditorProgress[] = ids.map((uid) => {
+    const quota = d.editorQty?.[uid];
+    return quota === undefined ? { uid, done: demTheoUid(uid) } : { uid, done: demTheoUid(uid), quota };
+  });
+  if (hasExplicitEditorIds || nhieuNguoi || coQuotaDict) {
+    for (const i of items) {
+      const uid = i.addedBy || '';
+      if (uid && !ids.includes(uid) && !ra.some((x) => x.uid === uid)) ra.push({ uid, done: demTheoUid(uid) });
+    }
+  }
+  return ra;
+}
+
+/** Đối chiếu tổng định mức với ô "Số lượng". Dưới 2 người dựng thì không áp định mức nên luôn ok. */
+export function quotaSummary(
+  quantity: number | undefined,
+  editorIds: string[],
+  editorQty?: Record<string, number>,
+): QuotaSummary {
+  const target = Math.max(1, Number(quantity) || 1);
+  const assigned = editorIds.reduce((s, uid) => s + (Number(editorQty?.[uid]) || 0), 0);
+  return { target, assigned, diff: assigned - target, ok: editorIds.length < 2 || assigned === target };
+}
+
+/** Chia đều `total` cho `n` người, phần dư dồn cho người đầu (11 → [6, 5]). */
+export function splitEven(total: number, n: number): number[] {
+  if (n <= 0) return [];
+  const co = Math.floor(total / n);
+  const du = total - co * n;
+  return Array.from({ length: n }, (_, i) => co + (i < du ? 1 : 0));
+}
