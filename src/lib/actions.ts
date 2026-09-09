@@ -409,13 +409,24 @@ export async function deleteReport(id: string): Promise<void> {
 
 /* ---------- Daily Content ---------- */
 
+/** editorId là MIRROR của editorIds[0] — bot Lark n8n và doc cũ vẫn đọc field đó.
+ *  ≤1 người dựng thì xoá sạch định mức, không để lại số cũ sau khi bỏ bớt người. */
+function editorFields(data: Partial<DailyContent>): Pick<DailyContent, 'editorIds' | 'editorId' | 'editorQty'> {
+  const ids = (data.editorIds || (data.editorId ? [data.editorId] : [])).filter(Boolean);
+  const qty: Record<string, number> = {};
+  if (ids.length >= 2) {
+    for (const uid of ids) qty[uid] = Math.max(0, Number(data.editorQty?.[uid]) || 0);
+  }
+  return { editorIds: ids, editorId: ids[0] || '', editorQty: qty };
+}
+
 export async function createDailyContent(data: Partial<DailyContent>, user: User): Promise<void> {
   await addDoc(col.dailyContent(), {
     title: data.title || '',
     type: data.type || 'Reels',
     platform: data.platform || 'Đa kênh',
     assigneeId: data.assigneeId || '',
-    editorId: data.editorId || '',
+    ...editorFields(data),
     orderDate: data.orderDate || todayStr(),
     dueDate: data.dueDate || todayStr(),
     notes: data.notes || '',
@@ -445,7 +456,9 @@ export async function updateDailyContent(
   data: Partial<DailyContent>,
   info?: { title?: string; platform?: string; prev?: DailyContent; user?: User },
 ): Promise<void> {
-  await updateDoc(ref.daily(id), { ...data, updatedAt: serverTimestamp() });
+  // Chỉ chuẩn hoá khi patch thực sự đổi người dựng — tránh việc đổi status/items vô tình xoá editorIds/editorQty.
+  const patch = ('editorIds' in data || 'editorId' in data) ? { ...data, ...editorFields(data) } : data;
+  await updateDoc(ref.daily(id), { ...patch, updatedAt: serverTimestamp() });
 
   const title = info?.title || info?.prev?.title;
   const platform = info?.platform || info?.prev?.platform;
