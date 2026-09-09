@@ -7,7 +7,7 @@ import { ProjectFormModal } from './Projects';
 import { Linkify } from './ProjectDetail';
 import { TagManagerModal, TagSelect, hexA } from '../components/tags';
 import { primaryTagId, projectTagColor, projectTagIds, tagLevel } from '../lib/tags';
-import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr, isDayOff, normalize, contentOwnerId, contentEditorIds, quotaSummary, splitEven } from '../lib/utils';
+import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr, isDayOff, normalize, contentOwnerId, contentEditorIds, editorProgress, quotaSummary, splitEven } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { useIsMobile } from '../hooks/useIsMobile';
 import type { DailyContent, DailyStatus, Project, Task, Note, ContentItem, ContentFormat } from '../types';
@@ -1555,7 +1555,7 @@ export function ContentDetailPage({
   }
 
   const memberOf = (id?: string) => members.find((m) => m.uid === id || m.id === id);
-  const editor = memberOf(contentOwnerId(item));
+  const tienDoNguoiDung = editorProgress(item);
   const creator = memberOf(item.createdBy);
   const linkedProject = item.projectId ? projects.find((p) => p.id === item.projectId) : undefined;
   const tag = item.tagId ? tags.find((t) => t.id === item.tagId) : undefined;
@@ -1719,6 +1719,12 @@ export function ContentDetailPage({
                             <p className={`text-sm font-medium truncate ${v.done ? 'line-through text-dim' : ''}`}>{v.title}</p>
                           )}
                         </div>
+                        {v.done && memberOf(v.addedBy) && (
+                          <span className="shrink-0 flex items-center gap-1 text-[11px] text-dim" title={`Người trả: ${memberOf(v.addedBy)!.username}`}>
+                            <Avatar name={memberOf(v.addedBy)!.username} url={memberOf(v.addedBy)!.avatarUrl} size={16} />
+                            <span className="hidden sm:inline">{memberOf(v.addedBy)!.username}</span>
+                          </span>
+                        )}
                         {v.done && v.doneDate && (
                           <span className="shrink-0 text-[11px] font-medium text-emerald-400/90 tabular-nums flex items-center gap-1" title="Ngày trả video">
                             <Calendar size={11} />{formatDate(v.doneDate)}
@@ -1853,15 +1859,29 @@ export function ContentDetailPage({
             )}
           </div>
 
-          {/* Người dựng — thay hẳn mục "Người phụ trách" cũ */}
+          {/* Người dựng — tiến độ từng người (định mức chỉ có khi ≥2 người dựng) */}
           <div className="mb-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Người dựng</p>
-            {editor ? (
-              <span className="inline-flex items-center gap-1.5 bg-bg border border-line rounded-full pl-1 pr-2.5 py-0.5">
-                <Avatar name={editor.username} url={editor.avatarUrl} size={20} />
-                <span className="text-xs font-bold">{editor.username}</span>
-              </span>
-            ) : <p className="text-sm text-dim">Chưa gán</p>}
+            {tienDoNguoiDung.length === 0 ? (
+              <p className="text-sm text-dim">Chưa gán</p>
+            ) : (
+              <div className="space-y-1.5">
+                {tienDoNguoiDung.map((n) => {
+                  const m = memberOf(n.uid);
+                  const ngoai = !contentEditorIds(item).includes(n.uid);
+                  return (
+                    <div key={n.uid} className="flex items-center gap-2">
+                      <Avatar name={m?.username} url={m?.avatarUrl} size={20} />
+                      <span className="text-xs font-bold flex-1 truncate">{m?.username || 'Không rõ'}</span>
+                      <span className="text-[11px] font-bold tabular-nums text-dim shrink-0">
+                        {n.done}{n.quota !== undefined && `/${n.quota}`}
+                        {ngoai && <span className="font-medium"> · ngoài định mức</span>}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Người tạo */}
