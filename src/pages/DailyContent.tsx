@@ -325,11 +325,11 @@ function MonthNav({ month, onChange }: { month: string; onChange: (m: string) =>
 }
 
 function ItemCard({
-  item, editor, canEdit, toast, user, onEdit, onDelete, onDetail,
+  item, editors, canEdit, toast, user, onEdit, onDelete, onDetail,
 }: {
   item: DailyContent;
-  /** Người dựng video — content không còn "người phụ trách" riêng nữa */
-  editor?: { username?: string; avatarUrl?: string };
+  /** Người dựng — nhiều người thì hiện chồng avatar */
+  editors?: { username?: string; avatarUrl?: string }[];
   canEdit: boolean;
   toast: (m: string, t?: 'success' | 'error') => void;
   user: User;
@@ -371,9 +371,12 @@ function ItemCard({
       <ProgressBar value={contentProgress(item)} />
       <div className="flex items-center justify-between mt-2.5">
         <div className="flex items-center gap-1.5">
-          {editor && (
-            <span title={`Người dựng: ${editor.username || ''}`}>
-              <Avatar name={editor.username} url={editor.avatarUrl} size={20} />
+          {(editors?.length ?? 0) > 0 && (
+            <span className="flex items-center -space-x-1.5" title={`Người dựng: ${editors!.map((e) => e.username || '').join(', ')}`}>
+              {editors!.slice(0, 3).map((e, i) => (
+                <span key={i} className="ring-2 ring-surface rounded-full"><Avatar name={e.username} url={e.avatarUrl} size={20} /></span>
+              ))}
+              {editors!.length > 3 && <span className="text-[10px] font-bold text-dim pl-2.5">+{editors!.length - 3}</span>}
             </span>
           )}
           <span className={`text-[11px] ${overdue ? 'text-red-400 font-bold' : 'text-dim'}`}>{formatDate(item.dueDate)}</span>
@@ -449,7 +452,7 @@ export function ContentKanban({ user, newRef, onOpenContent }: { user: User; new
                   <ItemCard
                     key={item.id}
                     item={item}
-                    editor={memberOf(contentOwnerId(item))}
+                    editors={contentEditorIds(item).map((uid) => memberOf(uid)).filter(Boolean) as { username?: string; avatarUrl?: string }[]}
                     canEdit={canEditDaily}
                     toast={toast}
                     user={user}
