@@ -137,18 +137,18 @@ export function editorProgress(d: ContentProgressSrc): EditorProgress[] {
   const items = (d.items || []).filter((i) => i.done);
   const demTheoUid = (uid: string) => items.filter((i) => (i.addedBy || '') === uid).length;
   const ids = contentEditorIds(d);
-  const nhieuNguoi = ids.length >= 2;
-  const coQuotaDict = !!d.editorQty && Object.keys(d.editorQty).length > 0;
-  const hasExplicitEditorIds = Array.isArray(d.editorIds);
+  // Định mức chỉ có ý nghĩa khi ≥2 người dựng (editorQty chỉ được ghi khi đó) — 1 người thì không tạo key quota.
+  const coQuota = ids.length >= 2;
   const ra: EditorProgress[] = ids.map((uid) => {
-    const quota = d.editorQty?.[uid];
+    const quota = coQuota ? d.editorQty?.[uid] : undefined;
     return quota === undefined ? { uid, done: demTheoUid(uid) } : { uid, done: demTheoUid(uid), quota };
   });
-  if (hasExplicitEditorIds || nhieuNguoi || coQuotaDict) {
-    for (const i of items) {
-      const uid = i.addedBy || '';
-      if (uid && !ids.includes(uid) && !ra.some((x) => x.uid === uid)) ra.push({ uid, done: demTheoUid(uid) });
-    }
+  // Luôn cộng dòng người trả hộ (không phân biệt số người dựng/doc cũ-mới) — để tổng done
+  // các dòng luôn bằng tổng video đã trả, không thất lạc cái nào (ví dụ đơn người dựng nhưng
+  // người khác bấm "Trả video" hộ).
+  for (const i of items) {
+    const uid = i.addedBy || '';
+    if (uid && !ids.includes(uid) && !ra.some((x) => x.uid === uid)) ra.push({ uid, done: demTheoUid(uid) });
   }
   return ra;
 }

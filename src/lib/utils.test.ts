@@ -39,20 +39,29 @@ describe('editorProgress', () => {
     ]);
   });
 
-  it('một người dựng thì không có định mức', () => {
-    expect(editorProgress({ editorId: 'a', items })).toEqual([{ uid: 'a', done: 2 }]);
+  it('một người dựng thì không có định mức, người trả hộ vẫn ra dòng riêng', () => {
+    expect(editorProgress({ editorId: 'a', items })).toEqual([
+      { uid: 'a', done: 2 },
+      { uid: 'b', done: 1 },
+    ]);
   });
 
   it('người trả hộ ngoài danh sách ra dòng riêng, không có định mức', () => {
+    // Chỉ 1 người dựng ('a') nên không có key quota dù editorQty có giá trị.
     const r = editorProgress({ editorIds: ['a'], editorQty: { a: 3 }, items });
     expect(r).toEqual([
-      { uid: 'a', done: 2, quota: 3 },
+      { uid: 'a', done: 2 },
       { uid: 'b', done: 1 },
     ]);
   });
 
   it('tổng done các dòng bằng tổng video đã trả', () => {
     const r = editorProgress({ editorIds: ['a'], items });
+    expect(r.reduce((s, x) => s + x.done, 0)).toBe(items.filter((i) => i.done).length);
+  });
+
+  it('doc cũ chỉ có editorId (không phải mảng): tổng done vẫn khớp tổng video đã trả', () => {
+    const r = editorProgress({ editorId: 'a', items });
     expect(r.reduce((s, x) => s + x.done, 0)).toBe(items.filter((i) => i.done).length);
   });
 });
