@@ -7,7 +7,7 @@ import { ProjectFormModal } from './Projects';
 import { Linkify } from './ProjectDetail';
 import { TagManagerModal, TagSelect, hexA } from '../components/tags';
 import { primaryTagId, projectTagColor, projectTagIds, tagLevel } from '../lib/tags';
-import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr, isDayOff, normalize, contentOwnerId } from '../lib/utils';
+import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr, isDayOff, normalize, contentOwnerId, contentEditorIds, quotaSummary, splitEven } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { useIsMobile } from '../hooks/useIsMobile';
 import type { DailyContent, DailyStatus, Project, Task, Note, ContentItem, ContentFormat } from '../types';
@@ -1924,6 +1924,9 @@ function ContentFormModal({
   const editors = members.filter((m) => m.role === 'admin' || m.role === 'editor');
   const [form, setForm] = useState<Partial<DailyContent>>({});
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  const editorIds = contentEditorIds(form);
+  const chia = quotaSummary(form.quantity, editorIds, form.editorQty);
 
   // Mảng của Daily Content LUÔN là tag Mảng tên "Content" — không cho chọn khác, nên chỉ hiện
   // chip cho biết chứ không có ô select. Chưa tạo tag đó thì content lưu không tag (dòng
@@ -1949,9 +1952,30 @@ function ContentFormModal({
   }
 
   const set = (k: keyof DailyContent, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
+  // Bấm chip để bật/tắt người dựng. Lần ĐẦU có đủ 2 người thì tự chia đều tổng cho đỡ phải gõ;
+  // các lần sau không tự chia lại, tránh ghi đè số người dùng vừa sửa.
+  const toggleEditor = (uid: string) => {
+    const dang = contentEditorIds(form);
+    const co = dang.includes(uid);
+    const ids = co ? dang.filter((x) => x !== uid) : [...dang, uid];
+    const qty: Record<string, number> = {};
+    for (const id of ids) if (form.editorQty?.[id] !== undefined) qty[id] = form.editorQty[id];
+    if (ids.length >= 2 && ids.every((id) => qty[id] === undefined)) {
+      const phan = splitEven(Math.max(1, Number(form.quantity) || 1), ids.length);
+      ids.forEach((id, i) => { qty[id] = phan[i]; });
+    }
+    setForm((f) => ({ ...f, editorIds: ids, editorId: ids[0] || '', editorQty: qty }));
+  };
   const submit = async () => {
     // Không còn bắt buộc tagId: tag do hệ thống gán, thiếu tag "Content" thì vẫn lưu được.
     if (busy || !form.title) return;
+    // Guard đặt trong submit (không chỉ disable nút) — quy ước form của repo.
+    if (!chia.ok) {
+      toast(chia.diff < 0
+        ? `Định mức mới chia ${chia.assigned}/${chia.target} — còn thiếu ${-chia.diff}`
+        : `Định mức chia ${chia.assigned}/${chia.target} — thừa ${chia.diff}`, 'error');
+      return;
+    }
     setBusy(true);
     // Chốt tag ngay lúc lưu, không dựa vào lúc mở form: mở modal trước khi snapshot tags về tới
     // (vào app là bấm thêm luôn) thì contentTag lúc đó còn undefined, content sẽ mất tag.
@@ -1979,30 +2003,51 @@ function ContentFormModal({
         </div>
         {/* Người DỰNG — chỉ admin/editor mới dựng video, role 'content' không vào danh sách này.
             Chọn bằng chip bấm (như ô người phụ trách của dự án), bấm lại chip đang chọn để bỏ.
-            Ô "Người phụ trách" (assigneeId) ĐÃ GỠ khỏi form — content chỉ còn 1 người là người dựng. */}
-        <Field label="Người dựng (chọn 1)">
+            Chọn được NHIỀU người, có định mức riêng khi ≥2 người (xem toggleEditor + quotaSummary).
+            Ô "Người phụ trách" (assigneeId) ĐÃ GỠ khỏi form. */}
+        <Field label="Người dựng">
           {editors.length === 0 ? (
             <p className="text-xs text-dim">Chưa có editor để gán</p>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {editors.map((m) => {
-                const id = m.uid || m.id;
-                const on = form.editorId === id;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => set('editorId', on ? '' : id)}
-                    className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-sm font-medium transition-all cursor-pointer ${
-                      on ? 'border-accent bg-accent/15 text-ink' : 'border-line text-muted hover:border-line-2'
-                    }`}
-                  >
-                    <Avatar name={m.username} url={m.avatarUrl} size={20} />
-                    {m.username}
-                  </button>
-                );
-              })}
-            </div>
+            <>
+              <div className="flex flex-wrap gap-2">
+                {editors.map((m) => {
+                  const id = m.uid || m.id;
+                  const on = editorIds.includes(id);
+                  return (
+                    <div key={m.id} className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleEditor(id)}
+                        className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-sm font-medium transition-all cursor-pointer ${
+                          on ? 'border-accent bg-accent/15 text-ink' : 'border-line text-muted hover:border-line-2'
+                        }`}
+                      >
+                        <Avatar name={m.username} url={m.avatarUrl} size={20} />
+                        {m.username}
+                      </button>
+                      {on && editorIds.length >= 2 && (
+                        <Input
+                          type="number"
+                          min={0}
+                          className="!w-16"
+                          value={form.editorQty?.[id] ?? 0}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => set('editorQty', { ...(form.editorQty || {}), [id]: Math.max(0, Number(e.target.value) || 0) })}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {editorIds.length >= 2 && (
+                <p className={`text-[11px] mt-1.5 font-medium ${chia.ok ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  Đã chia {chia.assigned}/{chia.target}
+                  {chia.diff < 0 && ` — còn ${-chia.diff}`}
+                  {chia.diff > 0 && ` — thừa ${chia.diff}`}
+                </p>
+              )}
+            </>
           )}
         </Field>
         {/* Ngày order = ngày tạo, tự đặt trong createDailyContent nên KHÔNG hiện ô nhập.
