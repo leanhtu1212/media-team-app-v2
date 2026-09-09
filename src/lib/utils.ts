@@ -132,7 +132,8 @@ export const contentOwnerId = (d: ContentEditorSrc): string => contentEditorIds(
 
 /** Tiến độ từng người dựng, đếm từ `items[].addedBy` (đã lưu sẵn lúc trả video).
  *  Người TRẢ HỘ (không nằm trong danh sách người dựng) vẫn được một dòng riêng không có định
- *  mức — để tổng `done` các dòng luôn bằng tổng video đã trả, không thất lạc cái nào. */
+ *  mức, và video cũ chưa có `addedBy` gom vào một dòng `uid: ''` — để tổng `done` các dòng
+ *  luôn bằng tổng video đã trả, không thất lạc cái nào. */
 export function editorProgress(d: ContentProgressSrc): EditorProgress[] {
   const items = (d.items || []).filter((i) => i.done);
   const demTheoUid = (uid: string) => items.filter((i) => (i.addedBy || '') === uid).length;
@@ -150,6 +151,10 @@ export function editorProgress(d: ContentProgressSrc): EditorProgress[] {
     const uid = i.addedBy || '';
     if (uid && !ids.includes(uid) && !ra.some((x) => x.uid === uid)) ra.push({ uid, done: demTheoUid(uid) });
   }
+  // Video trả từ trước khi có `addedBy` không thuộc về ai: gom vào dòng uid rỗng ("Chưa rõ người
+  // trả") thay vì bỏ đi, không thì content cũ hiện "0" bên cạnh thanh tiến độ 100%.
+  const khongRoNguoiTra = items.filter((i) => !i.addedBy).length;
+  if (khongRoNguoiTra) ra.push({ uid: '', done: khongRoNguoiTra });
   return ra;
 }
 

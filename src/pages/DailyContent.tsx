@@ -1871,11 +1871,14 @@ export function ContentDetailPage({
               <div className="space-y-1.5">
                 {tienDoNguoiDung.map((n) => {
                   const m = memberOf(n.uid);
-                  const ngoai = !contentEditorIds(item).includes(n.uid);
+                  // uid rỗng = video cũ không lưu người trả, không phải người trả hộ nên không
+                  // gắn nhãn "ngoài định mức".
+                  const chuaRo = !n.uid;
+                  const ngoai = !chuaRo && !contentEditorIds(item).includes(n.uid);
                   return (
-                    <div key={n.uid} className="flex items-center gap-2">
+                    <div key={n.uid || '__chua-ro__'} className="flex items-center gap-2">
                       <Avatar name={m?.username} url={m?.avatarUrl} size={20} />
-                      <span className="text-xs font-bold flex-1 truncate">{m?.username || 'Không rõ'}</span>
+                      <span className="text-xs font-bold flex-1 truncate">{chuaRo ? 'Chưa rõ người trả' : (m?.username || 'Không rõ')}</span>
                       <span className="text-[11px] font-bold tabular-nums text-dim shrink-0">
                         {n.done}{n.quota !== undefined && `/${n.quota}`}
                         {ngoai && <span className="font-medium"> · ngoài định mức</span>}
@@ -1943,13 +1946,24 @@ function ContentFormModal({
   members: { uid?: string; id: string; username: string; role?: string; avatarUrl?: string }[];
   onSave: (data: Partial<DailyContent>) => Promise<void>;
 }) {
-  const { tags } = useAppData();
+  const { tags, members: tatCaThanhVien } = useAppData();
   const editors = members.filter((m) => m.role === 'admin' || m.role === 'editor');
   const [form, setForm] = useState<Partial<DailyContent>>({});
   const [busy, setBusy] = useState(false);
   const toast = useToast();
   const editorIds = contentEditorIds(form);
   const chia = quotaSummary(form.quantity, editorIds, form.editorQty);
+  // Người dựng đã rời team / đổi role thì không còn chip → không có ô định mức để sửa mà
+  // guard vẫn đếm phần của họ ⇒ nội dung không bao giờ lưu lại được. Thêm chip cho các uid
+  // "lạ" (xếp sau danh sách thường) để bỏ chọn hoặc chia lại định mức.
+  const coChip = new Set(editors.map((m) => m.uid || m.id));
+  const chipNguoiDung = [
+    ...editors,
+    ...editorIds.filter((id) => !coChip.has(id)).map((id) => {
+      const m = tatCaThanhVien.find((x) => x.uid === id || x.id === id);
+      return { id, uid: id, username: m?.username || 'Không rõ', avatarUrl: m?.avatarUrl };
+    }),
+  ];
 
   // Mảng của Daily Content LUÔN là tag Mảng tên "Content" — không cho chọn khác, nên chỉ hiện
   // chip cho biết chứ không có ô select. Chưa tạo tag đó thì content lưu không tag (dòng
@@ -2029,12 +2043,12 @@ function ContentFormModal({
             Chọn được NHIỀU người, có định mức riêng khi ≥2 người (xem toggleEditor + quotaSummary).
             Ô "Người phụ trách" (assigneeId) ĐÃ GỠ khỏi form. */}
         <Field label="Người dựng">
-          {editors.length === 0 ? (
+          {chipNguoiDung.length === 0 ? (
             <p className="text-xs text-dim">Chưa có editor để gán</p>
           ) : (
             <>
               <div className="flex flex-wrap gap-2">
-                {editors.map((m) => {
+                {chipNguoiDung.map((m) => {
                   const id = m.uid || m.id;
                   const on = editorIds.includes(id);
                   return (

@@ -198,6 +198,9 @@ export function ContentListPage({ user, onOpenContent, onOpenProject }: {
               const d = e.content;
               const items = d.items || [];
               const overdue = !!d.dueDate && d.dueDate < today && d.status !== 'done';
+              // Bỏ uid không tra ra thành viên (người đã rời team) cho khớp card kanban,
+              // không thì hai trang hiện số người dựng khác nhau.
+              const nguoiDung = contentEditorIds(d).map((uid) => memberOf(uid)).filter(Boolean) as { id: string; username: string; avatarUrl?: string }[];
               return (
                 <Card key={e.key} className="overflow-hidden">
                   <button
@@ -219,12 +222,12 @@ export function ContentListPage({ user, onOpenContent, onOpenProject }: {
                               <Calendar size={11} />{formatDate(d.dueDate)}{overdue && ' · quá hạn'}
                             </span>
                           )}
-                          {contentEditorIds(d).length > 0 && (
+                          {nguoiDung.length > 0 && (
                             <span className="flex items-center gap-1 text-[11px] text-dim">
-                              {contentEditorIds(d).slice(0, 3).map((uid) => (
-                                <Avatar key={uid} name={memberOf(uid)?.username} url={memberOf(uid)?.avatarUrl} size={16} />
+                              {nguoiDung.slice(0, 3).map((m) => (
+                                <Avatar key={m.id} name={m.username} url={m.avatarUrl} size={16} />
                               ))}
-                              {contentEditorIds(d).map((uid) => memberOf(uid)?.username).filter(Boolean).join(', ')}
+                              {nguoiDung.map((m) => m.username).filter(Boolean).join(', ')}
                             </span>
                           )}
                         </div>

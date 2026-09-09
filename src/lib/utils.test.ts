@@ -24,11 +24,13 @@ describe('contentEditorIds', () => {
 });
 
 describe('editorProgress', () => {
+  // Video '5' là doc cũ chưa có addedBy — phải đi vào dòng uid rỗng, không được thất lạc.
   const items = [
     { id: '1', title: '', done: true, addedBy: 'a' },
     { id: '2', title: '', done: true, addedBy: 'a' },
     { id: '3', title: '', done: true, addedBy: 'b' },
     { id: '4', title: '', done: false, addedBy: 'b' },
+    { id: '5', title: '', done: true },
   ];
 
   it('đếm video đã trả theo addedBy, kèm định mức', () => {
@@ -36,6 +38,7 @@ describe('editorProgress', () => {
     expect(r).toEqual([
       { uid: 'a', done: 2, quota: 3 },
       { uid: 'b', done: 1, quota: 2 },
+      { uid: '', done: 1 },
     ]);
   });
 
@@ -43,6 +46,7 @@ describe('editorProgress', () => {
     expect(editorProgress({ editorId: 'a', items })).toEqual([
       { uid: 'a', done: 2 },
       { uid: 'b', done: 1 },
+      { uid: '', done: 1 },
     ]);
   });
 
@@ -52,7 +56,25 @@ describe('editorProgress', () => {
     expect(r).toEqual([
       { uid: 'a', done: 2 },
       { uid: 'b', done: 1 },
+      { uid: '', done: 1 },
     ]);
+  });
+
+  it('video cũ không có addedBy gom vào dòng uid rỗng', () => {
+    const cu = [
+      { id: '1', title: '', done: true },
+      { id: '2', title: '', done: true },
+      { id: '3', title: '', done: false },
+    ];
+    expect(editorProgress({ editorIds: ['q'], items: cu })).toEqual([
+      { uid: 'q', done: 0 },
+      { uid: '', done: 2 },
+    ]);
+  });
+
+  it('không có video nào thiếu addedBy thì không thêm dòng rỗng', () => {
+    const r = editorProgress({ editorIds: ['a'], items: [{ done: true, addedBy: 'a' }] });
+    expect(r).toEqual([{ uid: 'a', done: 1 }]);
   });
 
   it('tổng done các dòng bằng tổng video đã trả', () => {
