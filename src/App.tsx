@@ -18,6 +18,7 @@ import { Contracts } from './pages/Contracts';
 import { ReportsPage } from './pages/Reports';
 import { PerformancePage } from './pages/Performance';
 import { SettingsPage } from './pages/Settings';
+import { escapeNavigationAction } from './lib/escapeNavigation';
 
 function Shell({ user }: { user: User }) {
   const { loading, isAdmin, role, projects, dailyContent } = useAppData();
@@ -38,6 +39,7 @@ function Shell({ user }: { user: User }) {
   // Vị trí cuộn của Lịch tháng, ghi liên tục khi cuộn. Là ref (không phải state) để lịch unmount
   // rồi mount lại vẫn đọc được, mà cập nhật thì không làm cả app re-render.
   const calendarScrollRef = useRef<CalendarScroll | null>(null);
+  const viewHistoryRef = useRef<View[]>([]);
 
   // Role 'content' chỉ thấy 4 trang này. View mặc định là 'dashboard' (lúc mount chưa biết role,
   // members còn đang tải) nên khi role về mà đang đứng ở trang không được phép thì đẩy về Lịch tháng.
@@ -46,6 +48,30 @@ function Shell({ user }: { user: User }) {
     if (role === 'content' && !contentAllowed.includes(view)) setView('daily');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role, view]);
+
+  useEffect(() => {
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const action = escapeNavigationAction({
+        hasOverlay: !!document.querySelector('[data-app-overlay]'),
+        selectedProjectId,
+        selectedContentId,
+        history: viewHistoryRef.current,
+      });
+      if (action.type === 'none') return;
+      e.preventDefault();
+      if (action.type === 'close-project') setSelectedProjectId(null);
+      else if (action.type === 'close-content') setSelectedContentId(null);
+      else {
+        viewHistoryRef.current.pop();
+        setSelectedProjectId(null);
+        setSelectedContentId(null);
+        setView(action.view);
+      }
+    };
+    window.addEventListener('keydown', onEscape);
+    return () => window.removeEventListener('keydown', onEscape);
+  }, [selectedProjectId, selectedContentId]);
 
   if (loading) {
     return (
@@ -64,6 +90,10 @@ function Shell({ user }: { user: User }) {
   // Bấm menu "Lịch tháng" là cách duy nhất đưa lịch về hôm nay: xoá cả vị trí đã lưu lẫn cờ focus
   const navigate = (v: View) => {
     if (v === 'daily') { calendarScrollRef.current = null; setCalendarFocusDate(null); setCalendarResetNonce((n) => n + 1); }
+    if (v !== view) {
+      viewHistoryRef.current.push(view);
+      if (viewHistoryRef.current.length > 30) viewHistoryRef.current.shift();
+    }
     setSelectedProjectId(null);
     setSelectedContentId(null);
     setView(v);

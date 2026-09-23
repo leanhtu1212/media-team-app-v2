@@ -75,14 +75,13 @@ service cloud.firestore {
       // Members Subcollection
       match /members/{userId} {
         allow read: if isTeamMember(teamId);
-        // Admin tạo member doc cho user mới (flow "Thêm thành viên" của SPA). User chỉ
-        // được tự tạo doc của chính mình với role 'viewer' (không tự cấp editor/content
-        // — repo public + config lộ nên phải chặn tự nâng quyền).
-        allow create: if isAdmin(teamId) || (
-          isAuthenticated() && request.auth.uid == userId &&
-          request.resource.data.role == 'viewer'
+        // Chỉ admin được thêm thành viên: tài khoản Auth không đồng nghĩa với quyền vào team.
+        allow create: if isAdmin(teamId);
+        // Tự sửa hồ sơ chỉ được đổi thông tin hiển thị, không đổi KPI/quyền/định danh.
+        allow update: if isAdmin(teamId) || (
+          isTeamMember(teamId) && request.auth.uid == userId &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['username', 'title', 'avatarUrl'])
         );
-        allow update: if isAdmin(teamId) || (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'uid', 'email', 'joinedAt']));
         allow delete: if isAdmin(teamId) && userId != request.auth.uid;
       }
 

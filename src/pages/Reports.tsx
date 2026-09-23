@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Trash2, Pencil, FileText, Download, ExternalLink } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
+import { CreatedAtInfo } from '../components/CreatedAtInfo';
 import { Button, Card, Badge, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, EmptyState } from '../components/ui';
 import { createManualReport, updateReport, deleteReport } from '../lib/actions';
 import { currentMonth, shiftMonth, monthLabel, monthRange, todayStr, formatDate, formatDateTime, isProjectFinished } from '../lib/utils';
@@ -346,6 +347,7 @@ function ReportFormModal({
   return (
     <Modal open={open} onClose={onClose} onSubmit={submit} title={editing ? 'Sửa báo cáo' : 'Báo cáo mới'}>
       <div className="space-y-4">
+        <CreatedAtInfo createdAt={editing?.createdAt} isNew={!editing} />
         <Field label="Nội dung">
           <Textarea rows={3} value={form.content || ''} onChange={(e) => set('content', e.target.value)} placeholder="Hôm nay đã làm..." autoFocus />
         </Field>

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Plus, FolderKanban, Calendar, Camera, Video, Search, X, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
+import { CreatedAtInfo } from '../components/CreatedAtInfo';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, EmptyState, Modal, Input, Textarea, Field, Avatar } from '../components/ui';
 import { createProject, updateProject } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
@@ -471,6 +472,7 @@ export function ProjectFormModal({
   return (
     <Modal open={open} onClose={onClose} onSubmit={submit} title={editing ? 'Sửa dự án' : 'Dự án mới'}>
       <div className="space-y-4">
+        <CreatedAtInfo createdAt={editing?.createdAt} isNew={!editing} />
         <Field label="Tên dự án">
           <Input value={form.title || ''} onChange={(e) => set('title', e.target.value)} placeholder="VD: Chụp lookbook mùa hè" />
         </Field>

@@ -1,7 +1,7 @@
 import { LayoutDashboard, FolderKanban, CalendarDays, FileText, TrendingUp, Settings, LogOut, Clapperboard, CircleUser, MoreHorizontal, ListVideo, FileSignature } from 'lucide-react';
 import { useState } from 'react';
 import { auth, signOut } from '../../lib/firebase';
-import { Avatar } from '../ui';
+import { Avatar, useEscClose } from '../ui';
 import { useAppData } from '../../store/AppDataContext';
 
 export type View = 'dashboard' | 'me' | 'projects' | 'daily' | 'contentlist' | 'contracts' | 'reports' | 'performance' | 'settings';
@@ -32,6 +32,7 @@ const MOBILE_PRIMARY_COUNT = 4;
 function BottomNav({ view, onNavigate }: { view: View; onNavigate: (v: View) => void }) {
   const { currentMember, isAdmin, role } = useAppData();
   const [sheetOpen, setSheetOpen] = useState(false);
+  useEscClose(sheetOpen, () => setSheetOpen(false));
   const nav = NAV.filter((n) => n.show({ isAdmin, role }));
   const primary = nav.slice(0, MOBILE_PRIMARY_COUNT);
   const rest = nav.slice(MOBILE_PRIMARY_COUNT);
@@ -42,7 +43,7 @@ function BottomNav({ view, onNavigate }: { view: View; onNavigate: (v: View) => 
   return (
     <>
       {sheetOpen && (
-        <div className="md:hidden fixed inset-0 z-[130] bg-black/60 backdrop-blur-sm flex items-end" onClick={() => setSheetOpen(false)}>
+        <div data-app-overlay="mobile-nav" className="md:hidden fixed inset-0 z-[130] bg-black/60 backdrop-blur-sm flex items-end" onClick={() => setSheetOpen(false)}>
           <div
             className="fade-up w-full bg-surface border-t border-line rounded-t-2xl p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
             onClick={(e) => e.stopPropagation()}

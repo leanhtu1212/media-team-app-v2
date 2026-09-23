@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, Pencil, Camera, Video, Wallet, Star, CheckCircle2, Circle, Calendar, Package, FileText, Check, TrendingUp, ExternalLink } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
+import { CreatedAtInfo } from '../components/CreatedAtInfo';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, Drawer } from '../components/ui';
 import { updateProject, deleteProject, createTask, updateTask, deleteTask, toggleDntt, danhDauTaskDaLamHopDong } from '../lib/actions';
 import { ContractFormModal, useContractConfig } from '../components/ContractFormModal';
@@ -9,7 +10,8 @@ import { fmtSo } from '../lib/contracts/money';
 import { formatVND, formatDate, todayStr, isProjectFinished } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { ProjectFormModal } from './Projects';
-import type { Task, TaskCategory, Project, ProjectStatus } from '../types';
+import type { Task, TaskCategory, Project } from '../types';
+import { automaticProjectStatus } from '../lib/projectStatus';
 import type { User } from '../lib/firebase';
 
 export function ProjectDetailPage({ projectId, user, onBack }: { projectId: string; user: User; onBack: () => void }) {
@@ -35,18 +37,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
   //  - "Done" là terminal, không tự đổi nữa.
   useEffect(() => {
     if (!isEditor || !project || project.status === 'done') return;
-    const doneQty = (cat: string) =>
-      tasks.filter((t) => t.category === cat && (t.status === 'completed' || t.dntt)).reduce((s, t) => s + (Number(t.quantity) || 1), 0);
-    const delivered = doneQty('photo') + doneQty('video');
-    const target = (project.photoTarget || 0) + (project.videoTarget || 0);
-
-    let desired: ProjectStatus | null = null;
-    if (target > 0 && delivered >= target) {
-      const costs = tasks.filter((t) => t.category === 'pre-production');
-      desired = (costs.length === 0 || costs.every((t) => t.dntt)) ? 'done' : 'payment';
-    } else if (delivered >= 1 && (project.status === 'plan' || project.status === 'pre-production')) {
-      desired = 'post-production';
-    }
+    const desired = automaticProjectStatus(project, tasks);
 
     if (!desired || desired === project.status) return;
     updateProject(project.id, { status: desired }, { prev: project }).catch(() => {});
@@ -375,7 +366,7 @@ export function ProjectDetailPage({ projectId, user, onBack }: { projectId: stri
         onClose={() => setConfirmDelete(null)}
         title={confirmDelete?.type === 'project' ? 'Xoá dự án?' : 'Xoá task?'}
         message={confirmDelete?.type === 'project'
-          ? `Xoá "${project.title}" và không thể khôi phục.`
+          ? `Xoá "${project.title}" cùng task và báo cáo của dự án, không thể khôi phục. Nội dung liên kết và báo cáo video của nội dung vẫn được giữ, chỉ bỏ liên kết với dự án.`
           : `Xoá task "${confirmDelete?.task?.title}"?`}
         onConfirm={async () => {
           try {
@@ -448,6 +439,7 @@ function TaskDetailDrawer({
       ) : undefined}
     >
       <div className="space-y-0.5">
+        <CreatedAtInfo createdAt={task.createdAt} />
         <Row label="Trạng thái"><Badge color={STATUS_BADGE[task.status] || STATUS_BADGE.pending}>{STATUS_LABEL[task.status] || task.status}</Badge></Row>
         <Row label="Ngày báo cáo">{formatDate(task.reportDate)}</Row>
         {isPre ? (
@@ -597,6 +589,7 @@ function InfoPanel({ project, isEditor, toast, user, creator, assignees }: { pro
       </div>
 
       {/* Người tạo dự án */}
+      <div className="mb-4"><CreatedAtInfo createdAt={project.createdAt} /></div>
       <div className="mb-4">
         <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Người tạo</p>
         <div className="flex items-center gap-2">
@@ -684,6 +677,7 @@ function TaskFormModal({
   return (
     <Modal open={state.open} onClose={onClose} onSubmit={submit} title={state.editing ? 'Sửa task' : `Thêm ${isPre ? 'chi phí' : state.category === 'photo' ? 'ảnh' : 'video'}`}>
       <div className="space-y-4">
+        <CreatedAtInfo createdAt={state.editing?.createdAt} isNew={!state.editing} />
         {isPre ? (
           <Field label="Tên khoản chi">
             <Input value={form.title || ''} onChange={(e) => set('title', e.target.value)} placeholder="VD: Thuê studio" autoFocus />

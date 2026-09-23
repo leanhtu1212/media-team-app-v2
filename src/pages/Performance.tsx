@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react';
 import { Crown, X, Camera, Video, Wallet, FolderKanban, TrendingUp, ArrowUp, ArrowDown, Minus, Tags, Building2, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
-import { Card, Badge, STATUS_BADGE, STATUS_LABEL, Avatar, Input, EmptyState, Drawer } from '../components/ui';
+import { Card, Badge, STATUS_BADGE, STATUS_LABEL, Avatar, Input, EmptyState, Drawer, useEscClose } from '../components/ui';
 import { calculateTeamKpi, teamTypeTotals, tagTypeTotals, individualKpi, teamAggregate, contentVideoEntries, monthVideoDemand, type MemberKpi, type ProjectClass, type TypeTotals, type TagTotals } from '../lib/kpi';
 import { levelLabel } from '../lib/tags';
 import { currentMonth, shiftMonth, formatVND, formatDate } from '../lib/utils';
@@ -737,6 +737,7 @@ function MemberDetail({
 }: { kpi: MemberKpi; month: string; initialTab: MemberTab; onClose: () => void; onOpenProject: (id: string) => void }) {
   const { allTasks, projects, reports, dailyContent } = useAppData();
   const [tab, setTab] = useState<MemberTab>(initialTab);
+  useEscClose(true, onClose);
 
   const userTasks = allTasks.filter((t) => t.createdBy === kpi.uid && (t.reportDate || '').startsWith(month));
   const photoTasks = userTasks.filter((t) => t.category === 'photo');
@@ -781,7 +782,7 @@ function MemberDetail({
   const memberProjects = projects.filter((p) => kpi.projectIds.includes(p.id));
 
   return (
-    <div className="fixed inset-0 z-[140] flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div data-app-overlay="member-detail" role="dialog" aria-modal="true" className="fixed inset-0 z-[140] flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div className="fade-up w-full max-w-2xl h-full bg-surface border-l border-line overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 bg-surface border-b border-line px-5 py-4 flex items-center gap-3 z-10">
           <Avatar name={kpi.username} url={kpi.avatarUrl} size={40} />

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, Camera, Video, StickyNote, Tag, ArrowLeft, FileText, Check, Calendar, ExternalLink, Hash, CheckCircle2, Circle } from 'lucide-react';
 import { useAppData } from '../store/AppDataContext';
+import { CreatedAtInfo } from '../components/CreatedAtInfo';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, ProgressBar } from '../components/ui';
 import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject, createNote, updateNote, deleteNote, createContentVideoReport, deleteReport, updateReport } from '../lib/actions';
 import { ProjectFormModal } from './Projects';
@@ -733,6 +734,7 @@ function NoteFormModal({
   return (
     <Modal open={open} onClose={onClose} onSubmit={submit} title={state?.note ? 'Sửa ghi chú' : 'Ghi chú mới'}>
       <div className="space-y-4">
+        <CreatedAtInfo createdAt={state?.note?.createdAt} isNew={!state?.note} />
         <Field label={`Nội dung${state ? ` · ${formatDate(state.date)}` : ''}`}>
           <Textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Nhập ghi chú… (dán link cũng được)" />
         </Field>
@@ -1891,6 +1893,7 @@ export function ContentDetailPage({
           </div>
 
           {/* Người tạo */}
+          <div className="mb-4"><CreatedAtInfo createdAt={item.createdAt} /></div>
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1.5">Người tạo</p>
             <div className="flex items-center gap-2">
@@ -2023,6 +2026,7 @@ function ContentFormModal({
   return (
     <Modal open={open} onClose={onClose} onSubmit={submit} title={editing?.id ? 'Sửa nội dung' : 'Nội dung mới'}>
       <div className="space-y-4">
+        <CreatedAtInfo createdAt={editing?.createdAt} isNew={!editing?.id} />
         <Field label="Tiêu đề">
           <Input value={form.title || ''} onChange={(e) => set('title', e.target.value)} placeholder="VD: Reels trend tuần này" autoFocus />
         </Field>
@@ -2087,8 +2091,8 @@ function ContentFormModal({
             </>
           )}
         </Field>
-        {/* Ngày order = ngày tạo, tự đặt trong createDailyContent nên KHÔNG hiện ô nhập.
-            `dueDate` giờ gọi là Deadline cho đồng bộ với dự án — tên field giữ nguyên. */}
+        {/* Ngày tạo hiển thị chỉ đọc ở đầu form. Ngày order vẫn do createDailyContent đặt.
+            `dueDate` gọi là Deadline cho đồng bộ với dự án — tên field giữ nguyên. */}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Deadline">
             <Input type="date" value={form.dueDate || ''} onChange={(e) => set('dueDate', e.target.value)} />

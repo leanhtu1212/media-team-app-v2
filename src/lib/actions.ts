@@ -1,5 +1,5 @@
 import {
-  addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch,
+  addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore';
 import { db, type User } from './firebase';
 import { MAIN_TEAM_ID, genId, todayStr, formatVND } from './utils';
@@ -162,15 +162,30 @@ export async function deleteOrphans(
 }
 
 export async function deleteProject(id: string, title?: string): Promise<void> {
-  // Xoá cascade: Firestore không tự xoá subcollection → phải xoá tay tất cả
-  // task (gồm DNTT/chi phí tiền kỳ) và report liên quan, rồi mới xoá project.
-  const taskSnap = await getDocs(col.tasks(id));
-  await Promise.all(taskSnap.docs.map((d) => deleteDoc(d.ref)));
-
-  const reportSnap = await getDocs(query(col.reports(), where('projectId', '==', id)));
-  await Promise.all(reportSnap.docs.map((d) => deleteDoc(d.ref)));
-
-  await deleteDoc(ref.project(id));
+  const [taskSnap, reportSnap, contentSnap] = await Promise.all([
+    getDocs(col.tasks(id)),
+    getDocs(query(col.reports(), where('projectId', '==', id))),
+    getDocs(query(col.dailyContent(), where('projectId', '==', id))),
+  ]);
+  // Content vẫn tồn tại sau khi xoá dự án: giữ report và gỡ projectId ở cả hai nguồn.
+  // Nếu còn projectId cũ, công cụ dọn mồ côi sẽ xoá nhầm report của content.
+  const operations: ((batch: ReturnType<typeof writeBatch>) => void)[] = [
+    ...contentSnap.docs.map((d) => (batch: ReturnType<typeof writeBatch>) =>
+      batch.update(d.ref, { projectId: '', updatedAt: serverTimestamp() })),
+    ...reportSnap.docs.map((d) => (batch: ReturnType<typeof writeBatch>) =>
+      d.data().relatedContentId
+        ? batch.update(d.ref, { projectId: '', updatedAt: serverTimestamp() })
+        : batch.delete(d.ref)),
+    ...taskSnap.docs.map((d) => (batch: ReturnType<typeof writeBatch>) => batch.delete(d.ref)),
+    (batch) => batch.delete(ref.project(id)),
+  ];
+  // Dự án nhỏ được xoá atomic; dự án lớn chia lô dưới giới hạn 500 writes.
+  // Xoá doc dự án cuối cùng để có thể thử lại nếu một lô thất bại.
+  for (let offset = 0; offset < operations.length; offset += 450) {
+    const batch = writeBatch(db);
+    operations.slice(offset, offset + 450).forEach((operation) => operation(batch));
+    await batch.commit();
+  }
   notify(`🗑️ Đã xoá dự án "${title || id}"`);
 }
 
@@ -264,7 +279,33 @@ export async function updateTask(
 ): Promise<void> {
   // Firestore từ chối giá trị undefined → lọc bỏ trước khi ghi.
   const clean = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
-  await updateDoc(ref.task(projectId, taskId), { ...clean, updatedAt: serverTimestamp() });
+  // Đọc bản mới nhất thay vì dùng snapshot UI; task và report phải cùng thành công.
+  await runTransaction(db, async (transaction) => {
+    const taskRef = ref.task(projectId, taskId);
+    const taskSnap = await transaction.get(taskRef);
+    if (!taskSnap.exists()) throw new Error('Task không còn tồn tại');
+    const next = { ...taskSnap.data(), ...clean } as Task;
+    const syncReport = next.sourceReportId && next.category !== 'pre-production' &&
+      ['quantity', 'reportDate', 'link', 'hasKB', 'category'].some((key) => key in clean);
+    if (syncReport) {
+      const reportRef = ref.report(next.sourceReportId!);
+      const reportSnap = await transaction.get(reportRef);
+      const projectSnap = await transaction.get(ref.project(projectId));
+      if (reportSnap.exists()) {
+        const quantity = Number(next.quantity) || 1;
+        const label = next.category === 'photo' ? 'ảnh' : 'video';
+        const projectTitle = projectSnap.data()?.title || info?.projectTitle || next.title;
+        // Chỉ sửa nội dung; giữ nguyên createdBy/userEmail để không đổi người nhận KPI.
+        transaction.update(reportRef, {
+          quantity, reportDate: next.reportDate || todayStr(), link: next.link || '',
+          hasKB: !!next.hasKB, outputType: next.category,
+          content: `Hoàn thành ${quantity} ${label} - ${projectTitle}`,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
+    transaction.update(taskRef, { ...clean, updatedAt: serverTimestamp() });
+  });
 
   if (info?.prev && info.user) {
     const lines = diffLines(info.prev, data, TASK_DIFF_FIELDS);

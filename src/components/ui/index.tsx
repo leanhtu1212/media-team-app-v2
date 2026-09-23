@@ -2,12 +2,24 @@ import { useEffect, type ReactNode, type ButtonHTMLAttributes, type HTMLAttribut
 import { X, AlertTriangle } from 'lucide-react';
 
 /** Đóng overlay (Modal/Drawer/ConfirmDialog) khi nhấn phím ESC. */
-function useEscClose(open: boolean, onClose: () => void) {
+const escapeClosers: Array<() => void> = [];
+
+export function useEscClose(open: boolean, onClose: () => void) {
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    escapeClosers.push(onClose);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || escapeClosers.at(-1) !== onClose) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      onClose();
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      const i = escapeClosers.lastIndexOf(onClose);
+      if (i >= 0) escapeClosers.splice(i, 1);
+    };
   }, [open, onClose]);
 }
 
@@ -62,7 +74,7 @@ export function Modal({
     // KHÔNG đóng khi bấm ra nền ngoài (tránh lỡ tay mất form đang nhập) — đóng qua nút X / Huỷ.
     // Điện thoại: dán đáy màn hình kiểu bottom sheet (ngón cái với tới được, bàn phím đẩy lên gọn).
     // Máy tính: hộp thoại giữa màn hình như cũ.
-    <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm">
+    <div data-app-overlay="modal" role="dialog" aria-modal="true" className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm">
       <div
         className={`slide-up sm:fade-up bg-surface border border-line rounded-t-2xl sm:rounded-2xl w-full ${wide ? 'sm:max-w-3xl' : 'sm:max-w-lg'} max-h-[92vh] sm:max-h-[90vh] flex flex-col`}
       >
@@ -88,7 +100,7 @@ export function Drawer({
   if (!open) return null;
   const isLeft = side === 'left';
   return (
-    <div className={`fixed inset-0 z-[140] flex ${isLeft ? 'justify-start' : 'justify-end'} bg-black/60 backdrop-blur-sm`} onClick={onClose}>
+    <div data-app-overlay="drawer" role="dialog" aria-modal="true" className={`fixed inset-0 z-[140] flex ${isLeft ? 'justify-start' : 'justify-end'} bg-black/60 backdrop-blur-sm`} onClick={onClose}>
       <div
         className={`${isLeft ? 'slide-in-left sm:border-r' : 'slide-in-right sm:border-l'} w-full sm:max-w-md h-full bg-surface border-line overflow-y-auto`}
         onClick={(e) => e.stopPropagation()}
@@ -112,7 +124,7 @@ export function ConfirmDialog({
   useEscClose(open, onClose);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div data-app-overlay="confirm" role="alertdialog" aria-modal="true" className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div className="fade-up bg-surface border border-line rounded-2xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 mb-3">
           <div className="w-9 h-9 rounded-full bg-red-500/10 flex items-center justify-center text-red-400"><AlertTriangle size={18} /></div>
