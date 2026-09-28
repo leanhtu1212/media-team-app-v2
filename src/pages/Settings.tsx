@@ -625,7 +625,7 @@ function SyncStat({ icon, tint, label, value, sub, small }: {
 }
 
 function SheetsTab() {
-  const { team, members, projects, allTasks, reports, tags, dailyContent } = useAppData();
+  const { team, members, projects, allTasks, reports, tags, dailyContent, contentCosts } = useAppData();
   const toast = useToast();
   const [url, setUrl] = useState(team?.sheetsWebhookUrl || '');
   const [month, setMonth] = useState(currentMonth());
@@ -636,12 +636,12 @@ function SheetsTab() {
 
   // Xem trước ngay trên web đúng những con số sẽ đẩy lên sheet (cùng công thức trang Hiệu suất).
   const payload = useMemo(
-    () => buildSheetsPayload(month, members, projects, allTasks, reports, tags, dailyContent),
-    [month, members, projects, allTasks, reports, tags, dailyContent],
+    () => buildSheetsPayload(month, members, projects, allTasks, reports, tags, dailyContent, contentCosts),
+    [month, members, projects, allTasks, reports, tags, dailyContent, contentCosts],
   );
   const preview = useMemo(
-    () => sheetsPreview(month, members, projects, allTasks, reports, dailyContent, tags),
-    [month, members, projects, allTasks, reports, dailyContent],
+    () => sheetsPreview(month, members, projects, allTasks, reports, dailyContent, tags, contentCosts),
+    [month, members, projects, allTasks, reports, dailyContent, tags, contentCosts],
   );
   const totalRows = useMemo(
     () => Object.values(payload.sheets).reduce((s, b) => s + blockRowCount(b), 0),

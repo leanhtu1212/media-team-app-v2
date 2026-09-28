@@ -171,6 +171,19 @@ export interface DailyContent {
   createdBy?: string;
 }
 
+/** Khoản chi của Daily Content. Lưu ở collection riêng `contentCosts` để chỉ admin đọc được. */
+export interface ContentCost {
+  id: string;
+  contentId: string;
+  title: string;
+  amount: number;
+  expenseDate: string;
+  dntt?: boolean;
+  createdAt?: unknown;
+  createdBy?: string;
+  updatedAt?: unknown;
+}
+
 /** Ghi chú tự do ghim vào 1 ngày trên lịch (collection teams/{id}/notes). */
 export interface Note {
   id: string;

@@ -14,6 +14,7 @@ import type { ContractForm } from '../lib/contracts/compute';
 import type { QuickParseForm } from '../lib/contracts/quickParse';
 import { danhSachTuRows, type SheetRow } from '../lib/contracts/sheetSync';
 import { dongTuKhoanChi, laKhoanChiHopDong } from '../lib/contracts/fromTask';
+import { formChoHopDongMoi } from '../lib/contracts/repeatPartner';
 
 
 /** Ô link có thể chỉ chứa chữ ("đã gửi", tên file…) khi sheet không gắn URL — chỉ dựng thẻ <a>
@@ -30,6 +31,7 @@ function OLink({ giaTri }: { giaTri: string }) {
     <a
       href={giaTri} target="_blank" rel="noreferrer noopener"
       onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
       className="inline-flex items-center gap-1 text-accent hover:underline"
       title={giaTri}
     >
@@ -82,9 +84,12 @@ const CA_NHAN: { key: keyof ContractForm; label: string }[] = [
 ];
 
 function BangDoiTac({
-  rows, daLamRoi, onOpen,
+  rows, daLamRoi, onOpen, onDoubleClick,
 }: {
-  rows: SheetRow[]; daLamRoi: (r: SheetRow) => boolean; onOpen: (r: SheetRow) => void;
+  rows: SheetRow[];
+  daLamRoi: (r: SheetRow) => boolean;
+  onOpen?: (r: SheetRow) => void;
+  onDoubleClick?: (r: SheetRow) => void;
 }) {
   if (rows.length === 0) return null;
   return (
@@ -111,8 +116,10 @@ function BangDoiTac({
             return (
               <tr
                 key={r.taskId || `sheet-${r.dong}`}
-                onClick={() => onOpen(r)}
-                className="border-b border-line/60 last:border-0 hover:bg-accent/10 cursor-pointer align-top"
+                onClick={onOpen ? () => onOpen(r) : undefined}
+                onDoubleClick={onDoubleClick ? () => onDoubleClick(r) : undefined}
+                title={onDoubleClick ? 'Double-click để tạo hợp đồng mới' : undefined}
+                className={`border-b border-line/60 last:border-0 hover:bg-accent/10 align-top ${onOpen || onDoubleClick ? 'cursor-pointer' : ''}`}
               >
                 {/* STT của sheet; dòng chưa đánh số thì lấy số dòng để vẫn đối chiếu được. */}
                 <td className="px-3 py-2 text-dim whitespace-nowrap">{r.stt || r.dong || '—'}</td>
@@ -276,6 +283,14 @@ export function Contracts() {
     setForm({});
   };
 
+  /** Tạo lượt HĐ mới cho người đã từng làm: giữ hồ sơ cá nhân, bỏ sạch công việc và tiền cũ. */
+  const moTaoLai = (row: SheetRow) => {
+    const partner = partners[idDoiTac(row.ho_ten || '')];
+    setSelected(null);
+    setTaoMoi(true);
+    setForm(formChoHopDongMoi(partner, row.form));
+  };
+
   const dongModal = () => { setSelected(null); setTaoMoi(false); };
   return (
     <div className="space-y-4">
@@ -343,14 +358,19 @@ export function Contracts() {
                 {hienDaLam ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 Đã làm ({daLamList.length})
               </button>
-              {hienDaLam && <BangDoiTac rows={daLamList} daLamRoi={daLamRoi} onOpen={openRow} />}
+              {hienDaLam && (
+                <>
+                  <p className="text-xs text-dim">Double-click một đối tác để tạo hợp đồng mới từ thông tin đã lưu.</p>
+                  <BangDoiTac rows={daLamList} daLamRoi={daLamRoi} onDoubleClick={moTaoLai} />
+                </>
+              )}
             </div>
           )}
 
           {rows.length > 0 && (
             <p className="text-xs text-dim">
               {rows.length} đối tác{taiLuc ? ` · dữ liệu lúc ${new Date(taiLuc).toLocaleTimeString('vi-VN')}` : ''}
-              {' · '}bấm vào một dòng để soát lại thông tin và tạo file.
+              {' · '}dòng chưa làm: bấm để soát thông tin; dòng đã làm: double-click để tạo HĐ mới.
               «ĐÃ LÀM» = sheet đã có link HĐ/BBNT, hoặc app đã từng tạo file cho tên này.
             </p>
           )}
@@ -360,7 +380,9 @@ export function Contracts() {
       <ContractFormModal
         open={!!selected || taoMoi}
         onClose={dongModal}
-        tieuDe={taoMoi ? 'Tạo hợp đồng mới' : `Sửa thông tin — ${selected?.ho_ten || '(chưa có tên)'}`}
+        tieuDe={taoMoi
+          ? `Tạo hợp đồng mới${form.ho_ten ? ` — ${form.ho_ten}` : ''}`
+          : `Sửa thông tin — ${selected?.ho_ten || '(chưa có tên)'}`}
         settings={settings}
         webhookUrl={webhookUrl}
         token={token}

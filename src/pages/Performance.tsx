@@ -6,6 +6,7 @@ import { calculateTeamKpi, teamTypeTotals, tagTypeTotals, individualKpi, teamAgg
 import { levelLabel } from '../lib/tags';
 import { currentMonth, shiftMonth, formatVND, formatDate } from '../lib/utils';
 import type { Task, Project } from '../types';
+import { contentCostsInMonth, groupContentCosts } from '../lib/contentCosts';
 
 const isDone = (t: Task) => t.status === 'completed' || !!t.dntt;
 const fmtScore = (n: number) => (Math.round(n * 100) / 100).toString();
@@ -55,7 +56,7 @@ function taskItem(t: Task, projById: Map<string, Project>): DrawerItem {
 }
 
 export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string) => void }) {
-  const { members, projects, allTasks, reports, tags, dailyContent, isAdmin } = useAppData();
+  const { members, projects, allTasks, reports, tags, dailyContent, contentCosts, isAdmin } = useAppData();
   const [month, setMonth] = useState(currentMonth());
   const [selected, setSelected] = useState<MemberKpi | null>(null);
   const [detailTab, setDetailTab] = useState<MemberTab>('photo');
@@ -113,10 +114,11 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
       const rated = eds.filter((k) => k.hasTarget);
       const avgKpi = rated.length ? rated.reduce((s, k) => s + k.finalKPI, 0) / rated.length : 0;
       const tt = teamTypeTotals(allTasks, projects, mo, [], [], tags);
-      const cost = tt.inhouse.cost + tt.outsource.cost;
+      const contentCost = contentCostsInMonth(contentCosts, dailyContent, mo).reduce((s, c) => s + (Number(c.amount) || 0), 0);
+      const cost = tt.inhouse.cost + tt.outsource.cost + contentCost;
       return { month: mo, label: `T${Number(mo.slice(5))}`, photo, video, cost, avgKpi: Math.round(avgKpi * 10) / 10 };
     });
-  }, [month, allTasks, members, projects, reports, dailyContent, tags]);
+  }, [month, allTasks, members, projects, reports, dailyContent, contentCosts, tags]);
 
   // ── Phân tích chi phí: MỌI khoản pre-production trong tháng, gom theo project ──
   const costTasks = useMemo(
@@ -128,7 +130,9 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
     costTasks.forEach((t) => { const l = m.get(t.projectId) || []; l.push(t); m.set(t.projectId, l); });
     return m;
   }, [costTasks]);
-  const totalMonthCost = costTasks.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const contentCostGroups = useMemo(() => groupContentCosts(contentCosts, dailyContent, month), [contentCosts, dailyContent, month]);
+  const totalMonthCost = costTasks.reduce((s, t) => s + (Number(t.amount) || 0), 0)
+    + contentCostGroups.reduce((s, g) => s + g.total, 0);
 
   if (!isAdmin) {
     return <EmptyState icon={<TrendingUp size={32} />} text="Chỉ admin mới xem được trang này" />;
@@ -176,9 +180,15 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
     setDrawer({ title: `Sản lượng · T${Number(mo.slice(5))}`, subtitle: `${items.length} task ảnh/video`, items });
   };
   const openCostMonth = (mo: string) => {
-    const items = allTasks
+    const projectItems = allTasks
       .filter((t) => t.category === 'pre-production' && (t.reportDate || '').startsWith(mo) && projById.has(t.projectId))
       .map((t) => taskItem(t, projById));
+    const contentItems = contentCostsInMonth(contentCosts, dailyContent, mo).map((c) => ({
+      id: c.id, date: c.expenseDate, title: c.title,
+      sub: dailyContent.find((d) => d.id === c.contentId)?.title || 'Daily Content',
+      right: formatVND(Number(c.amount) || 0),
+    }));
+    const items = [...projectItems, ...contentItems];
     setDrawer({ title: `Chi phí · T${Number(mo.slice(5))}`, subtitle: `${items.length} khoản`, items });
   };
   const openKpiMonth = (mo: string) => {
@@ -409,7 +419,7 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
               {trend[5].cost >= trend[4].cost ? '▲' : '▼'} {formatVND(Math.abs(trend[5].cost - trend[4].cost))} so tháng trước
             </span>
           </div>
-          <p className="text-xs text-muted mb-4">Tổng chi phí tiền kỳ 6 tháng gần nhất · nhấp đúp cột</p>
+          <p className="text-xs text-muted mb-4">Tổng chi phí dự án và nội dung 6 tháng gần nhất · nhấp đúp cột</p>
           <CostBarChart data={trend.map((t) => ({ label: t.label, cost: t.cost }))} onBarDblClick={(i) => openCostMonth(trend[i].month)} />
         </Card>
       </div>
@@ -420,7 +430,7 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
           <div className="flex items-center gap-2 font-bold text-sm"><Wallet size={15} className="text-amber-300" /> Phân tích chi phí</div>
           <span className="text-sm font-extrabold text-amber-300 tabular-nums">{formatVND(totalMonthCost)}</span>
         </div>
-        {costByProject.size === 0 ? (
+        {costByProject.size === 0 && contentCostGroups.length === 0 ? (
           <p className="text-sm text-dim py-8 text-center">Không có chi phí trong tháng</p>
         ) : (
           <div className="divide-y divide-line">
@@ -450,6 +460,25 @@ export function PerformancePage({ onOpenProject }: { onOpenProject: (id: string)
                   </div>
                 );
               })}
+            {contentCostGroups.map((group) => (
+              <div key={`content-${group.contentId}`} className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-left">
+                    <p className="text-sm font-bold text-violet-300">{group.contentTitle}</p>
+                    <p className="text-[11px] text-dim">Nội dung · {group.costs.length} khoản · {group.approved}/{group.costs.length} đã duyệt DNTT</p>
+                  </div>
+                  <span className="text-sm font-bold text-amber-300 tabular-nums">{formatVND(group.total)}</span>
+                </div>
+                <div className="mt-2 space-y-1">
+                  {group.costs.map((cost) => (
+                    <div key={cost.id} className="flex items-center justify-between text-xs text-muted pl-3 border-l border-violet-500/40">
+                      <span className="truncate">{cost.title}{cost.dntt && <span className="text-emerald-400 ml-1.5">✓</span>}</span>
+                      <span className="tabular-nums shrink-0 ml-3">{formatVND(Number(cost.amount) || 0)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </Card>

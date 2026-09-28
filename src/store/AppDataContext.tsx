@@ -5,7 +5,7 @@ import {
 import { db, type User } from '../lib/firebase';
 import { MAIN_TEAM_ID, ADMIN_EMAILS } from '../lib/utils';
 import { setNotifyWebhook } from '../lib/notify';
-import type { Member, Project, Task, Report, ProductType, DailyContent, Note, Tag, TeamDoc } from '../types';
+import type { Member, Project, Task, Report, ProductType, DailyContent, ContentCost, Note, Tag, TeamDoc } from '../types';
 
 interface AppData {
   team: TeamDoc | null;
@@ -15,6 +15,7 @@ interface AppData {
   reports: Report[];
   productTypes: ProductType[];
   dailyContent: DailyContent[];
+  contentCosts: ContentCost[];
   notes: Note[];
   tags: Tag[];
   loading: boolean;
@@ -41,6 +42,7 @@ export function AppDataProvider({ user, children }: { user: User; children: Reac
   const [reports, setReports] = useState<Report[]>([]);
   const [productTypes, setProductTypes] = useState<ProductType[]>([]);
   const [dailyContent, setDailyContent] = useState<DailyContent[]>([]);
+  const [contentCosts, setContentCosts] = useState<ContentCost[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [loaded, setLoaded] = useState({ members: false, projects: false, tasks: false });
@@ -128,9 +130,18 @@ export function AppDataProvider({ user, children }: { user: User; children: Reac
   const canCreateContent = isAdmin || role === 'content';
   const loading = !loaded.members || !loaded.projects || !loaded.tasks;
 
+  // Collection tài chính là admin-only trong rules. Chỉ admin mới tạo listener để tài khoản
+  // khác không phát sinh permission-denied và tuyệt đối không tải số tiền về client.
+  useEffect(() => {
+    if (!isAdmin) { setContentCosts([]); return; }
+    return onSnapshot(collection(db, 'teams', MAIN_TEAM_ID, 'contentCosts'), (snap) =>
+      setContentCosts(snap.docs.map((d) => ({ id: d.id, ...d.data() } as ContentCost))),
+    );
+  }, [isAdmin]);
+
   return (
     <AppDataContext.Provider
-      value={{ team, members, projects, allTasks, reports, productTypes, dailyContent, notes, tags, loading, isAdmin, isEditor, role, canEditDaily, canCreateProject, canCreateContent, currentMember }}
+      value={{ team, members, projects, allTasks, reports, productTypes, dailyContent, contentCosts, notes, tags, loading, isAdmin, isEditor, role, canEditDaily, canCreateProject, canCreateContent, currentMember }}
     >
       {children}
     </AppDataContext.Provider>

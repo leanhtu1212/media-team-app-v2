@@ -1,10 +1,11 @@
-import type { Member, Project, Task, Report, Tag, DailyContent } from '../types';
+import type { Member, Project, Task, Report, Tag, DailyContent, ContentCost } from '../types';
 import {
   calculateTeamKpi, teamTypeTotals, tagTypeTotals, individualKpi, teamAggregate,
   type MemberKpi, type ProjectClass, type TypeTotals,
 } from './kpi';
 import { levelLabel } from './tags';
 import { monthRange, formatDateTime, shiftMonth } from './utils';
+import { contentCostsInMonth } from './contentCosts';
 
 const CLASS_LABEL: Record<ProjectClass, string> = {
   inhouse: 'Inhouse',
@@ -57,6 +58,7 @@ export function buildSheetsPayload(
   reports: Report[],
   tags: Tag[] = [],
   dailyContent: DailyContent[] = [],
+  contentCosts: ContentCost[] = [],
 ): SheetsPayload {
   const projById = new Map(projects.map((p) => [p.id, p]));
   const memberByUid = new Map(members.map((m) => [m.uid || m.id, m]));
@@ -157,6 +159,13 @@ export function buildSheetsPayload(
         Number(t.amount) || 0, t.dntt ? 'Đã duyệt' : 'Chưa duyệt',
         memberByUid.get(t.createdBy || '')?.username || '',
       ] as Cell[]));
+  const contentById = new Map(dailyContent.map((d) => [d.id, d]));
+  costRows.push(...contentCostsInMonth(contentCosts, dailyContent, month).map((c) => [
+    c.expenseDate || '', `Nội dung: ${contentById.get(c.contentId)?.title || ''}`, c.title || '',
+    Number(c.amount) || 0, c.dntt ? 'Đã duyệt' : 'Chưa duyệt',
+    memberByUid.get(c.createdBy || '')?.username || '',
+  ] as Cell[]));
+  costRows.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
 
   // ── (4) Tab báo cáo theo tháng (định dạng app cũ) — nguồn cho dashboard "Data Media" ──
   const reporterEmail = (createdBy?: string, fallback?: string) =>
@@ -263,6 +272,7 @@ export function sheetsPreview(
   reports: Report[],
   dailyContent: DailyContent[] = [],
   tags: Tag[] = [],
+  contentCosts: ContentCost[] = [],
 ): SheetsPreview {
   const tt = teamTypeTotals(allTasks, projects, month, reports, dailyContent, tags);
   const allKpi = calculateTeamKpi(members, month, allTasks, projects, reports, dailyContent, tags);
@@ -273,7 +283,8 @@ export function sheetsPreview(
   return {
     photos: tt.inhouse.photos + tt.outsource.photos,
     videos: tt.inhouse.videos + tt.outsource.videos,
-    cost: tt.inhouse.cost + tt.outsource.cost,
+    cost: tt.inhouse.cost + tt.outsource.cost
+      + contentCostsInMonth(contentCosts, dailyContent, month).reduce((s, c) => s + (Number(c.amount) || 0), 0),
     teamOutput,
     teamTarget,
     teamKpi: teamTarget > 0 ? round1((teamOutput / teamTarget) * 100) : null,

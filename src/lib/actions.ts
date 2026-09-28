@@ -4,7 +4,7 @@ import {
 import { db, type User } from './firebase';
 import { MAIN_TEAM_ID, genId, todayStr, formatVND } from './utils';
 import { notify, displayName, diffLines, type DiffField } from './notify';
-import type { Project, Task, Report, DailyContent, Note, Tag, TaskCategory, ContractPartner, ContractSettingsDoc } from '../types';
+import type { Project, Task, Report, DailyContent, ContentCost, Note, Tag, TaskCategory, ContractPartner, ContractSettingsDoc } from '../types';
 import { chuanHoa } from './contracts/naming';
 import type { ContractForm } from './contracts/compute';
 
@@ -58,6 +58,7 @@ export const col = {
   reports: () => collection(db, ...teamPath, 'reports'),
   productTypes: () => collection(db, ...teamPath, 'productTypes'),
   dailyContent: () => collection(db, ...teamPath, 'dailyContent'),
+  contentCosts: () => collection(db, ...teamPath, 'contentCosts'),
   notes: () => collection(db, ...teamPath, 'notes'),
   tags: () => collection(db, ...teamPath, 'tags'),
   contractPartners: () => collection(db, ...teamPath, 'contractPartners'),
@@ -71,6 +72,7 @@ export const ref = {
   report: (id: string) => doc(db, ...teamPath, 'reports', id),
   productType: (id: string) => doc(db, ...teamPath, 'productTypes', id),
   daily: (id: string) => doc(db, ...teamPath, 'dailyContent', id),
+  contentCost: (id: string) => doc(db, ...teamPath, 'contentCosts', id),
   note: (id: string) => doc(db, ...teamPath, 'notes', id),
   tag: (id: string) => doc(db, ...teamPath, 'tags', id),
   contractPartner: (id: string) => doc(db, ...teamPath, 'contractPartners', id),
@@ -549,8 +551,36 @@ export async function deleteDailyContent(id: string, title?: string): Promise<vo
     const snap = await getDocs(query(col.reports(), where('relatedContentId', '==', id)));
     await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
   } catch { /* không chặn xoá content nếu dọn báo cáo lỗi */ }
+  // Admin xoá nội dung sẽ dọn luôn chi phí liên kết. Với role content, rules chặn truy vấn
+  // admin-only nên bỏ qua; dữ liệu tài chính vẫn an toàn và admin có thể dọn khi cần.
+  try {
+    const costs = await getDocs(query(col.contentCosts(), where('contentId', '==', id)));
+    await Promise.all(costs.docs.map((d) => deleteDoc(d.ref)));
+  } catch { /* người không phải admin không có quyền đọc/xoá chi phí */ }
   await deleteDoc(ref.daily(id));
   notify(`🗑️ Đã xoá nội dung "${title || id}"`);
+}
+
+/* ---------- Daily Content Costs (admin-only) ---------- */
+
+export async function createContentCost(data: Omit<ContentCost, 'id'>, user: User): Promise<void> {
+  await addDoc(col.contentCosts(), {
+    contentId: data.contentId,
+    title: data.title.trim(),
+    amount: Math.max(0, Number(data.amount) || 0),
+    expenseDate: data.expenseDate || todayStr(),
+    dntt: !!data.dntt,
+    createdAt: serverTimestamp(),
+    createdBy: user.uid,
+  });
+}
+
+export async function updateContentCost(id: string, data: Partial<ContentCost>): Promise<void> {
+  await updateDoc(ref.contentCost(id), { ...data, updatedAt: serverTimestamp() });
+}
+
+export async function deleteContentCost(id: string): Promise<void> {
+  await deleteDoc(ref.contentCost(id));
 }
 
 /* ---------- Notes (ghi chú ghim vào ngày trên lịch) ---------- */

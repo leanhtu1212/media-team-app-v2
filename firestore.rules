@@ -134,6 +134,12 @@ service cloud.firestore {
         allow delete: if canEditDaily(teamId);
       }
 
+      // Chi phí Daily Content chứa số liệu tài chính: chỉ admin được đọc và ghi.
+      // Tách collection riêng để role khác không thể đọc dù UI đã ẩn.
+      match /contentCosts/{costId} {
+        allow read, write: if isAdmin(teamId);
+      }
+
       // Notes Subcollection — ghi chú ghim vào ngày trên lịch (editor/admin/content ghi)
       match /notes/{noteId} {
         allow read: if isTeamMember(teamId);

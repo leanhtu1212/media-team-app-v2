@@ -3,7 +3,7 @@ import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, FolderKanban, Wallet, 
 import { useAppData } from '../store/AppDataContext';
 import { CreatedAtInfo } from '../components/CreatedAtInfo';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, Modal, Input, Select, Textarea, Field, ConfirmDialog, Avatar, ProgressBar } from '../components/ui';
-import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject, createNote, updateNote, deleteNote, createContentVideoReport, deleteReport, updateReport } from '../lib/actions';
+import { createDailyContent, updateDailyContent, deleteDailyContent, updateProject, updateTask, createProject, createNote, updateNote, deleteNote, createContentVideoReport, deleteReport, updateReport, createContentCost, updateContentCost, deleteContentCost } from '../lib/actions';
 import { ProjectFormModal } from './Projects';
 import { Linkify } from './ProjectDetail';
 import { TagManagerModal, TagSelect, hexA } from '../components/tags';
@@ -11,7 +11,7 @@ import { primaryTagId, projectTagColor, projectTagIds, tagLevel } from '../lib/t
 import { currentMonth, shiftMonth, monthLabel, todayStr, formatDate, formatVND, isProjectFinished, monthRange, tsToDateStr, isDayOff, normalize, contentOwnerId, contentEditorIds, editorProgress, quotaSummary, splitEven } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { useIsMobile } from '../hooks/useIsMobile';
-import type { DailyContent, DailyStatus, Project, Task, Note, ContentItem, ContentFormat } from '../types';
+import type { DailyContent, DailyStatus, Project, Task, Note, ContentItem, ContentFormat, ContentCost } from '../types';
 import type { User } from '../lib/firebase';
 
 const STATUSES: DailyStatus[] = ['planned', 'in-progress', 'done'];
@@ -1522,7 +1522,7 @@ export function ContentDetailPage({
   onBack: () => void;
   onOpenProject: (id: string) => void;
 }) {
-  const { dailyContent, members, projects, tags, canEditDaily } = useAppData();
+  const { dailyContent, contentCosts, members, projects, tags, canEditDaily, isAdmin } = useAppData();
   const toast = useToast();
   const item = dailyContent.find((d) => d.id === contentId);
 
@@ -1534,6 +1534,8 @@ export function ContentDetailPage({
   const [newVideo, setNewVideo] = useState('');
   const [newName, setNewName] = useState('');
   const [editItem, setEditItem] = useState<{ id: string; title: string; link: string } | null>(null);
+  const [costForm, setCostForm] = useState({ title: '', amount: '', expenseDate: todayStr(), dntt: false });
+  const [editingCost, setEditingCost] = useState<ContentCost | null>(null);
 
   // Đồng bộ trạng thái theo số video đã trả — HOÀN TOÀN TỰ ĐỘNG khi content đã dùng danh sách video:
   // trả video đầu tiên → "Đang làm"; đủ số lượng → "Hoàn thành"; bỏ hết video → về lại "Kế hoạch".
@@ -1566,6 +1568,9 @@ export function ContentDetailPage({
   const tag = item.tagId ? tags.find((t) => t.id === item.tagId) : undefined;
   const overdue = isDailyOverdue(item);
   const next = NEXT_STATUS[item.status];
+  const itemCosts = contentCosts.filter((c) => c.contentId === item.id)
+    .sort((a, b) => (b.expenseDate || '').localeCompare(a.expenseDate || ''));
+  const itemCostTotal = itemCosts.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
 
   const setField = async (data: Partial<DailyContent>, ok: string) => {
     try {
@@ -1755,6 +1760,64 @@ export function ContentDetailPage({
               )}
             </div>
           </Card>
+
+          {isAdmin && (
+            <Card>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-line">
+                <div className="flex items-center gap-2 font-bold text-sm"><Wallet size={15} className="text-amber-300" /> Chi phí</div>
+                <span className="text-sm font-extrabold text-amber-300 tabular-nums">{formatVND(itemCostTotal)}</span>
+              </div>
+              <div className="px-4 py-3">
+                {itemCosts.length === 0 ? (
+                  <p className="text-sm text-dim py-3 text-center">Chưa có khoản chi</p>
+                ) : (
+                  <div className="divide-y divide-line mb-3">
+                    {itemCosts.map((cost) => (
+                      <div key={cost.id} className="flex items-center gap-3 py-2.5 group">
+                        <button
+                          type="button"
+                          onClick={async () => { try { await updateContentCost(cost.id, { dntt: !cost.dntt }); } catch (e) { toast(`Lỗi: ${(e as Error).message}`, 'error'); } }}
+                          title={cost.dntt ? 'Bỏ DNTT' : 'Đánh dấu DNTT'}
+                          className="shrink-0 cursor-pointer"
+                        >
+                          {cost.dntt ? <CheckCircle2 size={18} className="text-emerald-400" /> : <Circle size={18} className="text-dim" />}
+                        </button>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{cost.title}</p>
+                          <p className="text-[11px] text-dim">{formatDate(cost.expenseDate)} · {cost.dntt ? 'Đã DNTT' : 'Chưa DNTT'}</p>
+                        </div>
+                        <span className="text-sm font-bold text-amber-300 tabular-nums shrink-0">{formatVND(Number(cost.amount) || 0)}</span>
+                        <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+                          <button type="button" onClick={() => { setEditingCost(cost); setCostForm({ title: cost.title, amount: String(cost.amount || ''), expenseDate: cost.expenseDate || todayStr(), dntt: !!cost.dntt }); }} className="p-1 text-muted hover:text-ink cursor-pointer"><Pencil size={13} /></button>
+                          <button type="button" onClick={async () => { try { await deleteContentCost(cost.id); toast('Đã xoá khoản chi'); } catch (e) { toast(`Lỗi: ${(e as Error).message}`, 'error'); } }} className="p-1 text-muted hover:text-red-400 cursor-pointer"><Trash2 size={13} /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_150px_150px_auto] gap-2 pt-3 border-t border-line">
+                  <Input value={costForm.title} onChange={(e) => setCostForm((f) => ({ ...f, title: e.target.value }))} placeholder="Tên khoản chi" />
+                  <Input type="number" min={0} value={costForm.amount} onChange={(e) => setCostForm((f) => ({ ...f, amount: e.target.value }))} placeholder="Số tiền" />
+                  <Input type="date" value={costForm.expenseDate} onChange={(e) => setCostForm((f) => ({ ...f, expenseDate: e.target.value }))} />
+                  <Button
+                    disabled={!costForm.title.trim() || !(Number(costForm.amount) > 0)}
+                    onClick={async () => {
+                      if (!costForm.title.trim() || !(Number(costForm.amount) > 0)) return;
+                      try {
+                        const data = { contentId: item.id, title: costForm.title.trim(), amount: Number(costForm.amount), expenseDate: costForm.expenseDate, dntt: costForm.dntt };
+                        if (editingCost) await updateContentCost(editingCost.id, data);
+                        else await createContentCost(data, user);
+                        toast(editingCost ? 'Đã cập nhật khoản chi' : 'Đã thêm khoản chi');
+                        setEditingCost(null);
+                        setCostForm({ title: '', amount: '', expenseDate: todayStr(), dntt: false });
+                      } catch (e) { toast(`Lỗi: ${(e as Error).message}`, 'error'); }
+                    }}
+                  >{editingCost ? 'Lưu' : <><Plus size={14} /> Thêm</>}</Button>
+                </div>
+                {editingCost && <button type="button" onClick={() => { setEditingCost(null); setCostForm({ title: '', amount: '', expenseDate: todayStr(), dntt: false }); }} className="text-xs text-muted hover:text-ink mt-2 cursor-pointer">Huỷ sửa</button>}
+              </div>
+            </Card>
+          )}
 
           <Card className="p-5">
             <div className="flex items-center justify-between mb-3">
