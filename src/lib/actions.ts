@@ -103,6 +103,8 @@ export async function createProject(data: Partial<Project>, user: User): Promise
     photoPoint: Number(data.photoPoint) || 1,
     videoPoint: Number(data.videoPoint) || 3,
     assigneeIds: Array.isArray(data.assigneeIds) ? data.assigneeIds : [],
+    photoAssigneeQty: data.photoAssigneeQty || {},
+    videoAssigneeQty: data.videoAssigneeQty || {},
     createdAt: serverTimestamp(),
     createdBy: user.uid,
   });

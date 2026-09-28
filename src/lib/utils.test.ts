@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { contentEditorIds, contentOwnerId, editorProgress, quotaSummary, splitEven } from './utils';
+import { contentEditorIds, contentOwnerId, editorProgress, normalizeProjectQuotas, projectAssigneeShares, projectQuotaSummary, quotaSummary, splitEven } from './utils';
+import type { Project } from '../types';
 
 describe('contentEditorIds', () => {
   it('doc mới đọc editorIds', () => {
@@ -115,5 +116,47 @@ describe('splitEven', () => {
   });
   it('n <= 0 thì rỗng', () => {
     expect(splitEven(11, 0)).toEqual([]);
+  });
+});
+
+describe('projectAssigneeShares', () => {
+  const project = {
+    id: 'p', title: 'P', status: 'plan', projectType: 'inhouse',
+    assigneeIds: ['a', 'b'], photoAssigneeQty: { a: 6, b: 4 }, videoAssigneeQty: { a: 1, b: 3 },
+  } as Project;
+
+  it('chia theo định mức riêng của ảnh và video', () => {
+    expect([...projectAssigneeShares(project, 'photo')]).toEqual([['a', 0.6], ['b', 0.4]]);
+    expect([...projectAssigneeShares(project, 'video')]).toEqual([['a', 0.25], ['b', 0.75]]);
+  });
+
+  it('dự án cũ hoặc chỉ một người không áp định mức', () => {
+    expect(projectAssigneeShares({ ...project, photoAssigneeQty: undefined }, 'photo').size).toBe(0);
+    expect(projectAssigneeShares({ ...project, assigneeIds: ['a'] }, 'photo').size).toBe(0);
+  });
+
+  it('outsource không áp định mức inhouse', () => {
+    expect(projectAssigneeShares({ ...project, projectType: 'outsource' }, 'photo').size).toBe(0);
+  });
+});
+
+describe('projectQuotaSummary', () => {
+  it('cho phép target 0 khi mọi người đều nhận 0', () => {
+    expect(projectQuotaSummary(0, ['a', 'b'], { a: 0, b: 0 })).toEqual({ target: 0, assigned: 0, diff: 0, ok: true });
+  });
+});
+
+describe('normalizeProjectQuotas', () => {
+  it('tự chia dự án cũ có nhiều người nhưng chưa có định mức', () => {
+    expect(normalizeProjectQuotas({
+      id: 'p', title: 'P', status: 'plan', projectType: 'inhouse', assigneeIds: ['a', 'b'], photoTarget: 0, videoTarget: 5,
+    })).toMatchObject({ photoAssigneeQty: { a: 0, b: 0 }, videoAssigneeQty: { a: 3, b: 2 } });
+  });
+
+  it('giữ định mức tùy chỉnh đang khớp target', () => {
+    expect(normalizeProjectQuotas({
+      id: 'p', title: 'P', status: 'plan', projectType: 'inhouse', assigneeIds: ['a', 'b'], photoTarget: 10,
+      photoAssigneeQty: { a: 7, b: 3 },
+    }).photoAssigneeQty).toEqual({ a: 7, b: 3 });
   });
 });

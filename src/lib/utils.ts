@@ -1,3 +1,5 @@
+import type { Project } from '../types';
+
 export const MAIN_TEAM_ID = 'MEDIA_TEAM_01';
 
 export const ADMIN_EMAILS = ['leanhtu1212@gmail.com', 'admin@production.team'];
@@ -169,10 +171,47 @@ export function quotaSummary(
   return { target, assigned, diff: assigned - target, ok: editorIds.length < 2 || assigned === target };
 }
 
+/** Đối chiếu định mức dự án; khác Content ở chỗ target ảnh/video được phép bằng 0. */
+export function projectQuotaSummary(
+  targetValue: number | undefined,
+  assigneeIds: string[],
+  qty?: Record<string, number>,
+): QuotaSummary {
+  const target = Math.max(0, Number(targetValue) || 0);
+  const assigned = assigneeIds.reduce((s, uid) => s + (Number(qty?.[uid]) || 0), 0);
+  return { target, assigned, diff: assigned - target, ok: assigneeIds.length < 2 || assigned === target };
+}
+
+/** Bổ sung định mức cho dự án cũ; định mức hợp lệ đã chỉnh tay được giữ nguyên. */
+export function normalizeProjectQuotas<T extends Partial<Project>>(project: T): T {
+  const ids = (project.assigneeIds || []).filter(Boolean);
+  if (project.projectType === 'outsource' || ids.length < 2) return project;
+  const normalized = { ...project };
+  const ensure = (target: number | undefined, qty?: Record<string, number>) => {
+    if (projectQuotaSummary(target, ids, qty).ok && qty && ids.every((id) => qty[id] !== undefined)) return qty;
+    const split = splitEven(Math.max(0, Number(target) || 0), ids.length);
+    return Object.fromEntries(ids.map((id, i) => [id, split[i]]));
+  };
+  normalized.photoAssigneeQty = ensure(project.photoTarget, project.photoAssigneeQty);
+  normalized.videoAssigneeQty = ensure(project.videoTarget, project.videoAssigneeQty);
+  return normalized;
+}
+
 /** Chia đều `total` cho `n` người, phần dư dồn cho người đầu (11 → [6, 5]). */
 export function splitEven(total: number, n: number): number[] {
   if (n <= 0) return [];
   const co = Math.floor(total / n);
   const du = total - co * n;
   return Array.from({ length: n }, (_, i) => co + (i < du ? 1 : 0));
+}
+
+/** Tỉ lệ định mức đã giao cho từng người của dự án Inhouse; map rỗng = dùng dữ liệu task cũ. */
+export function projectAssigneeShares(project: Project, category: 'photo' | 'video'): Map<string, number> {
+  const ids = (project.assigneeIds || []).filter(Boolean);
+  if (project.projectType === 'outsource' || ids.length < 2) return new Map();
+  const qty = category === 'photo' ? project.photoAssigneeQty : project.videoAssigneeQty;
+  if (!qty) return new Map();
+  const total = ids.reduce((sum, id) => sum + Math.max(0, Number(qty[id]) || 0), 0);
+  if (total <= 0) return new Map();
+  return new Map(ids.map((id) => [id, Math.max(0, Number(qty[id]) || 0) / total]));
 }

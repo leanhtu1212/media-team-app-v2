@@ -42,6 +42,9 @@ export interface Project {
   tagIds?: string[];
   tagId?: string;
   assigneeIds?: string[]; // người phụ trách (1 hoặc nhiều) — lưu uid/member id
+  /** Định mức ảnh/video của từng người phụ trách dự án Inhouse. Chỉ dùng khi có ≥2 người. */
+  photoAssigneeQty?: Record<string, number>;
+  videoAssigneeQty?: Record<string, number>;
   createdAt?: unknown;
   createdBy?: string;
   // Thời điểm dự án chuyển sang 'done' — chỉ để sắp xếp danh sách "Đã hoàn thành".

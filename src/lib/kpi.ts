@@ -1,5 +1,5 @@
 import type { Member, Project, Task, Report, Tag, DailyContent } from '../types';
-import { isProjectFinished, normalize, projectMonth } from './utils';
+import { isProjectFinished, normalize, projectMonth, projectAssigneeShares } from './utils';
 import { projectTagIds, tagLevel, type TagLevel } from './tags';
 
 /** Task ảnh/video được coi là đã xong (đã hoàn thành hoặc đã duyệt DNTT). */
@@ -15,6 +15,12 @@ function contributionShares(tasks: Task[]): Map<string, number> {
   const total = [...byMember.values()].reduce((s, q) => s + q, 0);
   if (total <= 0) return new Map();
   return new Map([...byMember].map(([uid, q]) => [uid, q / total]));
+}
+
+/** Định mức đã giao được ưu tiên cho dự án Inhouse mới; doc cũ rơi về sản lượng task thực tế. */
+export function projectOutputShares(proj: Project, category: 'photo' | 'video', tasks: Task[]): Map<string, number> {
+  const assigned = projectAssigneeShares(proj, category);
+  return assigned.size ? assigned : contributionShares(tasks);
 }
 
 /** Số lượng mỗi người đóng góp trong nhóm task. */
@@ -65,7 +71,7 @@ export function photoProjectFraction(
   const { before, inMonth, inMonthTasks } = splitByMonth(allTasks, proj.id, ['photo'], month);
   const target = proj.photoTarget || 0;
   const fraction = photoCumulative(before + inMonth, target) - photoCumulative(before, target);
-  return { fraction: Math.max(0, fraction), shares: contributionShares(inMonthTasks), done: inMonth, byUid: qtyByUid(inMonthTasks) };
+  return { fraction: Math.max(0, fraction), shares: projectOutputShares(proj, 'photo', inMonthTasks), done: inMonth, byUid: qtyByUid(inMonthTasks) };
 }
 
 /**
@@ -213,8 +219,8 @@ function eventSplit(proj: Project, allTasks: Task[], month: string) {
     fraction,
     photoScore: photoTasks.length ? (both ? fraction / 2 : fraction) : 0,
     videoScore: videoTasks.length ? (both ? fraction / 2 : fraction) : 0,
-    photoShares: contributionShares(photoTasks),
-    videoShares: contributionShares(videoTasks),
+    photoShares: projectOutputShares(proj, 'photo', photoTasks),
+    videoShares: projectOutputShares(proj, 'video', videoTasks),
     photoQtyByUid: qtyByUid(photoTasks),
     photoDone: sumQty(photoTasks),
   };
@@ -555,12 +561,14 @@ export function calculateMemberKpi(
 
   // ── Ảnh: tổng project INHOUSE hoàn thành (phân số), tính cho người đóng góp nhiều nhất ──
   //    (project outsource KHÔNG tính theo ảnh — chỉ tính số project ở mục Outsource bên dưới)
-  const photoTasks = userTasks.filter((t) => t.category === 'photo' && isDone(t) && !isOutsource(t.projectId) && !isEvent(t.projectId));
   // photoCount chỉ để hiển thị "đã chụp bao nhiêu ảnh" → đếm cả ảnh của dự án Event
   const photoCount = userTasks
     .filter((t) => t.category === 'photo' && isDone(t) && !isOutsource(t.projectId))
     .reduce((s, t) => s + (Number(t.quantity) || 1), 0);
-  const photoProjectIds = Array.from(new Set(photoTasks.map((t) => t.projectId).filter(Boolean))) as string[];
+  const photoProjectIds = Array.from(new Set(
+    allTasks.filter((t) => t.category === 'photo' && isDone(t) && (t.reportDate || '').startsWith(month) && !isOutsource(t.projectId) && !isEvent(t.projectId))
+      .map((t) => t.projectId).filter(Boolean),
+  )) as string[];
   const photoProjects: PhotoProjectBreakdown[] = [];
   let photoScoreRaw = 0;
   for (const pid of photoProjectIds) {
@@ -582,7 +590,7 @@ export function calculateMemberKpi(
   //    Nửa ảnh chia theo công sức CHỤP, nửa video chia theo công sức QUAY: người quay không ăn
   //    ké điểm ảnh và ngược lại.
   const eventProjectIds = Array.from(new Set(
-    userTasks.filter((t) => (t.category === 'photo' || t.category === 'video') && isDone(t) && isEvent(t.projectId))
+    allTasks.filter((t) => (t.category === 'photo' || t.category === 'video') && isDone(t) && (t.reportDate || '').startsWith(month) && isEvent(t.projectId))
       .map((t) => t.projectId).filter(Boolean),
   )) as string[];
   let eventPhotoScore = 0;
@@ -609,9 +617,17 @@ export function calculateMemberKpi(
 
   // ── Video: số lượng video hoàn thành trong tháng ──
   //    (a) video task dự án INHOUSE (bỏ outsource và Event)  (b) video trả trong Daily Content (báo cáo có relatedContentId)
-  const taskVideoCount = userTasks
-    .filter((t) => t.category === 'video' && isDone(t) && !isOutsource(t.projectId) && !isEvent(t.projectId))
-    .reduce((s, t) => s + (Number(t.quantity) || 1), 0);
+  const normalVideoProjectIds = Array.from(new Set(
+    allTasks.filter((t) => t.category === 'video' && isDone(t) && (t.reportDate || '').startsWith(month) && !isOutsource(t.projectId) && !isEvent(t.projectId))
+      .map((t) => t.projectId).filter(Boolean),
+  )) as string[];
+  const taskVideoCount = normalVideoProjectIds.reduce((sum, pid) => {
+    const proj = projOf(pid);
+    if (!proj) return sum;
+    const tasks = allTasks.filter((t) => t.projectId === pid && t.category === 'video' && isDone(t) && (t.reportDate || '').startsWith(month));
+    const qty = tasks.reduce((s, t) => s + (Number(t.quantity) || 1), 0);
+    return sum + qty * (projectOutputShares(proj, 'video', tasks).get(uid) || 0);
+  }, 0);
   const contentVideoCount = userReports
     .filter((r) => (r.relatedContentId || '') !== '' && r.outputType === 'video')
     .reduce((s, r) => s + (Number(r.quantity) || 1) * contentVideoWeight(contentById.get(r.relatedContentId || '')), 0);

@@ -5,7 +5,7 @@ import { CreatedAtInfo } from '../components/CreatedAtInfo';
 import { Button, Card, Badge, STATUS_BADGE, STATUS_LABEL, ProgressBar, EmptyState, Modal, Input, Textarea, Field, Avatar } from '../components/ui';
 import { createProject, updateProject } from '../lib/actions';
 import { useToast } from '../hooks/useToast';
-import { formatDate, todayStr, normalize, isProjectFinished, tsToDate } from '../lib/utils';
+import { formatDate, todayStr, normalize, isProjectFinished, tsToDate, normalizeProjectQuotas, projectQuotaSummary, splitEven } from '../lib/utils';
 import { ContentKanban } from './DailyContent';
 import { TagSelect, hexA } from '../components/tags';
 import { projectTagIds, tagLevel, tagContexts, mangContext } from '../lib/tags';
@@ -429,16 +429,22 @@ export function ProjectFormModal({
 
   // Thành viên có thể gán làm người phụ trách: chỉ admin/editor (bỏ viewer & content)
   const assignable = members.filter((m) => m.role === 'admin' || m.role === 'editor');
+  const assigneeIds = form.assigneeIds || [];
+  const photoQuota = projectQuotaSummary(form.photoTarget, assigneeIds, form.photoAssigneeQty);
+  const videoQuota = projectQuotaSummary(form.videoTarget, assigneeIds, form.videoAssigneeQty);
   const toggleAssignee = (id: string) =>
     setForm((f) => {
       const cur = f.assigneeIds || [];
-      return { ...f, assigneeIds: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] };
+      const ids = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+      const photoQty = Object.fromEntries(ids.map((uid, i) => [uid, splitEven(Math.max(0, Number(f.photoTarget) || 0), ids.length)[i]]));
+      const videoQty = Object.fromEntries(ids.map((uid, i) => [uid, splitEven(Math.max(0, Number(f.videoTarget) || 0), ids.length)[i]]));
+      return { ...f, assigneeIds: ids, photoAssigneeQty: photoQty, videoAssigneeQty: videoQty };
     });
 
   // Reset form when opening
   const [lastOpen, setLastOpen] = useState(false);
   if (open && !lastOpen) {
-    setForm(editing ? { ...editing } : { status: 'plan', projectType: 'inhouse', photoTarget: 0, videoTarget: 0, ...preset });
+    setForm(normalizeProjectQuotas(editing ? { ...editing } : { status: 'plan', projectType: 'inhouse', photoTarget: 0, videoTarget: 0, ...preset }));
     setLastOpen(true);
   } else if (!open && lastOpen) {
     setLastOpen(false);
@@ -461,8 +467,17 @@ export function ProjectFormModal({
       toast('Deadline phải sau hoặc bằng ngày bắt đầu (kiểm tra lại tháng)', 'error');
       return;
     }
+    if (!isOutsource && (!photoQuota.ok || !videoQuota.ok)) {
+      const bad = !photoQuota.ok ? { label: 'ảnh', ...photoQuota } : { label: 'video', ...videoQuota };
+      toast(`Định mức ${bad.label} đang chia ${bad.assigned}/${bad.target} — ${bad.diff < 0 ? `còn thiếu ${-bad.diff}` : `thừa ${bad.diff}`}`, 'error');
+      return;
+    }
     setBusy(true);
     const clean = { ...form };
+    if (isOutsource || assigneeIds.length < 2) {
+      clean.photoAssigneeQty = {};
+      clean.videoAssigneeQty = {};
+    }
     if (clean.qualityScore === undefined) delete clean.qualityScore;
     if (isOutsource) delete clean.startDate; // outsource không có ngày bắt đầu (đừng ghi undefined xuống Firestore)
     await onSave(clean);
@@ -493,10 +508,18 @@ export function ProjectFormModal({
         <div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Target ảnh">
-              <Input type="number" min={0} value={form.photoTarget ?? 0} onChange={(e) => set('photoTarget', Number(e.target.value))} />
+              <Input type="number" min={0} value={form.photoTarget ?? 0} onChange={(e) => {
+                const target = Math.max(0, Number(e.target.value) || 0);
+                const split = splitEven(target, assigneeIds.length);
+                setForm((f) => ({ ...f, photoTarget: target, ...(assigneeIds.length >= 2 ? { photoAssigneeQty: Object.fromEntries(assigneeIds.map((id, i) => [id, split[i]])) } : {}) }));
+              }} />
             </Field>
             <Field label="Target video">
-              <Input type="number" min={0} value={form.videoTarget ?? 0} onChange={(e) => set('videoTarget', Number(e.target.value))} />
+              <Input type="number" min={0} value={form.videoTarget ?? 0} onChange={(e) => {
+                const target = Math.max(0, Number(e.target.value) || 0);
+                const split = splitEven(target, assigneeIds.length);
+                setForm((f) => ({ ...f, videoTarget: target, ...(assigneeIds.length >= 2 ? { videoAssigneeQty: Object.fromEntries(assigneeIds.map((id, i) => [id, split[i]])) } : {}) }));
+              }} />
             </Field>
           </div>
           <p className="text-[11px] text-dim mt-1.5">* Cần khối lượng ở ít nhất 1 loại (ảnh hoặc video ≥ 1)</p>
@@ -583,6 +606,34 @@ export function ProjectFormModal({
             </div>
           )}
         </Field>
+        {!isOutsource && assigneeIds.length >= 2 && (
+          <div className="rounded-xl border border-line bg-bg/50 p-3 space-y-3">
+            <div>
+              <p className="text-xs font-bold mb-1">Chia khối lượng từng người</p>
+              <p className="text-[11px] text-dim">Tổng định mức phải bằng đúng target ảnh và video của dự án.</p>
+            </div>
+            <div className="grid grid-cols-[minmax(0,1fr)_80px_80px] gap-2 text-[10px] font-black uppercase tracking-wider text-muted px-1">
+              <span>Người phụ trách</span><span>Ảnh</span><span>Video</span>
+            </div>
+            {assigneeIds.map((id) => {
+              const m = assignable.find((x) => (x.uid || x.id) === id);
+              return (
+                <div key={id} className="grid grid-cols-[minmax(0,1fr)_80px_80px] gap-2 items-center">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Avatar name={m?.username} url={m?.avatarUrl} size={22} />
+                    <span className="text-xs font-bold truncate">{m?.username || 'Không rõ'}</span>
+                  </div>
+                  <Input type="number" min={0} value={form.photoAssigneeQty?.[id] ?? 0} onFocus={(e) => e.target.select()} onChange={(e) => set('photoAssigneeQty', { ...(form.photoAssigneeQty || {}), [id]: Math.max(0, Number(e.target.value) || 0) })} />
+                  <Input type="number" min={0} value={form.videoAssigneeQty?.[id] ?? 0} onFocus={(e) => e.target.select()} onChange={(e) => set('videoAssigneeQty', { ...(form.videoAssigneeQty || {}), [id]: Math.max(0, Number(e.target.value) || 0) })} />
+                </div>
+              );
+            })}
+            <div className="grid grid-cols-2 gap-2 text-[11px] font-medium">
+              <p className={photoQuota.ok ? 'text-emerald-400' : 'text-amber-400'}>Ảnh: {photoQuota.assigned}/{photoQuota.target}{photoQuota.diff < 0 ? ` · thiếu ${-photoQuota.diff}` : photoQuota.diff > 0 ? ` · thừa ${photoQuota.diff}` : ''}</p>
+              <p className={videoQuota.ok ? 'text-emerald-400' : 'text-amber-400'}>Video: {videoQuota.assigned}/{videoQuota.target}{videoQuota.diff < 0 ? ` · thiếu ${-videoQuota.diff}` : videoQuota.diff > 0 ? ` · thừa ${videoQuota.diff}` : ''}</p>
+            </div>
+          </div>
+        )}
         {isProjectFinished(form.status || 'plan') && (
           <Field label="Điểm chất lượng (0–10)">
             <Input type="number" min={0} max={10} step={0.5} value={form.qualityScore ?? ''} onChange={(e) => set('qualityScore', e.target.value === '' ? undefined : Number(e.target.value))} />
