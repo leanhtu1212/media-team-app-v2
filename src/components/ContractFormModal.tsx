@@ -9,8 +9,9 @@ import { AlertTriangle, Check, Download, ExternalLink, FolderInput, Loader2, X }
 import { useToast } from '../hooks/useToast';
 import { useAppData } from '../store/AppDataContext';
 import { Button, Modal } from './ui';
-import { docContractToken, luuContractPartner } from '../lib/actions';
-import type { ContractSettingsDoc } from '../types';
+import { docContractPartners, docContractToken, idDoiTac, luuContractPartner } from '../lib/actions';
+import type { ContractPartner, ContractSettingsDoc } from '../types';
+import { apDoiTacVaoForm, danhSachDoiTac } from '../lib/contracts/repeatPartner';
 import { chuanBi, LoiNguoiDung, xemTruoc, type ContractForm } from '../lib/contracts/compute';
 import { chuanTien } from '../lib/contracts/quickParse';
 import { taoHaiFile, taiXuong } from '../lib/contracts/docxFill';
@@ -71,6 +72,45 @@ export function useContractConfig() {
   return { settings, webhookUrl: team?.sheetsWebhookUrl || '', token, setToken };
 }
 
+/** Danh sách đối tác đã lưu (contractPartners), dùng chung cho tab Hợp đồng và ô "Chọn đối
+ *  tác" trong modal. Bộ nhớ chứ không localStorage — có CCCD và số tài khoản. `ds = null` =
+ *  chưa tải lần nào. Mọi component đang mở đăng ký vào `nghe` để cùng cập nhật sau khi tạo HĐ. */
+const nhoDoiTac: {
+  ds: Record<string, ContractPartner> | null;
+  nghe: Set<(ds: Record<string, ContractPartner>) => void>;
+} = { ds: null, nghe: new Set() };
+
+export async function taiLaiDoiTac(): Promise<void> {
+  const ds = await docContractPartners();
+  nhoDoiTac.ds = ds;
+  nhoDoiTac.nghe.forEach((f) => f(ds));
+}
+
+/** Gỡ một đối tác khỏi cache sau khi đã xoá trên Firestore (khỏi phải đọc lại cả collection). */
+export function boDoiTacKhoiCache(id: string): void {
+  if (!nhoDoiTac.ds) return;
+  const { [id]: _bo, ...conLai } = nhoDoiTac.ds;
+  nhoDoiTac.ds = conLai;
+  nhoDoiTac.nghe.forEach((f) => f(conLai));
+}
+
+export function useContractPartners() {
+  const [partners, setPartners] = useState<Record<string, ContractPartner>>(nhoDoiTac.ds ?? {});
+  const [dangTai, setDangTai] = useState(nhoDoiTac.ds === null);
+  useEffect(() => {
+    const f = (ds: Record<string, ContractPartner>) => { setPartners(ds); setDangTai(false); };
+    nhoDoiTac.nghe.add(f);
+    if (nhoDoiTac.ds === null) {
+      taiLaiDoiTac().catch(() => {
+        // Không đọc được (rules chưa publish / không phải admin) — chỉ mất phần chọn đối tác.
+        setDangTai(false);
+      });
+    }
+    return () => { nhoDoiTac.nghe.delete(f); };
+  }, []);
+  return { partners, dangTai };
+}
+
 const O_FORM: [keyof ContractForm, string][] = [
   ['ho_ten', 'Họ tên'], ['xung_ho', 'Xưng hô (Ông/Bà)'], ['net', 'Tiền NET'],
   ['noi_dung', 'Nội dung công việc'], ['cccd', 'CCCD'], ['ngay_cap', 'Ngày cấp'],
@@ -119,6 +159,14 @@ export function ContractFormModal({
   // Soát lại file đã sinh trước khi cho đẩy lên Drive (đọc ngược từ .docx — xem kiemTra.ts).
   const [kiemTra, setKiemTra] = useState<KetQuaKiemTra | null>(null);
   const [daSoat, setDaSoat] = useState(false);
+  const { partners } = useContractPartners();
+  const dsDoiTac = useMemo(() => danhSachDoiTac(partners), [partners]);
+  // Đối tác đang chọn trong ô "Chọn đối tác đã lưu" — suy từ họ tên đang gõ để ô select tự
+  // khớp khi mở form từ danh sách (form đã có sẵn tên).
+  const idDangChon = (() => {
+    const id = idDoiTac(String(form.ho_ten || ''));
+    return id && partners[id] ? id : '';
+  })();
 
   // Mở modal cho một đối tác khác = reset sạch, không để sót file/ảnh của người trước.
   useEffect(() => {
@@ -227,6 +275,7 @@ export function ContractFormModal({
       try {
         await luuContractPartner(form);
         await onTaoXong?.(String(form.ho_ten || '').trim());
+        await taiLaiDoiTac();
       } catch (e) {
         console.warn('Không lưu được lịch sử đối tác:', e);
       }
@@ -319,6 +368,29 @@ export function ContractFormModal({
     <>
       <Modal open={open} onClose={onClose} title={tieuDe}>
         <div className="space-y-3" onPaste={danAnh}>
+          {dsDoiTac.length > 0 && (
+            <label className="block text-sm">
+              <span className="text-muted">Chọn đối tác đã lưu</span>
+              <select
+                className="mt-1 w-full bg-bg border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-accent transition-colors"
+                value={idDangChon}
+                onChange={(e) => {
+                  const p = partners[e.target.value];
+                  if (!p) return;
+                  setForm((f) => apDoiTacVaoForm(f, p));
+                  setDanText('');
+                  setPhanTich(null);
+                }}
+              >
+                <option value="">— Đối tác mới (nhập / dán thông tin bên dưới) —</option>
+                {dsDoiTac.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.hoTen}{p.sdt ? ` · ${p.sdt}` : ''}{p.soLan ? ` · ${p.soLan} HĐ` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {hienODan && (
             <label className="block text-sm">
               <span className="text-muted">Dán khối thông tin (Họ và Tên / CCCD / STK / …)</span>

@@ -667,6 +667,26 @@ export async function luuContractPartner(form: ContractForm): Promise<void> {
   });
 }
 
+/** Ghi kết quả nhập từ sheet (importSheet.ts). Merge, nên đối tác đã có chỉ được bù ô trống —
+ *  danh sách field cần ghi đã lọc sẵn ở `gopDoiTacTuSheet`. Batch tối đa 500 thao tác/lần. */
+export async function nhapDoiTacTuSheet(
+  ds: { id: string; data: Partial<ContractPartner> }[],
+): Promise<void> {
+  for (let i = 0; i < ds.length; i += 400) {
+    const batch = writeBatch(db);
+    for (const { id, data } of ds.slice(i, i + 400)) {
+      batch.set(ref.contractPartner(id), data, { merge: true });
+    }
+    await batch.commit();
+  }
+}
+
+/** Xoá một đối tác khỏi danh sách đã lưu (tab Hợp đồng). Chỉ xoá hồ sơ để autofill — file
+ *  HĐ đã sinh và khoản chi của dự án không bị ảnh hưởng. */
+export async function xoaContractPartner(id: string): Promise<void> {
+  await deleteDoc(ref.contractPartner(id));
+}
+
 /** Đánh dấu một khoản chi tiền kỳ đã sinh file HĐ/BBNT (tab Hợp đồng đọc ngược lên để dựng
  *  dòng kèm cột "Dự án"). Chỉ ghi 3 field hợp đồng — đừng đụng status/dntt, hai thứ đó là
  *  luồng thanh toán, không liên quan tới việc đã làm hợp đồng hay chưa. */

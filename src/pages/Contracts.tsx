@@ -1,164 +1,84 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, ExternalLink, Loader2, Plus, RefreshCw } from 'lucide-react';
-import { getDoc } from 'firebase/firestore';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, FileDown, FileSignature, Loader2, Plus, RefreshCw, Search, Trash2, Users } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
-import { Button, EmptyState } from '../components/ui';
-import { ContractFormModal, useContractConfig } from '../components/ContractFormModal';
+import { Button, ConfirmDialog, EmptyState } from '../components/ui';
+import {
+  ContractFormModal, boDoiTacKhoiCache, taiLaiDoiTac, useContractConfig, useContractPartners,
+} from '../components/ContractFormModal';
 import { useAppData } from '../store/AppDataContext';
 import {
-  capNhatContractSettings, luuContractToken, danhDauTaskDaLamHopDong,
-  docContractPartners, idDoiTac, ref as dbRef,
+  capNhatContractSettings, luuContractToken, danhDauTaskDaLamHopDong, idDoiTac, xoaContractPartner, nhapDoiTacTuSheet,
 } from '../lib/actions';
 import type { ContractPartner, ContractSettingsDoc } from '../types';
 import type { ContractForm } from '../lib/contracts/compute';
-import type { QuickParseForm } from '../lib/contracts/quickParse';
 import { danhSachTuRows, type SheetRow } from '../lib/contracts/sheetSync';
+import { gopDoiTacTuSheet } from '../lib/contracts/importSheet';
+import type { QuickParseForm } from '../lib/contracts/quickParse';
 import { dongTuKhoanChi, laKhoanChiHopDong } from '../lib/contracts/fromTask';
-import { formChoHopDongMoi } from '../lib/contracts/repeatPartner';
+import { danhSachDoiTac, formChoHopDongMoi, lanCuoiMs } from '../lib/contracts/repeatPartner';
 
-
-/** Ô link có thể chỉ chứa chữ ("đã gửi", tên file…) khi sheet không gắn URL — chỉ dựng thẻ <a>
- *  khi thật sự là URL, còn lại hiện nguyên chữ để người dùng biết ô đang có gì. */
-function laUrl(s?: string): boolean {
-  return /^https?:\/\//i.test((s || '').trim());
-}
-
-/** Ô link trong bảng: URL → nút mở tab mới (URL dài, đổ cả chuỗi vào ô là vỡ bảng);
- *  chỉ có chữ → hiện nguyên chữ để không giấu mất dữ liệu người dùng đã ghi trong sheet. */
-function OLink({ giaTri }: { giaTri: string }) {
-  if (!laUrl(giaTri)) return <span className="text-dim" title={giaTri}>{giaTri || '—'}</span>;
-  return (
-    <a
-      href={giaTri} target="_blank" rel="noreferrer noopener"
-      onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-      className="inline-flex items-center gap-1 text-accent hover:underline"
-      title={giaTri}
-    >
-      <ExternalLink size={13} /> Mở
-    </a>
-  );
-}
-
-/** Lịch sử đối tác (Firestore) -> các ô của form. Dùng ở cả autofill khi mở dòng sheet lẫn
- *  khi dựng dòng từ khoản chi, nên để một chỗ. */
-const MAP_PARTNER: [keyof ContractPartner, keyof QuickParseForm][] = [
-  ['xungHo', 'xung_ho'], ['cccd', 'cccd'], ['ngayCap', 'ngay_cap'], ['mst', 'mst'],
-  ['diaChi', 'dia_chi'], ['sdt', 'sdt'], ['email', 'email'], ['tenTk', 'ten_tk'],
-  ['soTk', 'so_tk'], ['nganHang', 'ngan_hang'],
-];
-
-function formTuPartner(h: ContractPartner): QuickParseForm {
-  const f: QuickParseForm = {};
-  for (const [src, dst] of MAP_PARTNER) {
-    if (h[src]) (f as Record<string, unknown>)[dst] = h[src];
-  }
-  return f;
-}
-
-/** Danh sách sheet giữ lại giữa các lần rời/mở lại tab Hợp đồng (App.tsx unmount view cũ nên
- *  state trong component mất sạch). Để ở BỘ NHỚ, không localStorage: dữ liệu này có CCCD và
- *  số tài khoản, không nên nằm lại trên đĩa sau khi đóng trình duyệt. Hệ quả: F5 vẫn tải lại. */
-const nhoDanhSach: {
-  rows: SheetRow[];
-  luc: number;
-  partners: Record<string, ContractPartner>;
-} = { rows: [], luc: 0, partners: {} };
+// Hợp đồng giờ làm hoàn toàn trong app: KHÔNG còn đọc sheet "Danh sách làm HĐ". Nguồn dữ liệu:
+//  1. Danh sách đối tác đã lưu (contractPartners) — ghi tự động mỗi lần sinh file. Chọn một
+//     người là form có sẵn danh tính + STK, chỉ còn điền số tiền và nội dung công việc.
+//  2. Khoản chi tiền kỳ có tick "làm HĐ" mà chưa sinh file (fromTask.ts) — việc còn tồn.
+// Webhook + token vẫn cần cho bước "Copy lên Drive" (Apps Script), không dùng để đọc sheet nữa.
 
 type ContractsTab = 'doi-tac' | 'cai-dat';
 const TAB_LABEL: Record<ContractsTab, string> = { 'doi-tac': 'Đối tác', 'cai-dat': 'Cài đặt' };
 
-// Bảng chỉ giữ các cột dùng để CHỌN dòng cần làm; toàn bộ thông tin cá nhân gom vào một ô
-// (xem CA_NHAN) — mở modal ra mới sửa từng trường, nên trải 13 cột ngang chỉ tốn màn hình.
 const CA_NHAN: { key: keyof ContractForm; label: string }[] = [
-  { key: 'xung_ho', label: 'Xưng hô' },
   { key: 'cccd', label: 'CCCD' },
-  { key: 'ngay_cap', label: 'Ngày cấp' },
-  { key: 'mst', label: 'MST' },
   { key: 'dia_chi', label: 'Địa chỉ' },
-  { key: 'sdt', label: 'SĐT' },
-  { key: 'email', label: 'Email' },
-  { key: 'ten_tk', label: 'Tên TK' },
   { key: 'so_tk', label: 'Số TK' },
   { key: 'ngan_hang', label: 'Ngân hàng' },
 ];
 
-function BangDoiTac({
-  rows, daLamRoi, onOpen, onDoubleClick,
-}: {
-  rows: SheetRow[];
-  daLamRoi: (r: SheetRow) => boolean;
-  onOpen?: (r: SheetRow) => void;
-  onDoubleClick?: (r: SheetRow) => void;
-}) {
-  if (rows.length === 0) return null;
+/** Thông tin còn thiếu của hồ sơ đối tác — thiếu mấy ô này thì hợp đồng có chỗ bỏ trống. */
+function thieuCuaDoiTac(p: ContractPartner): string[] {
+  const ra: string[] = [];
+  if (!p.cccd) ra.push('CCCD');
+  if (!p.diaChi) ra.push('Địa chỉ');
+  if (!p.soTk) ra.push('Số TK');
+  if (!p.nganHang) ra.push('Ngân hàng');
+  return ra;
+}
+
+function ngayLanCuoi(p: ContractPartner): string {
+  const ms = lanCuoiMs(p);
+  return ms ? new Date(ms).toLocaleDateString('vi-VN') : '—';
+}
+
+/** Khoản chi của dự án đã tick "làm HĐ" nhưng chưa sinh file. */
+function BangKhoanChi({ rows, onOpen }: { rows: SheetRow[]; onOpen: (r: SheetRow) => void }) {
   return (
     <div className="bg-surface border border-line rounded-xl overflow-x-auto">
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="text-left text-muted border-b border-line">
-            <th className="px-3 py-2 font-semibold whitespace-nowrap">STT</th>
-            <th className="px-3 py-2 font-semibold whitespace-nowrap">Trạng thái</th>
-            <th className="px-3 py-2 font-semibold whitespace-nowrap min-w-[140px]">Dự án</th>
-            <th className="px-3 py-2 font-semibold whitespace-nowrap min-w-[150px]">Họ tên</th>
+            <th className="px-3 py-2 font-semibold min-w-[140px]">Dự án</th>
+            <th className="px-3 py-2 font-semibold min-w-[150px]">Đối tác</th>
             <th className="px-3 py-2 font-semibold min-w-[180px]">Nội dung công việc</th>
             <th className="px-3 py-2 font-semibold whitespace-nowrap">Số tiền</th>
-            <th className="px-3 py-2 font-semibold whitespace-nowrap">Link SP</th>
-            <th className="px-3 py-2 font-semibold whitespace-nowrap">Folder HĐ</th>
-            <th className="px-3 py-2 font-semibold min-w-[280px]">Thông tin cá nhân</th>
+            <th className="px-3 py-2 font-semibold min-w-[200px]">Hồ sơ đối tác</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => {
-            const daLam = daLamRoi(r);
-            const coCa = CA_NHAN.filter((c) => String(r.form[c.key] ?? '').trim());
             const thieu = CA_NHAN.filter((c) => !String(r.form[c.key] ?? '').trim());
             return (
               <tr
-                key={r.taskId || `sheet-${r.dong}`}
-                onClick={onOpen ? () => onOpen(r) : undefined}
-                onDoubleClick={onDoubleClick ? () => onDoubleClick(r) : undefined}
-                title={onDoubleClick ? 'Double-click để tạo hợp đồng mới' : undefined}
-                className={`border-b border-line/60 last:border-0 hover:bg-accent/10 align-top ${onOpen || onDoubleClick ? 'cursor-pointer' : ''}`}
+                key={r.taskId}
+                onClick={() => onOpen(r)}
+                className="border-b border-line/60 last:border-0 hover:bg-accent/10 align-top cursor-pointer"
               >
-                {/* STT của sheet; dòng chưa đánh số thì lấy số dòng để vẫn đối chiếu được. */}
-                <td className="px-3 py-2 text-dim whitespace-nowrap">{r.stt || r.dong || '—'}</td>
-                <td className="px-3 py-2 whitespace-nowrap">
-                  <span className={`text-[11px] font-bold ${daLam ? 'text-emerald-400' : 'text-accent'}`}>
-                    {daLam ? 'ĐÃ LÀM' : 'NGƯỜI MỚI'}
-                  </span>
-                  {r.done && <span className="ml-1.5 text-[11px] font-bold text-dim">ĐÃ TT</span>}
-                </td>
-                {/* Chỉ dòng dựng từ khoản chi mới biết dự án — dòng của sheet để trống. */}
-                <td className="px-3 py-2">
-                  {r.projectTitle
-                    ? <span className="text-accent">{r.projectTitle}</span>
-                    : <span className="text-dim">—</span>}
-                </td>
-                <td className="px-3 py-2 font-medium">{r.ho_ten || <span className="text-dim">—</span>}</td>
+                <td className="px-3 py-2 text-accent">{r.projectTitle || '—'}</td>
+                <td className="px-3 py-2 font-medium">{r.ho_ten || <span className="text-dim">(chưa có tên)</span>}</td>
                 <td className="px-3 py-2">{r.noi_dung || <span className="text-dim">—</span>}</td>
                 <td className="px-3 py-2 whitespace-nowrap">{r.tien || <span className="text-dim">—</span>}</td>
-                <td className="px-3 py-2 whitespace-nowrap"><OLink giaTri={r.link_sp} /></td>
-                <td className="px-3 py-2 whitespace-nowrap"><OLink giaTri={r.link_luu} /></td>
-                {/* Gộp 10 trường cá nhân vào một ô, mỗi trường một dòng: ở bảng chỉ cần soát
-                    "đủ chưa", sửa từng ô thì mở modal. Trường thiếu liệt kê riêng vì đó là
-                    thứ quyết định hợp đồng có chỗ bị bỏ trống hay không. */}
                 <td className="px-3 py-2 text-xs">
-                  {coCa.length > 0 && (
-                    <dl className="space-y-0.5">
-                      {coCa.map((c) => (
-                        <div key={c.key} className="flex gap-1.5">
-                          <dt className="text-dim shrink-0 w-[68px]">{c.label}</dt>
-                          <dd className="text-muted break-all">{String(r.form[c.key]).trim()}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  )}
-                  {thieu.length > 0 && (
-                    <p className="text-amber-400 mt-1.5">
-                      Thiếu: {thieu.map((c) => c.label).join(', ')}
-                    </p>
-                  )}
+                  {thieu.length === 0
+                    ? <span className="text-emerald-400">Đủ thông tin</span>
+                    : <span className="text-amber-400">Thiếu: {thieu.map((c) => c.label).join(', ')}</span>}
                 </td>
               </tr>
             );
@@ -169,129 +89,177 @@ function BangDoiTac({
   );
 }
 
+function BangDoiTacDaLuu({
+  ds, onLamHd, onXoa,
+}: {
+  ds: ContractPartner[];
+  onLamHd: (p: ContractPartner) => void;
+  onXoa: (p: ContractPartner) => void;
+}) {
+  return (
+    <div className="bg-surface border border-line rounded-xl overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr className="text-left text-muted border-b border-line">
+            <th className="px-3 py-2 font-semibold min-w-[160px]">Họ tên</th>
+            <th className="px-3 py-2 font-semibold min-w-[140px]">Liên hệ</th>
+            <th className="px-3 py-2 font-semibold min-w-[200px]">Thanh toán</th>
+            <th className="px-3 py-2 font-semibold whitespace-nowrap">CCCD / MST</th>
+            <th className="px-3 py-2 font-semibold whitespace-nowrap text-right">Số HĐ</th>
+            <th className="px-3 py-2 font-semibold whitespace-nowrap">Lần cuối</th>
+            <th className="px-3 py-2" />
+          </tr>
+        </thead>
+        <tbody>
+          {ds.map((p) => {
+            const thieu = thieuCuaDoiTac(p);
+            return (
+              <tr
+                key={p.id}
+                onClick={() => onLamHd(p)}
+                title="Bấm để làm hợp đồng mới với đối tác này"
+                className="border-b border-line/60 last:border-0 hover:bg-accent/10 align-top cursor-pointer"
+              >
+                <td className="px-3 py-2">
+                  <div className="font-medium">{p.xungHo ? `${p.xungHo} ` : ''}{p.hoTen}</div>
+                  {thieu.length > 0 && (
+                    <div className="text-[11px] text-amber-400 mt-0.5">Thiếu: {thieu.join(', ')}</div>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-xs text-muted">
+                  {p.sdt && <div>{p.sdt}</div>}
+                  {p.email && <div className="break-all">{p.email}</div>}
+                  {!p.sdt && !p.email && <span className="text-dim">—</span>}
+                </td>
+                <td className="px-3 py-2 text-xs text-muted">
+                  {p.soTk || p.nganHang ? (
+                    <>
+                      <div>{[p.soTk, p.nganHang].filter(Boolean).join(' · ')}</div>
+                      {p.tenTk && <div className="text-dim">{p.tenTk}</div>}
+                    </>
+                  ) : <span className="text-dim">—</span>}
+                </td>
+                <td className="px-3 py-2 text-xs text-muted whitespace-nowrap">
+                  {p.cccd && <div>{p.cccd}</div>}
+                  {p.mst && <div className="text-dim">MST {p.mst}</div>}
+                  {!p.cccd && !p.mst && <span className="text-dim">—</span>}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{p.soLan || 0}</td>
+                <td className="px-3 py-2 text-xs text-muted whitespace-nowrap">{ngayLanCuoi(p)}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-right">
+                  <div className="inline-flex items-center gap-1">
+                    <Button className="!px-2.5 !py-1 !text-xs" onClick={(e) => { e.stopPropagation(); onLamHd(p); }}>
+                      <FileSignature size={14} /> Làm HĐ
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onXoa(p); }}
+                      className="p-1.5 rounded-lg text-dim hover:text-red-400 hover:bg-red-500/10 cursor-pointer"
+                      title="Xoá khỏi danh sách"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Thứ đang mở trong modal. `form` là GIÁ TRỊ MỞ ĐẦU — object mới mỗi lần mở = modal nạp lại. */
+interface DangMo {
+  tieuDe: string;
+  form: ContractForm;
+  hienODan: boolean;
+  khoanChi?: { projectId: string; taskId: string };
+}
+
 export function Contracts() {
   const toast = useToast();
   const { settings, webhookUrl, token, setToken } = useContractConfig();
   const { projects, allTasks } = useAppData();
+  const { partners, dangTai } = useContractPartners();
 
   const [tab, setTab] = useState<ContractsTab>('doi-tac');
-  const [rows, setRows] = useState<SheetRow[]>(nhoDanhSach.rows);
-  const [taiLuc, setTaiLuc] = useState(nhoDanhSach.luc);
-  // Lịch sử đối tác đã làm HĐ qua app, key = idDoiTac(hoTen). Xem `daLamRoi`.
-  const [partners, setPartners] = useState<Record<string, ContractPartner>>(nhoDanhSach.partners);
-  const [loadingList, setLoadingList] = useState(false);
-  const [hienDaLam, setHienDaLam] = useState(false);
-  const [selected, setSelected] = useState<SheetRow | null>(null);
-  // `form` chỉ là GIÁ TRỊ MỞ ĐẦU đưa cho ContractFormModal; modal tự giữ state khi người
-  // dùng gõ. Đổi tham chiếu object = modal nạp lại (xem effect trong ContractFormModal).
-  const [form, setForm] = useState<ContractForm>({});
-  // Tạo HĐ cho người KHÔNG có trong sheet: cùng modal, thêm ô dán khối "THÔNG TIN THANH TOÁN".
-  const [taoMoi, setTaoMoi] = useState(false);
+  const [tuKhoa, setTuKhoa] = useState('');
+  const [dangMo, setDangMo] = useState<DangMo | null>(null);
+  const [xoa, setXoa] = useState<ContractPartner | null>(null);
+  const [lamMoi, setLamMoi] = useState(false);
 
-  const taiLaiDoiTac = useCallback(() => {
-    docContractPartners().then((p) => { nhoDanhSach.partners = p; setPartners(p); }).catch(() => {
-      // Không đọc được lịch sử (rules chưa publish) — chỉ mất nhãn "đã làm", không chặn gì.
-    });
-  }, []);
-  useEffect(() => {
-    if (Object.keys(nhoDanhSach.partners).length === 0) taiLaiDoiTac();
-  }, [taiLaiDoiTac]);
+  const dsDoiTac = useMemo(() => danhSachDoiTac(partners, tuKhoa), [partners, tuKhoa]);
+  const tongDoiTac = Object.keys(partners).length;
 
-  /** Đã từng làm HĐ cho người này chưa. Sheet chỉ biết qua cột Link HĐ / Link BBNT — hai cột
-   *  đó do người dùng tự dán vào nên vừa tạo file xong sheet vẫn trống; lịch sử Firestore
-   *  (ghi ngay lúc tạo file) là nguồn thứ hai để không gắn nhãn "NGƯỜI MỚI" nhầm. */
-  const daLamRoi = useCallback(
-    (r: SheetRow) => r.da_co_hd || r.da_co_bbnt || !!partners[idDoiTac(r.ho_ten || '')],
-    [partners],
-  );
-
-  const taiLaiDanhSach = useCallback(async () => {
-    if (!webhookUrl || !token) {
-      toast('Chưa cấu hình Webhook / Token ở phần Cài đặt bên dưới', 'error');
-      return;
-    }
-    setLoadingList(true);
-    try {
-      const url = `${webhookUrl}?action=contract-list&token=${encodeURIComponent(token)}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'Lỗi không rõ');
-      const ds = danhSachTuRows(data.rows, data.links);
-      const luc = Date.now();
-      setRows(ds);
-      setTaiLuc(luc);
-      nhoDanhSach.rows = ds;
-      nhoDanhSach.luc = luc;
-    } catch (e) {
-      toast(`Lỗi tải danh sách: ${(e as Error).message}`, 'error');
-    } finally {
-      setLoadingList(false);
-    }
-  }, [webhookUrl, token, toast]);
-
-  // Chỉ tự tải khi CHƯA có gì trong bộ nhớ. Trước đây effect này chạy mỗi lần mở tab Hợp đồng
-  // nên đổi view qua lại là gọi lại webhook (chậm, và Apps Script có hạn mức).
-  useEffect(() => {
-    if (webhookUrl && token && nhoDanhSach.rows.length === 0) taiLaiDanhSach();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [webhookUrl, token]);
-
-  /** Hợp đồng phát sinh từ chi phí của dự án — nguồn thứ hai của bảng, xếp TRƯỚC dòng sheet
-   *  vì đây là việc vừa được tạo trong app. Thông tin cá nhân tra từ lịch sử đối tác theo tên. */
-  const dongDuAn = useMemo(() => {
+  /** Khoản chi đã tick "làm HĐ" mà chưa sinh file. Hồ sơ cá nhân tra theo tên đối tác. */
+  const khoanChiCho = useMemo(() => {
     const theoId = new Map(projects.map((p) => [p.id, p]));
     return allTasks
-      .filter(laKhoanChiHopDong)
+      .filter((t) => laKhoanChiHopDong(t) && !t.hopDongDaLam)
       .map((t) => {
         const p = partners[idDoiTac(t.hopDongHoTen || '')];
-        return dongTuKhoanChi(t, theoId.get(t.projectId), p ? formTuPartner(p) : undefined);
+        return dongTuKhoanChi(t, theoId.get(t.projectId), p ? (formChoHopDongMoi(p) as QuickParseForm) : undefined);
       });
   }, [allTasks, projects, partners]);
 
-  const tatCaDong = useMemo(() => [...dongDuAn, ...rows], [dongDuAn, rows]);
+  const moTaoMoi = () => setDangMo({ tieuDe: 'Tạo hợp đồng — đối tác mới', form: {}, hienODan: true });
 
-  // Tách 2 nhóm: còn phải làm (mặc định hiện) và đã làm (thu gọn). Giữ nguyên thứ tự nguồn.
-  const chuaLam = useMemo(() => tatCaDong.filter((r) => !daLamRoi(r)), [tatCaDong, daLamRoi]);
-  const daLamList = useMemo(() => tatCaDong.filter((r) => daLamRoi(r)), [tatCaDong, daLamRoi]);
+  const moChoDoiTac = (p: ContractPartner) => setDangMo({
+    tieuDe: `Hợp đồng mới — ${p.hoTen}`,
+    form: formChoHopDongMoi(p),
+    hienODan: false,
+  });
 
-  // Autofill từ dòng sheet, ĐÈ THÊM (chỉ điền chỗ trống) bằng lịch sử Firestore nếu tên đối
-  // tác trùng lần trước — khớp hành vi "gõ tên đối tác đã làm lần trước tự điền lại" của bản
-  // Python (store.tim + gõ trùng tên). Lỗi tra lịch sử không chặn việc mở form (chỉ là tiện ích).
-  const openRow = async (row: SheetRow) => {
-    setSelected(row);
-    setTaoMoi(false);
-    setForm({ ...row.form });
-    const next: ContractForm = { ...row.form };
-    try {
-      const snap = await getDoc(dbRef.contractPartner(idDoiTac(row.ho_ten || '')));
-      if (snap.exists()) {
-        const h = formTuPartner(snap.data() as ContractPartner);
-        for (const k of Object.keys(h) as (keyof ContractForm)[]) {
-          if (!next[k]) (next as Record<string, unknown>)[k] = h[k];
-        }
-      }
-    } catch {
-      // im lặng — tra lịch sử lỗi không nên chặn người dùng mở form sửa tay.
+  const moKhoanChi = (r: SheetRow) => setDangMo({
+    tieuDe: `Hợp đồng — ${r.projectTitle || 'khoản chi'}`,
+    form: { ...r.form },
+    // Đối tác chưa có hồ sơ thì cần ô dán khối "THÔNG TIN THANH TOÁN".
+    hienODan: !partners[idDoiTac(r.ho_ten || '')],
+    khoanChi: r.projectId && r.taskId ? { projectId: r.projectId, taskId: r.taskId } : undefined,
+  });
+
+  /** Nhập một lần những người trong sheet "Danh sách làm HĐ" vào danh sách đối tác, để sau
+   *  này không phải nhập lại. Không đè dữ liệu đã lưu trên web (xem importSheet.ts). */
+  const [dangNhap, setDangNhap] = useState(false);
+  const nhapTuSheet = async () => {
+    if (!webhookUrl || !token) {
+      toast('Chưa cấu hình Webhook / Token ở tab Cài đặt', 'error');
+      return;
     }
-    setForm(next);
+    setDangNhap(true);
+    try {
+      const res = await fetch(`${webhookUrl}?action=contract-list&token=${encodeURIComponent(token)}`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Lỗi không rõ');
+      const ds = gopDoiTacTuSheet(danhSachTuRows(data.rows, data.links), partners, idDoiTac);
+      if (ds.length === 0) {
+        toast('Sheet không có ai mới — danh sách đã đủ');
+        return;
+      }
+      await nhapDoiTacTuSheet(ds);
+      await taiLaiDoiTac();
+      const moi = ds.filter((d) => d.moi).length;
+      toast(`Đã nhập từ Sheet: ${moi} đối tác mới, bổ sung thông tin cho ${ds.length - moi} người`);
+    } catch (e) {
+      toast(`Lỗi nhập từ Sheet: ${(e as Error).message}`, 'error');
+    } finally {
+      setDangNhap(false);
+    }
   };
 
-  /** Mở form trắng + ô dán. Người ngoài sheet vẫn phải làm HĐ được (đối tác phát sinh). */
-  const moTaoMoi = () => {
-    setSelected(null);
-    setTaoMoi(true);
-    setForm({});
+  const taiLai = async () => {
+    setLamMoi(true);
+    try {
+      await taiLaiDoiTac();
+    } catch (e) {
+      toast(`Lỗi tải danh sách đối tác: ${(e as Error).message}`, 'error');
+    } finally {
+      setLamMoi(false);
+    }
   };
 
-  /** Tạo lượt HĐ mới cho người đã từng làm: giữ hồ sơ cá nhân, bỏ sạch công việc và tiền cũ. */
-  const moTaoLai = (row: SheetRow) => {
-    const partner = partners[idDoiTac(row.ho_ten || '')];
-    setSelected(null);
-    setTaoMoi(true);
-    setForm(formChoHopDongMoi(partner, row.form));
-  };
-
-  const dongModal = () => { setSelected(null); setTaoMoi(false); };
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -310,14 +278,8 @@ export function Contracts() {
           ))}
         </div>
         {tab === 'doi-tac' && (
-          <Button variant="outline" onClick={moTaoMoi}>
-            <Plus size={16} /> Tạo HĐ mới
-          </Button>
-        )}
-        {tab === 'doi-tac' && (
-          <Button onClick={taiLaiDanhSach} disabled={loadingList}>
-            {loadingList ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-            Tải lại từ Sheet
+          <Button onClick={moTaoMoi}>
+            <Plus size={16} /> HĐ đối tác mới
           </Button>
         )}
       </div>
@@ -326,78 +288,103 @@ export function Contracts() {
         <div className="flex items-start gap-2 text-amber-400 text-sm bg-amber-500/10 rounded-lg p-3">
           <AlertTriangle size={16} className="shrink-0 mt-0.5" />
           <span>
-            Chưa cấu hình Webhook / Token — sang tab Cài đặt trước. Sheet ID, tên tab và
-            thư mục Drive gốc đặt ở phía Apps Script: mở Apps Script, sửa 4 giá trị trong hàm
-            thietLapCauHinhHopDong() (CONTRACT_SHEET_ID / CONTRACT_SHEET_TAB /
-            CONTRACT_ROOT_FOLDER_ID / CONTRACT_TOKEN) rồi bấm Run một lần.
+            Chưa cấu hình Webhook / Token — vẫn tạo và tải file HĐ được, chỉ bước «Copy lên Drive»
+            cần cấu hình (tab Cài đặt + hàm thietLapCauHinhHopDong() bên Apps Script).
           </span>
         </div>
       )}
 
       {tab === 'doi-tac' && (
         <>
-          <BangDoiTac rows={chuaLam} daLamRoi={daLamRoi} onOpen={openRow} />
-          {/* Hết người chưa làm thì phải nói ra — để trống trơn nhìn như tải hỏng. */}
-          {!loadingList && rows.length > 0 && chuaLam.length === 0 && (
-            <div className="bg-surface border border-line rounded-xl p-4 text-sm text-muted">
-              Không còn đối tác nào chưa làm hợp đồng. Xem lại người đã làm ở mục bên dưới.
-            </div>
-          )}
-          {!loadingList && rows.length === 0 && (
-            <EmptyState icon={<RefreshCw size={28} />} text='Chưa có dữ liệu — bấm "Tải lại từ Sheet".' />
+          {khoanChiCho.length > 0 && (
+            <section className="space-y-2">
+              <h2 className="text-sm font-bold text-muted">
+                Khoản chi dự án chờ làm HĐ ({khoanChiCho.length})
+              </h2>
+              <BangKhoanChi rows={khoanChiCho} onOpen={moKhoanChi} />
+            </section>
           )}
 
-          {/* Người đã làm rồi vẫn phải xem lại được (làm lại, đổi thông tin) nhưng để lẫn vào
-              danh sách thì mỗi lần vào phải lướt qua hàng chục dòng không còn việc gì. */}
-          {daLamList.length > 0 && (
-            <div className="space-y-2">
-              <button
-                onClick={() => setHienDaLam((v) => !v)}
-                className="flex items-center gap-1.5 text-sm font-bold text-muted hover:text-ink cursor-pointer"
+          <section className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-bold text-muted mr-auto">
+                Đối tác đã lưu ({tongDoiTac})
+              </h2>
+              <div className="relative">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim" />
+                <input
+                  value={tuKhoa}
+                  onChange={(e) => setTuKhoa(e.target.value)}
+                  placeholder="Tìm tên, SĐT, CCCD, STK…"
+                  className="w-60 bg-bg border border-line rounded-lg pl-8 pr-3 py-1.5 text-sm text-ink focus:outline-none focus:border-accent transition-colors"
+                />
+              </div>
+              <Button variant="outline" className="!px-3 !py-1.5" onClick={taiLai} disabled={lamMoi}>
+                {lamMoi ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Tải lại
+              </Button>
+              <Button
+                variant="outline" className="!px-3 !py-1.5" onClick={nhapTuSheet} disabled={dangNhap}
+                title="Lưu những người trong sheet Danh sách làm HĐ vào danh sách này (không đè dữ liệu đã có)"
               >
-                {hienDaLam ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                Đã làm ({daLamList.length})
-              </button>
-              {hienDaLam && (
-                <>
-                  <p className="text-xs text-dim">Double-click một đối tác để tạo hợp đồng mới từ thông tin đã lưu.</p>
-                  <BangDoiTac rows={daLamList} daLamRoi={daLamRoi} onDoubleClick={moTaoLai} />
-                </>
-              )}
+                {dangNhap ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} Nhập từ Sheet
+              </Button>
             </div>
-          )}
 
-          {rows.length > 0 && (
+            {dangTai ? (
+              <div className="flex items-center gap-2 text-sm text-muted p-4">
+                <Loader2 size={16} className="animate-spin" /> Đang tải danh sách đối tác…
+              </div>
+            ) : tongDoiTac === 0 ? (
+              <EmptyState
+                icon={<Users size={28} />}
+                text='Chưa có đối tác nào. Bấm "HĐ đối tác mới" — làm xong hợp đồng đầu tiên, thông tin đối tác tự lưu vào đây.'
+              />
+            ) : dsDoiTac.length === 0 ? (
+              <div className="bg-surface border border-line rounded-xl p-4 text-sm text-muted">
+                Không có đối tác nào khớp «{tuKhoa}».
+              </div>
+            ) : (
+              <BangDoiTacDaLuu ds={dsDoiTac} onLamHd={moChoDoiTac} onXoa={setXoa} />
+            )}
             <p className="text-xs text-dim">
-              {rows.length} đối tác{taiLuc ? ` · dữ liệu lúc ${new Date(taiLuc).toLocaleTimeString('vi-VN')}` : ''}
-              {' · '}dòng chưa làm: bấm để soát thông tin; dòng đã làm: double-click để tạo HĐ mới.
-              «ĐÃ LÀM» = sheet đã có link HĐ/BBNT, hoặc app đã từng tạo file cho tên này.
+              Bấm vào một đối tác để làm hợp đồng mới: thông tin cá nhân + tài khoản điền sẵn, chỉ
+              cần nhập số tiền và nội dung công việc. Thông tin đối tác tự cập nhật mỗi lần tạo file.
             </p>
-          )}
+          </section>
         </>
       )}
 
       <ContractFormModal
-        open={!!selected || taoMoi}
-        onClose={dongModal}
-        tieuDe={taoMoi
-          ? `Tạo hợp đồng mới${form.ho_ten ? ` — ${form.ho_ten}` : ''}`
-          : `Sửa thông tin — ${selected?.ho_ten || '(chưa có tên)'}`}
+        open={!!dangMo}
+        onClose={() => setDangMo(null)}
+        tieuDe={dangMo?.tieuDe ?? ''}
         settings={settings}
         webhookUrl={webhookUrl}
         token={token}
-        formBanDau={form}
-        // Dòng từ khoản chi thường chưa có thông tin cá nhân — cần ô dán như khi tạo mới.
-        hienODan={taoMoi || !!selected?.taskId}
-        linkSp={selected?.link_sp}
-        khongRoBanDau={selected?.khongRo}
-        gocNganHangBanDau={selected?.goc.ngan_hang}
+        formBanDau={dangMo?.form ?? {}}
+        hienODan={dangMo?.hienODan}
         onTaoXong={async (hoTen) => {
-          // Dòng dựng từ khoản chi: ghi ngược lại task để lần sau hiện "ĐÃ LÀM".
-          if (selected?.taskId && selected.projectId) {
-            await danhDauTaskDaLamHopDong(selected.projectId, selected.taskId, hoTen);
+          // Khoản chi của dự án: ghi ngược lại task để rời khỏi danh sách chờ.
+          const kc = dangMo?.khoanChi;
+          if (kc) await danhDauTaskDaLamHopDong(kc.projectId, kc.taskId, hoTen);
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!xoa}
+        onClose={() => setXoa(null)}
+        title="Xoá đối tác?"
+        message={`Xoá "${xoa?.hoTen}" khỏi danh sách đối tác đã lưu? File hợp đồng đã tạo không bị ảnh hưởng, nhưng lần sau làm HĐ với người này phải nhập lại thông tin.`}
+        onConfirm={async () => {
+          if (!xoa) return;
+          try {
+            await xoaContractPartner(xoa.id);
+            boDoiTacKhoiCache(xoa.id);
+            toast('Đã xoá đối tác');
+          } catch (e) {
+            toast(`Lỗi xoá: ${(e as Error).message}`, 'error');
           }
-          taiLaiDoiTac();
+          setXoa(null);
         }}
       />
 
